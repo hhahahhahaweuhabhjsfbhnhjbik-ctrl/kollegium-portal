@@ -1,0 +1,4998 @@
+import { createServer } from "node:http";
+import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
+import { promisify } from "node:util";
+import { DatabaseSync } from "node:sqlite";
+import { existsSync } from "node:fs";
+import { readFile, mkdir } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { createInterface } from "node:readline/promises";
+import { startDiscordBot } from "./discord-bot.mjs";
+import { WEBHOOK_CHANNELS, createWebhookDispatcher, describeWebhook, sendWebhook } from "./webhooks.mjs";
+
+const scrypt = promisify(scryptCallback);
+const root = path.dirname(fileURLToPath(import.meta.url));
+const roles = ["Стажер КА", "Юрист", "Адвокат", "Ст.Адвокат", "ЗГКА", "ГКА"];
+const citizenRole = "Гражданин";
+const managementRoles = ["ГКА", "ЗГКА"];
+const taskPriorities = ["low", "normal", "high", "critical"];
+const defaultRatingWeights = Object.freeze({
+  documentsApproved: 2,
+  casesClosed: 2,
+  lawsuitsFiled: 3,
+  tasksCompleted: 2,
+  reviews: 1
+});
+
+function recordEmploymentEvent(db, { userId, actorId, fromRole, toRole, fromStatus, toStatus, details = "" }) {
+  if (fromRole === toRole && fromStatus === toStatus) return;
+  const priorService = fromRole === citizenRole && toRole !== citizenRole
+    ? db.prepare(`SELECT 1 FROM member_employment_history
+        WHERE user_id = ? AND event_type IN ('hired','promoted','role_changed','dismissed','reinstated') LIMIT 1`).get(userId)
+    : null;
+  const eventType = fromStatus === "active" && toStatus === "suspended"
+    ? "dismissed"
+    : fromStatus !== "active" && toStatus === "active"
+      ? "reinstated"
+      : fromRole === citizenRole && toRole !== citizenRole
+        ? (priorService ? "reinstated" : "hired")
+        : fromStatus !== toStatus
+          ? "status_changed"
+          : nextRank[fromRole] === toRole ? "promoted" : "role_changed";
+  db.prepare(`INSERT INTO member_employment_history
+    (user_id,actor_id,event_type,from_role,to_role,from_status,to_status,details)
+    VALUES (?,?,?,?,?,?,?,?)`)
+    .run(userId, actorId || null, eventType, fromRole, toRole, fromStatus, toStatus, details);
+}
+const taskStatuses = ["new", "accepted", "in_progress", "review", "revision", "completed", "cancelled"];
+const calendarEventTypes = ["court", "interview", "exam", "attestation", "meeting", "lecture", "training", "other"];
+const nextRank = { "Стажер КА": "Юрист", "Юрист": "Адвокат", "Адвокат": "Ст.Адвокат", "Ст.Адвокат": "ЗГКА" };
+const documentRoles = ["Юрист", "Адвокат", "Ст.Адвокат", "ЗГКА", "ГКА"];
+const roleActions = {
+  "Стажер КА": ["exam", "training"],
+  "Юрист": ["exam", "practice", "training"],
+  "Адвокат": ["exam", "promotion", "practice"],
+  "Ст.Адвокат": [],
+  "ЗГКА": [],
+  "ГКА": [],
+  [citizenRole]: ["citizen_help", "citizen_complaint", "employment"]
+};
+const applicationNames = {
+  exam: "Заявка на проверку знаний",
+  training: "Запрос на обучение у старшего адвоката",
+  practice: "Запрос практики / помощи по делу",
+  promotion: "Заявка на повышение",
+  admin: "Организационный вопрос",
+  citizen_help: "Запрос гражданина на помощь адвоката",
+  citizen_complaint: "Жалоба гражданина",
+  employment: "Заявка на вступление в Коллегию"
+};
+const lawFiles = {
+  ak: "АК.txt",
+  uk: "УК.txt",
+  pk: "ПК.txt",
+  charter: "Устав.txt",
+  zot: "ЗОТ.txt",
+  advocacy: "Закон об адвокатуре.txt",
+  road: "Дорожный кодекс.txt",
+  labor: "Трудовой кодекс.txt",
+  ethics: "Этический кодекс.txt",
+  documents: "Закон о документообороте.txt",
+  justice: "Закон о Департаменте юстиции.txt"
+};
+const suppliedLawKeys = new Set(["ak", "uk", "pk", "charter", "road", "labor", "ethics", "documents", "justice"]);
+const attorneyRoles = ["Адвокат", "Ст.Адвокат"];
+const examBank = {
+  "Стажер КА": [
+    { q: "Сколько минут сотрудник ожидает ответ адвоката на запрос?", a: ["1 минуту", "3 минуты", "5 минут"], correct: 1 },
+    { q: "Сколько ожидают прибытия адвоката после его ответа?", a: ["3 минуты", "5 минут", "10 минут"], correct: 1 },
+    { q: "Каков максимальный срок конфиденциальной беседы с адвокатом по ПК?", a: ["5 минут", "10 минут", "15 минут"], correct: 1 },
+    { q: "Когда адвокат считается вызванным согласно примечанию в ПК?", a: ["После звонка в суд", "После записи запроса в специальном канале по установленной форме", "После прибытия в участок"], correct: 1 },
+    { q: "Что должен сделать сотрудник при подаче иска или жалобы в отношении видеоматериалов по делу?", a: ["Удалить запись через сутки", "Сохранить материалы до окончательного решения", "Передать запись только заявителю"], correct: 1 }
+  ],
+  "Юрист": [
+    { q: "Как долго хранится видеофиксация сотрудниками государственных структур по указанной норме ПК?", a: ["24 часа с окончания записи", "72 часа с окончания записи", "7 суток с момента задержания"], correct: 1 },
+    { q: "Обязан ли сотрудник обеспечить право на адвоката, если задержанный выразил такое намерение?", a: ["Да, на любой стадии процесса задержания", "Только до начала задержания", "Только по решению суда"], correct: 0 },
+    { q: "Какой срок ожидания ответа адвоката установлен в приведенном положении ПК?", a: ["3 минуты", "5 минут", "10 минут"], correct: 0 },
+    { q: "Может ли юрист сопровождать адвоката при оказании помощи по запросу задержанного?", a: ["Нет", "Да", "Только с разрешения прокурора"], correct: 1 },
+    { q: "Что предусмотрено ПК, если в отношении сотрудника подан иск или жалоба в прокуратуру?", a: ["Сохранить относящиеся к делу видеоматериалы до окончательного решения", "Удалить материалы по требованию сотрудника", "Хранить их ровно 3 минуты"], correct: 0 }
+  ]
+};
+const lawExamBank = {
+  ak: [
+    { q: "Какую территорию охватывает юрисдикция FIB при привлечении к административной ответственности?", a: ["Только территорию города", "Весь штат", "Только федеральные здания"], correct: 1 },
+    { q: "Что считается административным правонарушением по АК?", a: ["Противоправное действие или бездействие, за которое установлена административная ответственность", "Любое нарушение внутреннего распорядка", "Только преступление с причинением вреда"], correct: 0 },
+    { q: "Когда правонарушение считается совершённым умышленно?", a: ["Если лицо не знало о своих действиях", "Если лицо осознавало противоправность и желало или сознательно допускало последствия", "Только если был предварительный сговор"], correct: 1 },
+    { q: "Что может сделать уполномоченное лицо при малозначительном административном правонарушении?", a: ["Освободить от ответственности и ограничиться устным замечанием, кроме случаев судебного решения или решения прокуратуры", "Всегда назначить максимальное наказание", "Передать дело только в федеральный суд"], correct: 0 },
+    { q: "Кто, согласно общим положениям АК, может рассматривать административные дела?", a: ["Только LSPD", "Уполномоченные органы, суд и прокуратура в рамках указанной юрисдикции", "Только адвокатская коллегия"], correct: 1 }
+  ],
+  pk: [
+    { q: "Каков максимальный срок задержания подозреваемого по приведённому определению ПК?", a: ["30 минут", "1 час с момента фактического задержания", "3 часа"], correct: 1 },
+    { q: "Когда подозреваемый или обвиняемый считается невиновным?", a: ["Пока его виновность не доказана", "Пока он сам не докажет невиновность", "Только до предъявления обвинения"], correct: 0 },
+    { q: "На ком лежит бремя доказывания обвинения?", a: ["На стороне обвинения", "На подозреваемом", "На адвокате защиты"], correct: 0 },
+    { q: "Как следует толковать сомнения в виновности подозреваемого или обвиняемого?", a: ["В пользу обвинения", "В пользу подозреваемого или обвиняемого", "По усмотрению сотрудника, проводящего задержание"], correct: 1 },
+    { q: "Как должен поступить сотрудник с относящимися к делу видеоматериалами при поданной жалобе или иске?", a: ["Сохранить их до окончательного решения", "Удалить в течение суток", "Оставить только копию у заявителя"], correct: 0 }
+  ],
+  uk: [
+    { q: "Что признаётся преступлением по УК?", a: ["Любое нарушение правил организации", "Виновно совершённое общественно опасное деяние, запрещённое кодексом под угрозой наказания", "Любое причинение имущественного ущерба"], correct: 1 },
+    { q: "Сколько элементов образует состав преступления по УК?", a: ["Два", "Три", "Четыре"], correct: 2 },
+    { q: "Кто относится к соучастникам преступления наряду с исполнителем?", a: ["Организатор, подстрекатель и пособник", "Только потерпевший", "Только свидетель"], correct: 0 },
+    { q: "Когда преступление признаётся совершённым группой лиц?", a: ["При совместном участии двух или более исполнителей", "Если об этом заявил потерпевший", "При участии любого свидетеля"], correct: 0 },
+    { q: "При каком условии причинение вреда в состоянии необходимой обороны не является преступлением?", a: ["Если вред явно превышает опасность посягательства", "Если защищают личность или права от опасного насилия и не превышают пределы обороны", "Только после письменного разрешения суда"], correct: 1 }
+  ],
+  zot: [
+    { q: "Что определяет территорию как закрытую и охраняемую (статья 1)?", a: ["Любая территория государственного учреждения", "Территория, доступ на которую ограничен или запрещён законодательством", "Только территория федеральной тюрьмы"], correct: 1 },
+    { q: "Что обязан сделать правоохранитель до решения о задержании человека на ЗОТ (статья 3)?", a: ["Немедленно задержать", "Установить законность нахождения человека на территории", "Потребовать пропуск у каждого присутствующего"], correct: 1 },
+    { q: "Кто вправе выдать пропуск на любую ЗОТ (статья 7)?", a: ["Губернатор или Вице-Губернатор", "Только руководитель организации, занимающей ЗОТ", "Любой сотрудник правоохранительного органа"], correct: 0 },
+    { q: "На каких ЗОТ руководство организации может выдать временный пропуск (статья 9)?", a: ["На любую территорию штата", "На ЗОТ своей организации или подразделения", "Только на территорию аэропорта"], correct: 1 },
+    { q: "Когда сотрудники EMS могут пройти в красную зону ИАЛС (статья 53)?", a: ["Только с разрешения охраны", "Для неотложной помощи при поступившем вызове и для приёма поставок медицинских препаратов", "В любое время без служебной причины"], correct: 1 }
+  ],
+  advocacy: [
+    { q: "Как стажёр и юрист могут выполнять адвокатскую деятельность по статье 1.8?", a: ["Полностью самостоятельно", "Помогать старшим сотрудникам; полный объём деятельности — только под контролем", "Только после получения лицензии частного адвоката"], correct: 1 },
+    { q: "Что руководство обязано делать весь период контроля за членами Коллегии (статья 2.5)?", a: ["Вести видеофиксацию", "Публиковать отчёт в открытом доступе", "Получать разрешение суда"], correct: 0 },
+    { q: "Что должно быть указано в запросе адвоката на материалы дела по статье 3.1?", a: ["Только имя доверителя", "Ссылка на номер искового заявления, принятого судом", "Разрешение каждого сотрудника организации"], correct: 1 },
+    { q: "Где и в каких условиях адвокат может конфиденциально встретиться с подзащитным по статье 3.4?", a: ["В любом помещении учреждения", "В специально предназначенном помещении, обеспечивающем полную конфиденциальность", "Только в здании суда"], correct: 1 },
+    { q: "Когда частный адвокат обязан покинуть закрытую территорию по статье 8.4?", a: ["Только после требования прокурора", "Когда нет оснований для исполнения обязанностей или их выполнение завершено", "Никогда, если у него есть лицензия"], correct: 1 }
+  ],
+  road: [
+    { q: "Что устанавливает Дорожный кодекс согласно статье 1?", a: ["Единые правила дорожного движения и порядок дорожного движения", "Порядок выдачи лицензий адвокатам", "Только правила парковки"], correct: 0 },
+    { q: "Какое направление движения установлено на дорогах штата?", a: ["Левостороннее", "Правостороннее", "Направление определяется водителем"], correct: 1 },
+    { q: "Кто считается водителем по статье 1?", a: ["Только владелец транспортного средства", "Лицо, управляющее транспортным средством; к нему приравнивается обучающий вождению", "Любой пассажир"], correct: 1 },
+    { q: "Какова предельная скорость мопеда в определении статьи 1?", a: ["Не более 80 км/ч", "Не более 130 км/ч", "Не более 200 км/ч"], correct: 1 },
+    { q: "Что отличает обгон от опережения в определениях Дорожного кодекса?", a: ["Обгон связан с выездом на полосу встречного движения", "Обгон возможен только на парковке", "Обгон и опережение определены как одно понятие"], correct: 0 }
+  ],
+  labor: [
+    { q: "Какие отношения регулирует Трудовой кодекс SA?", a: ["Трудовые отношения между работниками и работодателями", "Только отношения между адвокатом и доверителем", "Только правила дорожного движения"], correct: 0 },
+    { q: "Какова одна из целей трудового законодательства по статье 1.1?", a: ["Защита прав и интересов работников и работодателей", "Отмена трудовых договоров", "Регулирование судебных исков"], correct: 0 },
+    { q: "Какова максимальная длительность испытательного срока или стажировки по статье 2.3?", a: ["1 день", "3 дня", "7 дней"], correct: 1 },
+    { q: "На каких основаниях могут возникнуть трудовые отношения?", a: ["Только после устного согласия", "Избрание, назначение, утверждение, контракт или трудовой договор", "Только по решению суда"], correct: 1 },
+    { q: "Чему не должны противоречить договор и устав частной организации?", a: ["Трудовому кодексу", "Только внутреннему расписанию", "Правилам дорожного движения"], correct: 0 }
+  ],
+  ethics: [
+    { q: "Какова цель Этического кодекса по пункту 1.1?", a: ["Регламентировать поведение государственного служащего при исполнении обязанностей", "Устанавливать размеры заработной платы", "Регулировать дорожное движение"], correct: 0 },
+    { q: "На кого распространяется обязательность профессиональной этики по пункту 1.2?", a: ["Только на рядовых служащих", "На работников и руководителей всех государственных органов штата", "Только на руководителей"], correct: 1 },
+    { q: "Как следует поступить при конфликте интересов?", a: ["Продолжить участие без уведомления", "Воздержаться от участия, чтобы избежать корысти", "Передать решение гражданину"], correct: 1 },
+    { q: "Чьи интересы работник должен ставить в приоритет по пункту 2.1?", a: ["Личные интересы", "Интересы государства и общества", "Интересы только своего отдела"], correct: 1 },
+    { q: "Что запрещено руководителю по пункту 4.1?", a: ["Самовольно демонстрировать и использовать власть", "Создавать благоприятные условия для подчинённых", "Организовывать работу"], correct: 0 }
+  ],
+  documents: [
+    { q: "Что регулирует Закон о документообороте по пункту 1.1?", a: ["Создание, оформление, подписание, публикацию, изменение и хранение документов", "Порядок дорожного движения", "Только работу судов"], correct: 0 },
+    { q: "Что нужно делать со второй и последующими страницами документа на двух и более страницах?", a: ["Нумеровать", "Оставлять без отметок", "Подписывать каждую отдельным договором"], correct: 0 },
+    { q: "Что обязан сделать автор перед подписанием или публикацией документа?", a: ["Проверить его соответствие закону о документообороте и другим актам", "Сначала отправить копию в Discord", "Удалить дату документа"], correct: 0 },
+    { q: "Что входит в обязательные реквизиты документа по пункту 1.5?", a: ["Заголовок, текст и подпись", "Только имя автора", "Только герб"], correct: 0 },
+    { q: "Как исчисляется установленный период времени, если закон не предусматривает иное?", a: ["Полностью, независимо от выходных и праздников", "Только в рабочие дни", "Только с начала следующего месяца"], correct: 0 }
+  ],
+  justice: [
+    { q: "Какие организации названы в составе Департамента юстиции в статье 2?", a: ["FIB, Прокуратура и Федеральная тюрьма Болингброук", "LSPD, EMS и Мэрия", "Только Верховный суд"], correct: 0 },
+    { q: "Кому подчинена Прокуратура согласно статье 3?", a: ["Офису Генерального прокурора", "Дорожному департаменту", "Коллегии адвокатов"], correct: 0 },
+    { q: "Кто возглавляет центральный орган системы прокуратуры по статье 8.3?", a: ["Генеральный прокурор", "Председатель коллегии адвокатов", "Губернатор города"], correct: 0 },
+    { q: "Что входит в направления деятельности Прокуратуры по статье 7?", a: ["Приём, регистрация и рассмотрение обращений", "Выдача водительских удостоверений", "Назначение адвокатов гражданам"], correct: 0 },
+    { q: "Кому подчиняется Генеральный прокурор по статье 8.3?", a: ["Исключительно Федеральному правительству", "Любому руководителю организации", "Только Верховному суду"], correct: 0 }
+  ]
+};
+const lawExamTitles = {
+  ak: "Административный кодекс",
+  pk: "Процессуальный кодекс",
+  uk: "Уголовный кодекс",
+  zot: "Закон о закрытых и охраняемых территориях",
+  advocacy: "Закон об адвокатуре",
+  road: "Дорожный кодекс",
+  labor: "Трудовой кодекс",
+  ethics: "Этический кодекс",
+  documents: "Закон о документообороте",
+  justice: "Закон о Департаменте юстиции"
+};
+examBank["Адвокат"] = lawExamBank.uk;
+examBank["Ст.Адвокат"] = lawExamBank.ak;
+
+class HttpError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+}
+
+const hashToken = (token) => createHash("sha256").update(token).digest("hex");
+const safeEqual = (left, right) => {
+  const a = Buffer.isBuffer(left) ? left : Buffer.from(String(left || ""));
+  const b = Buffer.isBuffer(right) ? right : Buffer.from(String(right || ""));
+  return a.length === b.length && timingSafeEqual(a, b);
+};
+const cleanUser = (user) => ({
+  id: user.id, username: user.username, displayName: user.display_name,
+  email: user.email || "", role: user.role, status: user.status,
+  createdAt: user.created_at, reattestDue: user.reattest_due || null,
+  discordLinked: Boolean(user.discord_id), discordUsername: user.discord_username || "",
+  discordAvatarUrl: user.discord_avatar_url || "",
+  discordLinkedAt: user.discord_linked_at || null,
+  discordSyncError: user.discord_sync_error || "",
+  discordNicknameError: user.discord_nickname_error || "",
+  documentCount: Number(user.document_count || 0), lawsuitCount: Number(user.lawsuit_count || 0)
+});
+
+function createDatabase(dbPath) {
+  const db = new DatabaseSync(dbPath);
+  db.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY,
+      username TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      email TEXT NOT NULL DEFAULT '',
+      role TEXT NOT NULL DEFAULT 'Стажер КА',
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','active','suspended')),
+      discord_id TEXT UNIQUE,
+      discord_username TEXT NOT NULL DEFAULT '',
+      discord_avatar_url TEXT NOT NULL DEFAULT '',
+      discord_sync_error TEXT NOT NULL DEFAULT '',
+      discord_nickname_error TEXT NOT NULL DEFAULT '',
+      reattest_due TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      last_login TEXT
+    );
+    CREATE TABLE IF NOT EXISTS sessions (
+      token_hash TEXT PRIMARY KEY,
+      csrf_token TEXT NOT NULL,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires_at INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS weekly_reset_runs (
+      id INTEGER PRIMARY KEY,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      archived_at TEXT NOT NULL,
+      counts_json TEXT NOT NULL DEFAULT '{}',
+      restored_at TEXT,
+      restored_by INTEGER REFERENCES users(id),
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS lawsuits (
+      id INTEGER PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      document_id INTEGER NOT NULL REFERENCES documents(id),
+      title TEXT NOT NULL,
+      court TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'submitted'
+        CHECK (status IN ('submitted','in_review','hearing','decided','rejected')),
+      decision TEXT NOT NULL DEFAULT '',
+      priority TEXT NOT NULL DEFAULT 'normal' CHECK (priority IN ('low','normal','high','urgent')),
+      due_at TEXT,
+      updated_by INTEGER REFERENCES users(id),
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS lawsuit_history (
+      id INTEGER PRIMARY KEY,
+      lawsuit_id INTEGER NOT NULL REFERENCES lawsuits(id) ON DELETE CASCADE,
+      actor_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      event_type TEXT NOT NULL,
+      details TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS invites (
+      code_hash TEXT PRIMARY KEY,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      expires_at INTEGER NOT NULL,
+      used_at TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS discord_invite_issuance (
+      discord_user_id TEXT PRIMARY KEY,
+      invite_hash TEXT NOT NULL,
+      issued_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS portal_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS rating_settings_history (
+      id INTEGER PRIMARY KEY,
+      updated_by INTEGER NOT NULL REFERENCES users(id),
+      weights_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS discord_link_states (
+      state_hash TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires_at INTEGER NOT NULL,
+      used_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS password_resets (
+      token_hash TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      expires_at INTEGER NOT NULL,
+      used_at TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS applications (
+      id INTEGER PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      type TEXT NOT NULL,
+      requested_role TEXT,
+      stage_role TEXT NOT NULL DEFAULT '',
+      study_read_at TEXT,
+      interview_status TEXT NOT NULL DEFAULT 'not_required'
+        CHECK (interview_status IN ('not_required','waiting','ready')),
+      interview_ready_at TEXT,
+      career_flow INTEGER NOT NULL DEFAULT 0 CHECK (career_flow IN (0,1)),
+      details TEXT NOT NULL,
+      passport_id TEXT NOT NULL DEFAULT '',
+      priority TEXT NOT NULL DEFAULT 'normal' CHECK (priority IN ('low','normal','high','urgent')),
+      due_at TEXT,
+      promotion_data_json TEXT NOT NULL DEFAULT '{}',
+      review_data_json TEXT NOT NULL DEFAULT '{}',
+      result TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+      reviewed_by INTEGER REFERENCES users(id),
+      assigned_to INTEGER REFERENCES users(id),
+      requested_lawyer_id INTEGER REFERENCES users(id),
+      completed_at TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      reviewed_at TEXT,
+      archived_at TEXT,
+      archive_run_id INTEGER REFERENCES weekly_reset_runs(id)
+    );
+    CREATE TABLE IF NOT EXISTS application_history (
+      id INTEGER PRIMARY KEY,
+      application_id INTEGER NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
+      actor_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      event_type TEXT NOT NULL,
+      details TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS application_attachments (
+      id INTEGER PRIMARY KEY,
+      application_id INTEGER NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
+      file_name TEXT NOT NULL,
+      content_type TEXT NOT NULL,
+      content BLOB NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS application_messages (
+      id INTEGER PRIMARY KEY,
+      application_id INTEGER NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
+      sender_id INTEGER NOT NULL REFERENCES users(id),
+      kind TEXT NOT NULL DEFAULT 'message' CHECK (kind IN ('message','contact')),
+      message TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS reprimands (
+      id INTEGER PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      issued_by INTEGER NOT NULL REFERENCES users(id),
+      reason TEXT NOT NULL,
+      photo_name TEXT NOT NULL,
+      photo_type TEXT NOT NULL,
+      photo BLOB NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      archived_at TEXT,
+      archive_run_id INTEGER REFERENCES weekly_reset_runs(id)
+    );
+    CREATE INDEX IF NOT EXISTS reprimands_user_idx ON reprimands(user_id, id DESC);
+    CREATE TABLE IF NOT EXISTS promotion_settings (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      lawyer_calls_required INTEGER NOT NULL DEFAULT 0 CHECK (lawyer_calls_required BETWEEN 0 AND 100),
+      updated_by INTEGER REFERENCES users(id),
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS lawyer_reviews (
+      id INTEGER PRIMARY KEY,
+      application_id INTEGER NOT NULL UNIQUE REFERENCES applications(id) ON DELETE CASCADE,
+      lawyer_id INTEGER NOT NULL REFERENCES users(id),
+      reviewer_id INTEGER NOT NULL REFERENCES users(id),
+      rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+      comment TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS exam_results (
+      id INTEGER PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      application_id INTEGER REFERENCES applications(id) ON DELETE SET NULL,
+      track TEXT NOT NULL,
+      score INTEGER NOT NULL,
+      passed INTEGER NOT NULL,
+      answers_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS attestations (
+      id INTEGER PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      track TEXT NOT NULL,
+      due_at TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'assigned' CHECK (status IN ('assigned','passed','failed')),
+      score INTEGER,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      completed_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS documents (
+      id INTEGER PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      template TEXT NOT NULL,
+      title TEXT NOT NULL,
+      bbcode TEXT NOT NULL,
+      forum_url TEXT NOT NULL DEFAULT '',
+      forum_status TEXT NOT NULL DEFAULT 'draft'
+        CHECK (forum_status IN ('draft','pending','approved','rejected')),
+      forum_review_note TEXT NOT NULL DEFAULT '',
+      forum_reviewed_by INTEGER REFERENCES users(id),
+      forum_reviewed_at TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS document_sequences (
+      name TEXT PRIMARY KEY,
+      value INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS tasks (
+      id INTEGER PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      priority TEXT NOT NULL DEFAULT 'normal' CHECK (priority IN ('low','normal','high','critical')),
+      due_at TEXT,
+      status TEXT NOT NULL DEFAULT 'new'
+        CHECK (status IN ('new','accepted','in_progress','review','revision','completed','cancelled')),
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      reviewer_id INTEGER REFERENCES users(id),
+      review_note TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS task_assignees (
+      task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      assigned_by INTEGER NOT NULL REFERENCES users(id),
+      assigned_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (task_id, user_id)
+    );
+    CREATE TABLE IF NOT EXISTS task_history (
+      id INTEGER PRIMARY KEY,
+      task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      actor_id INTEGER NOT NULL REFERENCES users(id),
+      action TEXT NOT NULL,
+      from_status TEXT,
+      to_status TEXT,
+      comment TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS task_attachments (
+      id INTEGER PRIMARY KEY,
+      task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      uploaded_by INTEGER NOT NULL REFERENCES users(id),
+      file_name TEXT NOT NULL,
+      content_type TEXT NOT NULL,
+      content BLOB NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS calendar_events (
+      id INTEGER PRIMARY KEY,
+      event_type TEXT NOT NULL CHECK (event_type IN ('court','interview','exam','attestation','meeting','lecture','training','other')),
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      starts_at TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled','completed','cancelled')),
+      is_all_staff INTEGER NOT NULL DEFAULT 0 CHECK (is_all_staff IN (0,1)),
+      responsible_id INTEGER NOT NULL REFERENCES users(id),
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      archived_at TEXT,
+      archive_run_id INTEGER REFERENCES weekly_reset_runs(id)
+    );
+    CREATE TABLE IF NOT EXISTS calendar_event_participants (
+      event_id INTEGER NOT NULL REFERENCES calendar_events(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      added_by INTEGER NOT NULL REFERENCES users(id),
+      PRIMARY KEY (event_id, user_id)
+    );
+    CREATE TABLE IF NOT EXISTS calendar_reminder_deliveries (
+      event_id INTEGER NOT NULL REFERENCES calendar_events(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      lead_minutes INTEGER NOT NULL CHECK (lead_minutes IN (60,1440)),
+      last_attempt_at TEXT NOT NULL,
+      sent_at TEXT,
+      PRIMARY KEY (event_id,user_id,lead_minutes)
+    );
+    CREATE TABLE IF NOT EXISTS achievements (
+      id INTEGER PRIMARY KEY,
+      slug TEXT NOT NULL UNIQUE,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      icon TEXT NOT NULL DEFAULT '★',
+      metric TEXT NOT NULL CHECK (metric IN ('approved_lawsuits','closed_requests','approved_documents','high_reviews','service_days','manual')),
+      threshold INTEGER NOT NULL CHECK (threshold > 0),
+      active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+      created_by INTEGER REFERENCES users(id),
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS user_achievements (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      achievement_id INTEGER NOT NULL REFERENCES achievements(id) ON DELETE CASCADE,
+      awarded_by INTEGER REFERENCES users(id),
+      awarded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, achievement_id)
+    );
+    CREATE TABLE IF NOT EXISTS user_awards (
+      id INTEGER PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      granted_by INTEGER NOT NULL REFERENCES users(id),
+      kind TEXT NOT NULL CHECK (kind IN ('thanks','certificate','special','individual')),
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS staff_reserve (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      added_by INTEGER NOT NULL REFERENCES users(id),
+      status TEXT NOT NULL DEFAULT 'considering' CHECK (status IN ('considering','ready')),
+      note TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS absence_requests (
+      id INTEGER PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+      review_note TEXT NOT NULL DEFAULT '',
+      reviewed_by INTEGER REFERENCES users(id),
+      reviewed_at TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      archived_at TEXT,
+      archive_run_id INTEGER REFERENCES weekly_reset_runs(id)
+    );
+    CREATE TABLE IF NOT EXISTS member_characteristics (
+      id INTEGER PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      evaluator_id INTEGER NOT NULL REFERENCES users(id),
+      criterion TEXT NOT NULL CHECK (criterion IN ('law','discipline','activity','professionalism','citizens','teamwork')),
+      score INTEGER NOT NULL CHECK (score BETWEEN 1 AND 5),
+      note TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS member_employment_history (
+      id INTEGER PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      actor_id INTEGER REFERENCES users(id),
+      event_type TEXT NOT NULL CHECK (event_type IN ('hired','promoted','role_changed','dismissed','reinstated','status_changed')),
+      from_role TEXT NOT NULL,
+      to_role TEXT NOT NULL,
+      from_status TEXT NOT NULL,
+      to_status TEXT NOT NULL,
+      details TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS academy_materials (
+      id INTEGER PRIMARY KEY,
+      category TEXT NOT NULL CHECK (category IN ('constitutional','administrative','criminal','labor','advocacy','court','documents','internal')),
+      kind TEXT NOT NULL CHECK (kind IN ('lecture','manual','exercise')),
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      updated_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS applications_user_idx ON applications(user_id, created_at);
+    CREATE INDEX IF NOT EXISTS application_attachments_app_idx ON application_attachments(application_id);
+    CREATE INDEX IF NOT EXISTS application_messages_app_idx ON application_messages(application_id, id);
+    CREATE INDEX IF NOT EXISTS attestations_user_idx ON attestations(user_id, due_at);
+    CREATE INDEX IF NOT EXISTS sessions_expiry_idx ON sessions(expires_at);
+    CREATE INDEX IF NOT EXISTS lawsuits_user_idx ON lawsuits(user_id, created_at);
+    CREATE INDEX IF NOT EXISTS lawsuit_history_case_idx ON lawsuit_history(lawsuit_id, id DESC);
+    CREATE INDEX IF NOT EXISTS application_history_app_idx ON application_history(application_id, id DESC);
+    CREATE INDEX IF NOT EXISTS tasks_updated_idx ON tasks(updated_at DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS task_assignees_user_idx ON task_assignees(user_id, task_id);
+    CREATE INDEX IF NOT EXISTS task_history_task_idx ON task_history(task_id, id DESC);
+    CREATE INDEX IF NOT EXISTS task_attachments_task_idx ON task_attachments(task_id, id);
+    CREATE INDEX IF NOT EXISTS calendar_events_starts_idx ON calendar_events(starts_at, id);
+    CREATE INDEX IF NOT EXISTS calendar_event_participants_user_idx ON calendar_event_participants(user_id, event_id);
+    CREATE INDEX IF NOT EXISTS calendar_reminder_delivery_user_idx ON calendar_reminder_deliveries(user_id, sent_at);
+    CREATE INDEX IF NOT EXISTS absence_requests_user_idx ON absence_requests(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS member_characteristics_user_idx ON member_characteristics(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS member_employment_history_user_idx ON member_employment_history(user_id, id DESC);
+    CREATE INDEX IF NOT EXISTS academy_materials_category_idx ON academy_materials(category, updated_at DESC);
+  `);
+  const applicationColumns = db.prepare("PRAGMA table_info(applications)").all();
+  for (const [column, definition] of [
+    ["assigned_to", "INTEGER REFERENCES users(id)"],
+    ["requested_lawyer_id", "INTEGER REFERENCES users(id)"],
+    ["completed_at", "TEXT"],
+    ["passport_id", "TEXT NOT NULL DEFAULT ''"],
+    ["priority", "TEXT NOT NULL DEFAULT 'normal'"],
+    ["due_at", "TEXT"],
+    ["promotion_data_json", "TEXT NOT NULL DEFAULT '{}'"],
+    ["review_data_json", "TEXT NOT NULL DEFAULT '{}'"],
+    ["stage_role", "TEXT NOT NULL DEFAULT ''"],
+    ["study_read_at", "TEXT"],
+    ["interview_status", "TEXT NOT NULL DEFAULT 'not_required'"],
+    ["interview_ready_at", "TEXT"],
+    ["career_flow", "INTEGER NOT NULL DEFAULT 0"],
+    ["archived_at", "TEXT"],
+    ["archive_run_id", "INTEGER REFERENCES weekly_reset_runs(id)"]
+  ]) {
+    if (!applicationColumns.some((item) => item.name === column)) {
+      db.exec(`ALTER TABLE applications ADD COLUMN ${column} ${definition}`);
+    }
+  }
+  for (const [table, column, definition] of [
+    ["calendar_events", "archived_at", "TEXT"],
+    ["calendar_events", "archive_run_id", "INTEGER REFERENCES weekly_reset_runs(id)"],
+    ["absence_requests", "archived_at", "TEXT"],
+    ["absence_requests", "archive_run_id", "INTEGER REFERENCES weekly_reset_runs(id)"],
+    ["reprimands", "archived_at", "TEXT"],
+    ["reprimands", "archive_run_id", "INTEGER REFERENCES weekly_reset_runs(id)"]
+  ]) {
+    const columns = db.prepare(`PRAGMA table_info(${table})`).all();
+    if (!columns.some((item) => item.name === column)) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    }
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS applications_archive_idx ON applications(archived_at, type, status);
+    CREATE INDEX IF NOT EXISTS calendar_events_archive_idx ON calendar_events(archived_at, status, starts_at);
+    CREATE INDEX IF NOT EXISTS absence_requests_archive_idx ON absence_requests(archived_at, status, created_at);
+    CREATE INDEX IF NOT EXISTS reprimands_archive_idx ON reprimands(archived_at, created_at);
+    CREATE INDEX IF NOT EXISTS weekly_reset_runs_created_idx ON weekly_reset_runs(created_at DESC, id DESC)`);
+  const documentColumns = db.prepare("PRAGMA table_info(documents)").all();
+  for (const [column, definition] of [
+    ["forum_url", "TEXT NOT NULL DEFAULT ''"],
+    ["forum_status", "TEXT NOT NULL DEFAULT 'draft'"],
+    ["forum_review_note", "TEXT NOT NULL DEFAULT ''"],
+    ["forum_reviewed_by", "INTEGER REFERENCES users(id)"],
+    ["forum_reviewed_at", "TEXT"]
+  ]) {
+    if (!documentColumns.some((item) => item.name === column)) {
+      db.exec(`ALTER TABLE documents ADD COLUMN ${column} ${definition}`);
+    }
+  }
+  const lawsuitColumns = db.prepare("PRAGMA table_info(lawsuits)").all();
+  for (const [column, definition] of [
+    ["priority", "TEXT NOT NULL DEFAULT 'normal'"],
+    ["due_at", "TEXT"]
+  ]) {
+    if (!lawsuitColumns.some((item) => item.name === column)) {
+      db.exec(`ALTER TABLE lawsuits ADD COLUMN ${column} ${definition}`);
+    }
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS lawsuits_due_idx ON lawsuits(due_at, status)");
+  const examResultColumns = db.prepare("PRAGMA table_info(exam_results)").all();
+  if (!examResultColumns.some((column) => column.name === "application_id")) {
+    db.exec("ALTER TABLE exam_results ADD COLUMN application_id INTEGER REFERENCES applications(id) ON DELETE SET NULL");
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS exam_results_application_idx ON exam_results(application_id, track, id)");
+  db.exec("INSERT OR IGNORE INTO promotion_settings (id, lawyer_calls_required) VALUES (1, 0)");
+  const userColumns = db.prepare("PRAGMA table_info(users)").all();
+  for (const [column, definition] of [
+    ["discord_id", "TEXT"],
+    ["discord_username", "TEXT NOT NULL DEFAULT ''"],
+    ["discord_avatar_url", "TEXT NOT NULL DEFAULT ''"],
+    ["discord_sync_error", "TEXT NOT NULL DEFAULT ''"],
+    ["discord_nickname_error", "TEXT NOT NULL DEFAULT ''"],
+    ["forum_profile_url", "TEXT NOT NULL DEFAULT ''"],
+    ["forum_profile_verified_at", "TEXT"],
+    ["forum_profile_verified_by", "INTEGER REFERENCES users(id)"],
+    ["member_since", "TEXT NOT NULL DEFAULT ''"],
+    ["discord_linked_at", "TEXT"],
+    ["profile_bio", "TEXT NOT NULL DEFAULT ''"],
+    ["profile_pinned_cases", "TEXT NOT NULL DEFAULT '[]'"],
+    ["profile_effect", "TEXT NOT NULL DEFAULT 'snow'"],
+    ["profile_quote", "TEXT NOT NULL DEFAULT ''"]
+  ]) {
+    if (!userColumns.some((item) => item.name === column)) {
+      db.exec(`ALTER TABLE users ADD COLUMN ${column} ${definition}`);
+    }
+    db.prepare(`INSERT OR IGNORE INTO achievements (slug,title,description,icon,metric,threshold) VALUES
+      ('first-case','Первое дело','Первое подтверждённое судебное дело.','§','approved_lawsuits',1),
+      ('citizen-helper','Помощник граждан','10 закрытых обращений, взятых в работу.','✚','closed_requests',10),
+      ('experienced-lawyer','Опытный юрист','25 одобренных документов.','▤','approved_documents',25),
+      ('professional','Профессионал','5 оценок граждан на 4 или 5 баллов.','★','high_reviews',5),
+      ('collegium-veteran','Ветеран Коллегии','Год службы с датой вступления, подтверждённой руководством.','◆','service_days',365),
+      ('manual-thanks','Благодарность руководства','Ручная награда за особый вклад в работу Коллегии.','★','manual',1),
+      ('manual-honor','Почётная грамота','Ручная награда за значимые достижения и профессионализм.','◆','manual',1),
+      ('manual-service','Особая награда','Ручная награда за исключительную службу Коллегии.','§','manual',1),
+      ('manual-merit','Индивидуальное поощрение','Ручная награда по решению руководства.','✦','manual',1)`).run();
+  }
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS users_discord_id_idx ON users(discord_id)");
+  const staleNicknameWarnings = db.prepare(`SELECT id, discord_sync_error FROM users
+    WHERE discord_sync_error LIKE '%не удалось изменить ник:%'`).all();
+  for (const row of staleNicknameWarnings) {
+    const marker = "не удалось изменить ник: ";
+    const start = row.discord_sync_error.indexOf(marker);
+    const separator = row.discord_sync_error.indexOf(" · ", start);
+    const end = separator < 0 ? row.discord_sync_error.length : separator;
+    const nicknameWarning = row.discord_sync_error.slice(start, end).trim();
+    const remaining = `${row.discord_sync_error.slice(0, start)}${separator < 0 ? "" : row.discord_sync_error.slice(separator + 3)}`
+      .replace(/^Не удалось синхронизировать Discord:\s*/, "").trim();
+    db.prepare("UPDATE users SET discord_sync_error = ?, discord_nickname_error = ? WHERE id = ?")
+      .run(remaining, nicknameWarning, row.id);
+  }
+  return db;
+}
+
+function getWeeklyResetPreview(db, now = new Date()) {
+  const cutoff = now.toISOString();
+  const count = (sql, ...parameters) => Number(db.prepare(sql).get(...(parameters.length ? parameters : [cutoff])).count || 0);
+  return {
+    calendar: count(`SELECT COUNT(*) AS count FROM calendar_events
+      WHERE archived_at IS NULL AND status IN ('completed','cancelled') AND datetime(starts_at) < datetime(?)`),
+    applications: count(`SELECT COUNT(*) AS count FROM applications
+      WHERE archived_at IS NULL AND type NOT IN ('citizen_help','citizen_complaint')
+        AND status IN ('approved','rejected') AND datetime(created_at) < datetime(?)`),
+    absences: count(`SELECT COUNT(*) AS count FROM absence_requests
+      WHERE archived_at IS NULL AND (status = 'rejected' OR (status = 'approved' AND date(end_date) < date(?)))
+        AND datetime(created_at) < datetime(?)`, cutoff, cutoff),
+    reprimands: count(`SELECT COUNT(*) AS count FROM reprimands
+      WHERE archived_at IS NULL AND datetime(created_at) < datetime(?)`)
+  };
+}
+
+function createWeeklyReset(db, actorId, now = new Date()) {
+  const archivedAt = now.toISOString();
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const run = db.prepare(`INSERT INTO weekly_reset_runs (created_by, archived_at)
+      VALUES (?, ?)`).run(actorId, archivedAt);
+    const runId = Number(run.lastInsertRowid);
+    const updates = {
+      calendar: db.prepare(`UPDATE calendar_events SET archived_at = ?, archive_run_id = ?
+        WHERE archived_at IS NULL AND status IN ('completed','cancelled') AND datetime(starts_at) < datetime(?)`)
+        .run(archivedAt, runId, archivedAt).changes,
+      applications: db.prepare(`UPDATE applications SET archived_at = ?, archive_run_id = ?
+        WHERE archived_at IS NULL AND type NOT IN ('citizen_help','citizen_complaint')
+          AND status IN ('approved','rejected') AND datetime(created_at) < datetime(?)`)
+        .run(archivedAt, runId, archivedAt).changes,
+      absences: db.prepare(`UPDATE absence_requests SET archived_at = ?, archive_run_id = ?
+        WHERE archived_at IS NULL AND (status = 'rejected' OR (status = 'approved' AND date(end_date) < date(?)))
+          AND datetime(created_at) < datetime(?)`)
+        .run(archivedAt, runId, archivedAt, archivedAt).changes,
+      reprimands: db.prepare(`UPDATE reprimands SET archived_at = ?, archive_run_id = ?
+        WHERE archived_at IS NULL AND datetime(created_at) < datetime(?)`)
+        .run(archivedAt, runId, archivedAt).changes
+    };
+    db.prepare("UPDATE weekly_reset_runs SET counts_json = ? WHERE id = ?")
+      .run(JSON.stringify(updates), runId);
+    db.exec("COMMIT");
+    return { id: runId, archivedAt, counts: updates };
+  } catch (error) {
+    try {
+      db.exec("ROLLBACK");
+    } catch (rollbackError) {
+      throw new AggregateError([error, rollbackError], "Не удалось откатить недельный архив.");
+    }
+    throw error;
+  }
+}
+
+function restoreWeeklyReset(db, runId, actorId, now = new Date()) {
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const run = db.prepare("SELECT id, restored_at FROM weekly_reset_runs WHERE id = ?").get(runId);
+    if (!run) throw new HttpError(404, "Архив недели не найден.");
+    if (run.restored_at) throw new HttpError(409, "Этот архив уже восстановлен.");
+    const restoredAt = now.toISOString();
+    const restoredCounts = {
+      calendar: db.prepare("UPDATE calendar_events SET archived_at = NULL, archive_run_id = NULL WHERE archive_run_id = ?").run(runId).changes,
+      applications: db.prepare("UPDATE applications SET archived_at = NULL, archive_run_id = NULL WHERE archive_run_id = ?").run(runId).changes,
+      absences: db.prepare("UPDATE absence_requests SET archived_at = NULL, archive_run_id = NULL WHERE archive_run_id = ?").run(runId).changes,
+      reprimands: db.prepare("UPDATE reprimands SET archived_at = NULL, archive_run_id = NULL WHERE archive_run_id = ?").run(runId).changes
+    };
+    db.prepare("UPDATE weekly_reset_runs SET restored_at = ?, restored_by = ? WHERE id = ?")
+      .run(restoredAt, actorId, runId);
+    db.exec("COMMIT");
+    return { id: runId, restoredAt, counts: restoredCounts };
+  } catch (error) {
+    try {
+      db.exec("ROLLBACK");
+    } catch (rollbackError) {
+      throw new AggregateError([error, rollbackError], "Не удалось откатить восстановление архива.");
+    }
+    throw error;
+  }
+}
+
+function getCookie(req, name) {
+  const cookies = String(req.headers.cookie || "").split(";");
+  for (const cookie of cookies) {
+    const [key, ...value] = cookie.trim().split("=");
+    if (key === name) return decodeURIComponent(value.join("="));
+  }
+  return "";
+}
+
+function sendJson(res, status, value, headers = {}) {
+  const body = JSON.stringify(value);
+  res.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    ...headers
+  });
+  res.end(body);
+}
+
+function readJson(req, maxCharacters = 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    let data = "";
+    req.on("data", (chunk) => {
+      data += chunk;
+      if (data.length > maxCharacters) {
+        reject(new HttpError(413, "Слишком большой запрос."));
+        req.destroy();
+      }
+    });
+    req.on("end", () => {
+      try {
+        resolve(data ? JSON.parse(data) : {});
+      } catch {
+        reject(new HttpError(400, "Некорректный JSON."));
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
+function publicUser(db, userId) {
+  return db.prepare(`SELECT id, username, display_name, email, role, status, created_at, reattest_due,
+    discord_id, discord_username, discord_avatar_url, discord_sync_error, discord_nickname_error,
+    (SELECT COUNT(*) FROM documents WHERE user_id = users.id AND forum_status = 'approved') AS document_count,
+    (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
+      WHERE l.user_id = users.id AND d.forum_status = 'approved') AS lawsuit_count
+    FROM users WHERE id = ?`).get(userId);
+}
+
+function getAchievementMetrics(db, userId) {
+  const member = db.prepare("SELECT role, member_since FROM users WHERE id = ? AND status = 'active'").get(userId);
+  if (!member || member.role === citizenRole) return {};
+  const metrics = {
+    approved_lawsuits: Number(db.prepare(`SELECT COUNT(*) AS count FROM lawsuits l
+      JOIN documents d ON d.id = l.document_id
+      WHERE l.user_id = ? AND d.forum_status = 'approved'`).get(userId).count),
+    closed_requests: Number(db.prepare(`SELECT COUNT(*) AS count FROM applications
+      WHERE assigned_to = ? AND completed_at IS NOT NULL AND type IN ('citizen_help','citizen_complaint')`).get(userId).count),
+    approved_documents: Number(db.prepare("SELECT COUNT(*) AS count FROM documents WHERE user_id = ? AND forum_status = 'approved'").get(userId).count),
+    high_reviews: Number(db.prepare("SELECT COUNT(*) AS count FROM lawyer_reviews WHERE lawyer_id = ? AND rating >= 4").get(userId).count),
+    service_days: 0
+  };
+  const memberSince = member.member_since ? Date.parse(`${member.member_since}T00:00:00Z`) : NaN;
+  if (Number.isFinite(memberSince) && memberSince <= Date.now()) {
+    metrics.service_days = Math.floor((Date.now() - memberSince) / 86400000);
+  }
+  return metrics;
+}
+
+function evaluateAchievements(db, userId) {
+  const metrics = getAchievementMetrics(db, userId);
+  const eligible = db.prepare("SELECT id, metric, threshold FROM achievements WHERE active = 1 AND metric != 'manual'").all();
+  const insert = db.prepare("INSERT OR IGNORE INTO user_achievements (user_id, achievement_id) VALUES (?, ?)");
+  for (const achievement of eligible) {
+    if (Number(metrics[achievement.metric] || 0) >= Number(achievement.threshold)) {
+      insert.run(userId, achievement.id);
+    }
+  }
+  return metrics;
+}
+
+function validateForumUrl(value) {
+  const raw = String(value || "").trim();
+  if (raw.length < 12 || raw.length > 500) throw new HttpError(400, "Укажите ссылку на опубликованную тему форума.");
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new HttpError(400, "Ссылка на форум должна быть корректным URL.");
+  }
+  if (!["https:", "http:"].includes(url.protocol) || url.username || url.password ||
+      ["localhost", "127.0.0.1", "::1"].includes(url.hostname) ||
+      (url.pathname === "/" && !url.search)) {
+    throw new HttpError(400, "Укажите публичную ссылку на конкретную тему форума.");
+  }
+  return url.toString();
+}
+
+function validateForumProfileUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (raw.length > 500) throw new HttpError(400, "Ссылка на профиль форума слишком длинная.");
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new HttpError(400, "Укажите корректную ссылку на профиль форума.");
+  }
+  if (url.protocol !== "https:" || url.hostname.toLowerCase() !== "forum.gta5rp.com" ||
+      !url.pathname.toLowerCase().startsWith("/members/") || url.username || url.password) {
+    throw new HttpError(400, "Используйте HTTPS-ссылку на профиль участника forum.gta5rp.com.");
+  }
+  return url.toString();
+}
+
+function normalizeLawText(text, markdown = false) {
+  let normalized = text
+    .replace(/[\u200B-\u200D\u2060\uFEFF]/g, "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/^\s*!\[[^\]]*\]\([^)]*\)\s*$/gim, "")
+    .split("\n")
+    .map((line) => {
+      const trimmed = line.trimEnd();
+      if (!markdown) return trimmed;
+      if (/^\s*[-*_]{3,}\s*$/.test(trimmed)) return "";
+      const clean = trimmed.replace(/^\s*\*{3,}/, "");
+      const heading = clean.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/);
+      if (heading) return heading[1].replace(/\*\*(.+?)\*\*/g, "$1").trim().toLocaleUpperCase("ru");
+      return clean.replace(/\*\*(.+?)\*\*/g, "$1");
+    })
+    .filter((line) => !/^\s*divider\.png\s*$/i.test(line))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return normalized;
+}
+
+function currentReportPeriod() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function validateReportPeriod(value) {
+  const period = String(value || currentReportPeriod()).trim();
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) {
+    throw new HttpError(400, "Период отчёта должен быть в формате ГГГГ-ММ.");
+  }
+  return period;
+}
+
+function buildMonthlyReport(db, period) {
+  const metricKeys = [
+    "documentsCreated", "documentsApproved", "lawsuitsFiled", "casesTaken",
+    "casesClosed", "examsPassed", "attestationsPassed", "reprimands"
+  ];
+  const allRows = db.prepare(`SELECT u.id, u.display_name, u.role, u.status,
+      (SELECT COUNT(*) FROM documents d
+        WHERE d.user_id = u.id AND strftime('%Y-%m', d.created_at) = ?) AS documents_created,
+      (SELECT COUNT(*) FROM documents d
+        WHERE d.user_id = u.id AND d.forum_status = 'approved'
+          AND strftime('%Y-%m', d.forum_reviewed_at) = ?) AS documents_approved,
+      (SELECT COUNT(*) FROM lawsuits l
+        WHERE l.user_id = u.id AND strftime('%Y-%m', l.created_at) = ?) AS lawsuits_filed,
+      (SELECT COUNT(*) FROM applications a
+        WHERE a.assigned_to = u.id AND a.type IN ('citizen_help', 'citizen_complaint')
+          AND strftime('%Y-%m', a.created_at) = ?) AS cases_taken,
+      (SELECT COUNT(*) FROM applications a
+        WHERE a.assigned_to = u.id AND a.type IN ('citizen_help', 'citizen_complaint')
+          AND a.completed_at IS NOT NULL AND strftime('%Y-%m', a.completed_at) = ?) AS cases_closed,
+      (SELECT COUNT(*) FROM exam_results e
+        WHERE e.user_id = u.id AND e.passed = 1 AND strftime('%Y-%m', e.created_at) = ?) AS exams_passed,
+      (SELECT COUNT(*) FROM attestations a
+        WHERE a.user_id = u.id AND a.status = 'passed'
+          AND strftime('%Y-%m', a.completed_at) = ?) AS attestations_passed,
+      (SELECT COUNT(*) FROM reprimands r
+        WHERE r.user_id = u.id AND strftime('%Y-%m', r.created_at) = ?) AS reprimands
+    FROM users u
+    WHERE u.role != ?
+    ORDER BY u.role, u.display_name`).all(
+    period, period, period, period, period, period, period, period, citizenRole
+  ).map((row) => ({
+    userId: Number(row.id),
+    displayName: row.display_name,
+    role: row.role,
+    status: row.status,
+    documentsCreated: Number(row.documents_created),
+    documentsApproved: Number(row.documents_approved),
+    lawsuitsFiled: Number(row.lawsuits_filed),
+    casesTaken: Number(row.cases_taken),
+    casesClosed: Number(row.cases_closed),
+    examsPassed: Number(row.exams_passed),
+    attestationsPassed: Number(row.attestations_passed),
+    reprimands: Number(row.reprimands)
+  }));
+  const employees = allRows.filter((row) => row.status === "active")
+    .map(({ userId, displayName, role }) => ({ userId, displayName, role }));
+  const rows = allRows.filter((row) => row.status === "active" ||
+    metricKeys.some((key) => row[key] > 0))
+    .map(({ status, ...row }) => row);
+  const totals = Object.fromEntries(metricKeys.map((key) =>
+    [key, rows.reduce((sum, row) => sum + row[key], 0)]));
+  return {
+    period,
+    generatedAt: new Date().toISOString(),
+    employees,
+    rows,
+    totals
+  };
+}
+
+function validateAnalyticsPeriod(value) {
+  const period = String(value || "30").trim();
+  if (!["7", "30", "90", "all"].includes(period)) {
+    throw new HttpError(400, "Период аналитики должен быть 7, 30, 90 или all.");
+  }
+  return period;
+}
+
+function buildAnalyticsReport(db, period) {
+  const days = period === "all" ? null : Number(period);
+  const since = days === null ? null
+    : new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 19).replace("T", " ");
+  const filter = (column) => since ? `datetime(${column}) >= datetime(?)` : "1 = 1";
+  const args = since ? [since] : [];
+  const count = (sql, values = args) => Number(db.prepare(sql).get(...values).count || 0);
+
+  const compositionRows = db.prepare(`SELECT role, status, COUNT(*) AS count
+    FROM users WHERE role != ? GROUP BY role, status`).all(citizenRole);
+  const composition = {
+    total: compositionRows.reduce((sum, row) => sum + Number(row.count), 0),
+    active: compositionRows.filter((row) => row.status === "active")
+      .reduce((sum, row) => sum + Number(row.count), 0),
+    pending: compositionRows.filter((row) => row.status === "pending")
+      .reduce((sum, row) => sum + Number(row.count), 0),
+    suspended: compositionRows.filter((row) => row.status === "suspended")
+      .reduce((sum, row) => sum + Number(row.count), 0),
+    byRole: compositionRows.reduce((result, row) => {
+      result[row.role] = (result[row.role] || 0) + Number(row.count);
+      return result;
+    }, {}),
+    newAccounts: count(`SELECT COUNT(*) AS count FROM users
+      WHERE role != ? AND ${filter("created_at")}`, since ? [citizenRole, since] : [citizenRole])
+  };
+
+  const lawsuitRows = db.prepare(`SELECT status, COUNT(*) AS count FROM lawsuits
+    WHERE ${filter("created_at")} GROUP BY status`).all(...args);
+  const lawsuits = {
+    total: lawsuitRows.reduce((sum, row) => sum + Number(row.count), 0),
+    byStatus: Object.fromEntries(lawsuitRows.map((row) => [row.status, Number(row.count)]))
+  };
+
+  const documentRows = db.prepare(`SELECT forum_status, COUNT(*) AS count FROM documents
+    WHERE ${filter("created_at")} GROUP BY forum_status`).all(...args);
+  const documentsByType = db.prepare(`SELECT template, COUNT(*) AS count FROM documents
+    WHERE ${filter("created_at")} GROUP BY template ORDER BY count DESC`).all(...args);
+  const documents = {
+    total: documentRows.reduce((sum, row) => sum + Number(row.count), 0),
+    byStatus: Object.fromEntries(documentRows.map((row) => [row.forum_status, Number(row.count)])),
+    byType: documentsByType.map((row) => ({ template: row.template, count: Number(row.count) }))
+  };
+
+  const cases = db.prepare(`SELECT COUNT(*) AS total,
+      SUM(CASE WHEN completed_at IS NOT NULL OR status = 'rejected' THEN 1 ELSE 0 END) AS closed,
+      SUM(CASE WHEN completed_at IS NULL AND status != 'rejected' THEN 1 ELSE 0 END) AS open
+    FROM applications WHERE type IN ('citizen_help','citizen_complaint') AND ${filter("created_at")}`)
+    .get(...args);
+  const completedCases = db.prepare(`SELECT AVG((julianday(completed_at) - julianday(created_at)) * 24) AS average_hours,
+      COUNT(*) AS count FROM applications
+    WHERE type IN ('citizen_help','citizen_complaint') AND completed_at IS NOT NULL
+      AND ${filter("completed_at")}`).get(...args);
+  const reviews = db.prepare(`SELECT COUNT(*) AS count, AVG(rating) AS average
+    FROM lawyer_reviews WHERE ${filter("created_at")}`).get(...args);
+  const requests = {
+    total: Number(cases.total || 0),
+    closed: Number(cases.closed || 0),
+    open: Number(cases.open || 0),
+    averageResolutionHours: completedCases.average_hours === null
+      ? null : Number(Number(completedCases.average_hours).toFixed(1)),
+    resolvedCount: Number(completedCases.count || 0),
+    reviewCount: Number(reviews.count || 0),
+    averageRating: reviews.average === null ? null : Number(Number(reviews.average).toFixed(1))
+  };
+
+  const humanResources = {
+    hires: count(`SELECT COUNT(*) AS count FROM member_employment_history
+      WHERE event_type = 'hired' AND ${filter("created_at")}`),
+    promotions: count(`SELECT COUNT(*) AS count FROM applications
+      WHERE type = 'promotion' AND status = 'approved'
+        AND ${filter("reviewed_at")}`),
+    dismissals: count(`SELECT COUNT(*) AS count FROM member_employment_history
+      WHERE event_type = 'dismissed' AND ${filter("created_at")}`),
+    reinstatements: count(`SELECT COUNT(*) AS count FROM member_employment_history
+      WHERE event_type = 'reinstated' AND ${filter("created_at")}`),
+    reprimands: count(`SELECT COUNT(*) AS count FROM reprimands
+      WHERE ${filter("created_at")}`),
+    awards: count(`SELECT COUNT(*) AS count FROM user_awards
+      WHERE ${filter("created_at")}`),
+    attestationsPassed: count(`SELECT COUNT(*) AS count FROM attestations
+      WHERE status = 'passed' AND ${filter("completed_at")}`),
+    attestationsFailed: count(`SELECT COUNT(*) AS count FROM attestations
+      WHERE status = 'failed' AND ${filter("completed_at")}`)
+  };
+
+  const bucket = period === "all" ? "strftime('%Y-%m', {column})" : "date({column})";
+  const trendMetrics = [
+    ["members", "users", "created_at", `role != '${citizenRole.replaceAll("'", "''")}'`],
+    ["lawsuits", "lawsuits", "created_at", "1 = 1"],
+    ["documents", "documents", "created_at", "1 = 1"],
+    ["requests", "applications", "created_at", "type IN ('citizen_help','citizen_complaint')"],
+    ["promotions", "applications", "reviewed_at", "type = 'promotion' AND status = 'approved'"],
+    ["reprimands", "reprimands", "created_at", "1 = 1"],
+    ["dismissals", "member_employment_history", "created_at", "event_type = 'dismissed'"]
+  ];
+  const trendMap = new Map();
+  for (const [metric, table, column, condition] of trendMetrics) {
+    const rows = db.prepare(`SELECT ${bucket.replace("{column}", column)} AS bucket, COUNT(*) AS count
+      FROM ${table} WHERE ${condition} AND ${filter(column)} GROUP BY bucket ORDER BY bucket`).all(...args);
+    for (const row of rows) {
+      const current = trendMap.get(row.bucket) || { period: row.bucket };
+      current[metric] = Number(row.count);
+      trendMap.set(row.bucket, current);
+    }
+  }
+  const trend = [...trendMap.values()].sort((left, right) => left.period.localeCompare(right.period));
+  if (since) {
+    const filledTrend = [];
+    for (let offset = days - 1; offset >= 0; offset -= 1) {
+      const date = new Date(Date.now() - offset * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      filledTrend.push(trendMap.get(date) || { period: date });
+    }
+    return {
+      period, since, generatedAt: new Date().toISOString(), composition, lawsuits, documents,
+      requests, humanResources, trend: filledTrend
+    };
+  }
+  return {
+    period, since: null, generatedAt: new Date().toISOString(), composition, lawsuits, documents,
+    requests, humanResources, trend: trend.slice(-24)
+  };
+}
+
+function getRatingWeights(db) {
+  const saved = db.prepare("SELECT value FROM portal_settings WHERE key = 'attorney_rating_weights'").get();
+  if (!saved) return { ...defaultRatingWeights };
+  let weights;
+  try {
+    weights = JSON.parse(saved.value);
+  } catch {
+    throw new Error("Сохранённая формула рейтинга повреждена. Обратитесь к администратору базы данных.");
+  }
+  if (!weights || Object.keys(defaultRatingWeights).some((key) =>
+    !Number.isInteger(weights[key]) || weights[key] < 0 || weights[key] > 100)) {
+    throw new Error("Сохранённая формула рейтинга некорректна. Обратитесь к администратору базы данных.");
+  }
+  return Object.fromEntries(Object.keys(defaultRatingWeights).map((key) => [key, weights[key]]));
+}
+
+function buildAttorneyRanking(db, period) {
+  const periodDays = { week: 7, month: 30, all: 0 };
+  if (!Object.hasOwn(periodDays, period)) throw new HttpError(400, "Период рейтинга должен быть week, month или all.");
+  const periodStart = periodDays[period]
+    ? new Date(Date.now() - periodDays[period] * 24 * 60 * 60 * 1000).toISOString().slice(0, 19).replace("T", " ")
+    : null;
+  const weights = getRatingWeights(db);
+  const attorneys = db.prepare(`SELECT u.id, u.display_name, u.role, u.discord_username, u.discord_avatar_url,
+      (SELECT COUNT(*) FROM documents d WHERE d.user_id = u.id AND d.forum_status = 'approved'
+        AND (? IS NULL OR datetime(d.forum_reviewed_at) >= datetime(?))) AS document_count,
+      (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
+        WHERE l.user_id = u.id AND d.forum_status = 'approved'
+          AND (? IS NULL OR datetime(l.created_at) >= datetime(?))) AS lawsuit_count,
+      (SELECT COUNT(*) FROM applications a WHERE a.assigned_to = u.id
+        AND a.type IN ('citizen_help','citizen_complaint')
+          AND (? IS NULL OR datetime(a.reviewed_at) >= datetime(?))) AS cases_handled,
+      (SELECT COUNT(*) FROM applications a WHERE a.assigned_to = u.id
+        AND a.type IN ('citizen_help','citizen_complaint') AND a.completed_at IS NOT NULL
+          AND (? IS NULL OR datetime(a.completed_at) >= datetime(?))) AS cases_closed,
+      (SELECT COUNT(DISTINCT h.task_id) FROM task_history h
+        JOIN task_assignees ta ON ta.task_id = h.task_id
+        WHERE ta.user_id = u.id AND h.to_status = 'completed'
+          AND (? IS NULL OR datetime(h.created_at) >= datetime(?))) AS completed_tasks,
+      COUNT(r.id) AS review_count, COALESCE(AVG(r.rating), 0) AS average_rating,
+      COALESCE(SUM(r.rating), 0) AS review_points
+    FROM users u LEFT JOIN lawyer_reviews r ON r.lawyer_id = u.id
+      AND (? IS NULL OR datetime(r.created_at) >= datetime(?))
+    WHERE u.status = 'active' AND u.role IN ('Адвокат', 'Ст.Адвокат')
+    GROUP BY u.id`).all(...Array(12).fill(periodStart))
+    .map((attorney) => {
+      const metrics = {
+        documentsApproved: Number(attorney.document_count),
+        casesClosed: Number(attorney.cases_closed),
+        lawsuitsFiled: Number(attorney.lawsuit_count),
+        tasksCompleted: Number(attorney.completed_tasks),
+        reviews: Number(attorney.review_points)
+      };
+      const score = Object.entries(weights).reduce((total, [key, weight]) => total + metrics[key] * weight, 0);
+      return {
+        ...attorney, ...metrics, score,
+        cases_handled: Number(attorney.cases_handled),
+        document_count: Number(attorney.document_count),
+        lawsuit_count: Number(attorney.lawsuit_count),
+        completed_task_count: Number(attorney.completed_tasks),
+        average_rating: Number(Number(attorney.average_rating).toFixed(1))
+      };
+    }).sort((left, right) => right.score - left.score || right.average_rating - left.average_rating ||
+      right.review_count - left.review_count || left.display_name.localeCompare(right.display_name, "ru"));
+  return { period, weights, attorneys };
+}
+
+export async function runDiscordPortalCommand({
+  db, discordUserId, commandName, options = {}, memberRoleIds = [], roleIds = {}, notifyAbsence
+}) {
+  const requesterId = String(discordUserId || "");
+  if (!/^\d{15,22}$/.test(requesterId)) throw new Error("Discord вернул некорректный ID пользователя.");
+  const account = db.prepare(`SELECT id, display_name, role, status FROM users
+    WHERE discord_id = ?`).get(requesterId);
+  if (!account || account.status !== "active" || account.role === citizenRole) {
+    throw new Error("Привяжите Discord к активному аккаунту сотрудника на портале.");
+  }
+  const expectedRoleId = roleIds[account.role];
+  if (!expectedRoleId || !Array.isArray(memberRoleIds) || !memberRoleIds.includes(expectedRoleId)) {
+    throw new Error("Роль Discord не совпадает с активной должностью аккаунта портала. Обратитесь к руководству.");
+  }
+
+  if (commandName === "profile") {
+    const data = db.prepare(`SELECT
+        (SELECT COUNT(*) FROM documents WHERE user_id = ? AND forum_status = 'approved') AS documents,
+        (SELECT COUNT(*) FROM lawsuits WHERE user_id = ? AND status NOT IN ('decided','rejected')) AS active_lawsuits,
+        (SELECT COUNT(*) FROM applications WHERE assigned_to = ? AND type IN ('citizen_help','citizen_complaint') AND completed_at IS NOT NULL) AS closed_cases,
+        (SELECT COUNT(*) FROM tasks t JOIN task_assignees a ON a.task_id = t.id
+          WHERE a.user_id = ? AND t.status = 'completed') AS completed_tasks`)
+      .get(account.id, account.id, account.id, account.id);
+    return `Профиль: ${account.display_name}\nДолжность: ${account.role}\nОдобрено документов: ${data.documents}\nАктивных судебных дел: ${data.active_lawsuits}\nЗакрытых обращений: ${data.closed_cases}\nВыполненных поручений: ${data.completed_tasks}`;
+  }
+
+  if (commandName === "cases") {
+    if (!attorneyRoles.includes(account.role) && !managementRoles.includes(account.role)) {
+      throw new Error("Просмотр судебных дел через Discord доступен адвокатам и руководству.");
+    }
+    const manager = managementRoles.includes(account.role);
+    const cases = db.prepare(`SELECT l.id, l.title, l.court, l.status FROM lawsuits l
+      WHERE l.status NOT IN ('decided','rejected') ${manager ? "" : "AND l.user_id = ?"}
+      ORDER BY l.updated_at DESC, l.id DESC LIMIT 10`).all(...(manager ? [] : [account.id]));
+    return cases.length
+      ? `Активные судебные дела:\n${cases.map((item) =>
+        `#${item.id} · ${item.title} · ${item.court} · ${item.status}`).join("\n")}`
+      : "Активных судебных дел нет.";
+  }
+
+  if (commandName === "rating") {
+    const ranking = buildAttorneyRanking(db, "month").attorneys.slice(0, 5);
+    return ranking.length
+      ? `Рейтинг адвокатов за 30 дней:\n${ranking.map((item, index) =>
+        `${index + 1}. ${item.display_name} — ${item.score} баллов (${item.average_rating.toFixed(1)}/5, отзывов: ${item.review_count})`).join("\n")}`
+      : "В рейтинге пока нет адвокатов.";
+  }
+
+  if (commandName === "report") {
+    if (!managementRoles.includes(account.role)) throw new Error("Краткий отчёт доступен только руководству.");
+    const report = buildAnalyticsReport(db, "30");
+    return `Краткий отчёт за 30 дней:\nСотрудников активно: ${report.composition.active}\nНовых аккаунтов сотрудников: ${report.composition.newAccounts}\nСудебных дел: ${report.lawsuits.total}\nОбращений граждан: ${report.requests.total} (открыто ${report.requests.open}, закрыто ${report.requests.closed})\nОдобрено документов: ${report.documents.byStatus.approved || 0}\nПовышений: ${report.humanResources.promotions}\nВыговоров: ${report.humanResources.reprimands}`;
+  }
+
+  if (commandName === "absence") {
+    const startDate = String(options.startDate || "");
+    const endDate = String(options.endDate || "");
+    const reason = String(options.reason || "").trim();
+    const validDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+      !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) &&
+      new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+    if (!validDate(startDate) || !validDate(endDate) || startDate > endDate ||
+        reason.length < 4 || reason.length > 1000) {
+      throw new Error("Укажите корректные даты и причину отсутствия (от 4 до 1000 символов).");
+    }
+    const overlap = db.prepare(`SELECT id FROM absence_requests WHERE user_id = ?
+      AND status IN ('pending','approved') AND start_date <= ? AND end_date >= ? LIMIT 1`)
+      .get(account.id, endDate, startDate);
+    if (overlap) throw new Error("На этот период уже подана заявка на отсутствие.");
+    db.prepare(`INSERT INTO absence_requests (user_id,start_date,end_date,reason)
+      VALUES (?,?,?,?)`).run(account.id, startDate, endDate, reason);
+    const warning = await notifyAbsence?.(account, startDate, endDate);
+    return `Заявка на отсутствие с ${startDate} по ${endDate} сохранена.${warning ? `\n${warning}` : ""}`;
+  }
+
+  if (commandName === "tasks") {
+    const manager = managementRoles.includes(account.role);
+    const tasks = db.prepare(`SELECT DISTINCT t.id, t.title, t.status, t.due_at FROM tasks t
+      LEFT JOIN task_assignees a ON a.task_id = t.id
+      WHERE (a.user_id = ? AND t.status NOT IN ('completed','cancelled'))
+        ${manager ? "OR t.status = 'review'" : ""}
+      ORDER BY CASE WHEN t.due_at IS NULL THEN 1 ELSE 0 END, t.due_at LIMIT 10`).all(account.id);
+    const content = tasks.length
+      ? `${manager ? "Ваши поручения и задачи на проверке:" : "Ваши активные поручения:"}\n${tasks.map((task) =>
+        `#${task.id} · ${task.title} · ${task.status}${task.due_at ? ` · срок ${task.due_at}` : ""}`).join("\n")}`
+      : "Активных поручений у вас нет.";
+    return {
+      content,
+      taskActions: manager ? tasks.filter((task) => task.status === "review").map(({ id, title }) => ({ id, title })) : []
+    };
+  }
+
+  if (commandName === "calendar") {
+    const events = db.prepare(`SELECT e.title, e.event_type, e.starts_at FROM calendar_events e
+      WHERE e.status = 'scheduled' AND datetime(e.starts_at) >= datetime('now') AND (
+        e.is_all_staff = 1 OR e.responsible_id = ? OR EXISTS (
+          SELECT 1 FROM calendar_event_participants p WHERE p.event_id = e.id AND p.user_id = ?
+        )
+      ) ORDER BY e.starts_at LIMIT 8`).all(account.id, account.id);
+    return events.length
+      ? `Ближайшие мероприятия:\n${events.map((item) =>
+        `${item.title} · ${item.event_type} · ${item.starts_at}`).join("\n")}`
+      : "Ближайших мероприятий для вас нет.";
+  }
+
+  throw new Error("Команда портала не распознана.");
+}
+
+export function runDiscordPortalAction({ db, discordUserId, action, memberRoleIds = [], roleIds = {} }) {
+  const requesterId = String(discordUserId || "");
+  if (!/^\d{15,22}$/.test(requesterId)) throw new Error("Discord вернул некорректный ID пользователя.");
+  const account = db.prepare("SELECT id, role, status FROM users WHERE discord_id = ?").get(requesterId);
+  if (!account || account.status !== "active" || !managementRoles.includes(account.role)) {
+    throw new Error("Это действие доступно только руководству с активным аккаунтом портала.");
+  }
+  const expectedRoleId = roleIds[account.role];
+  if (!expectedRoleId || !Array.isArray(memberRoleIds) || !memberRoleIds.includes(expectedRoleId)) {
+    throw new Error("Роль Discord не совпадает с активной должностью аккаунта портала.");
+  }
+  const match = String(action || "").match(/^task-complete:(\d+)$/);
+  if (!match) throw new Error("Действие Discord не распознано.");
+  const taskId = Number(match[1]);
+  const task = db.prepare("SELECT id, status FROM tasks WHERE id = ?").get(taskId);
+  if (!task) throw new Error("Поручение не найдено.");
+  if (task.status !== "review") throw new Error("Поручение уже рассмотрено или не ожидает проверки.");
+  const comment = "Выполнение подтверждено руководством через Discord.";
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const updated = db.prepare(`UPDATE tasks SET status = 'completed', reviewer_id = ?,
+      review_note = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'review'`)
+      .run(account.id, comment, taskId);
+    if (updated.changes !== 1) throw new Error("Поручение уже обработано другим руководителем.");
+    db.prepare(`INSERT INTO task_history (task_id,actor_id,action,from_status,to_status,comment)
+      VALUES (?,?,'status','review','completed',?)`).run(taskId, account.id, comment);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+  return `Поручение #${taskId} подтверждено как выполненное.`;
+}
+
+function validateGoogleSheetsWebAppUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error("GOOGLE_SHEETS_WEB_APP_URL должен быть корректным HTTPS-адресом Apps Script.");
+  }
+  if (url.protocol !== "https:" || url.hostname !== "script.google.com" ||
+      !/^\/macros\/s\/[^/]+\/exec\/?$/.test(url.pathname) || url.username || url.password) {
+    throw new Error("GOOGLE_SHEETS_WEB_APP_URL должен указывать на HTTPS-развёртывание Google Apps Script.");
+  }
+  return url.toString();
+}
+
+function parseApplicationAttachments(value) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 5) {
+    throw new HttpError(400, "Можно приложить не более пяти файлов.");
+  }
+  const allowedTypes = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
+  let totalSize = 0;
+  return value.map((file) => {
+    if (!file || typeof file !== "object") throw new HttpError(400, "Некорректный файл-вложение.");
+    const name = String(file.name || "").replace(/[\\/\u0000-\u001f]/g, "").trim().slice(0, 120);
+    const contentType = String(file.type || "").toLowerCase();
+    const encoded = String(file.data || "").replace(/^data:[^;]+;base64,/i, "");
+    if (!name || !allowedTypes.has(contentType) || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) {
+      throw new HttpError(400, "Допустимы только изображения JPG, PNG, WebP и PDF.");
+    }
+    const content = Buffer.from(encoded, "base64");
+    if (!content.length || content.toString("base64").replace(/=+$/, "") !== encoded.replace(/=+$/, "")) {
+      throw new HttpError(400, "Файл-вложение повреждён или имеет неверный формат.");
+    }
+    const signatureMatches = contentType === "image/jpeg"
+      ? content.length >= 3 && content[0] === 0xff && content[1] === 0xd8 && content[2] === 0xff
+      : contentType === "image/png"
+        ? content.length >= 8 && content.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+        : contentType === "image/webp"
+          ? content.length >= 12 && content.toString("ascii", 0, 4) === "RIFF" && content.toString("ascii", 8, 12) === "WEBP"
+          : content.length >= 5 && content.toString("ascii", 0, 5) === "%PDF-";
+    if (!signatureMatches) throw new HttpError(400, "Содержимое файла не соответствует его формату.");
+    if (content.length > 2 * 1024 * 1024) throw new HttpError(413, "Размер одного файла не должен превышать 2 МБ.");
+    totalSize += content.length;
+    if (totalSize > 5 * 1024 * 1024) throw new HttpError(413, "Общий размер вложений не должен превышать 5 МБ.");
+    return { name, contentType, content };
+  });
+}
+
+function parseStaffIds(db, value, { required = true, maximum = 100 } = {}) {
+  if (!Array.isArray(value) || value.length > maximum || (required && value.length === 0)) {
+    throw new HttpError(400, `Укажите от ${required ? 1 : 0} до ${maximum} сотрудников.`);
+  }
+  const ids = [...new Set(value.map(Number))];
+  if (ids.length !== value.length || ids.some((id) => !Number.isSafeInteger(id) || id < 1)) {
+    throw new HttpError(400, "Список сотрудников содержит некорректные или повторяющиеся ID.");
+  }
+  if (!ids.length) return ids;
+  const active = db.prepare(`SELECT id FROM users WHERE status = 'active' AND role <> ?
+    AND id IN (${ids.map(() => "?").join(",")})`).all(citizenRole, ...ids);
+  if (active.length !== ids.length) {
+    throw new HttpError(400, "В списке есть неактивный сотрудник или аккаунт гражданина.");
+  }
+  return ids;
+}
+
+function requireObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new HttpError(400, "Ожидается JSON-объект.");
+  }
+  return value;
+}
+
+function normalizeDateTime(value, label, { optional = false } = {}) {
+  if ((value === undefined || value === null || value === "") && optional) return null;
+  if (typeof value !== "string" || !value.trim()) throw new HttpError(400, `${label}: укажите дату и время.`);
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) throw new HttpError(400, `${label}: некорректная дата и время.`);
+  return new Date(timestamp).toISOString();
+}
+
+function parseStoredJson(value, label) {
+  try {
+    return JSON.parse(value || "{}");
+  } catch {
+    throw new Error(`Повреждены сохранённые данные: ${label}.`);
+  }
+}
+
+export function createPortalServer(options = {}) {
+  const dbPath = options.dbPath || process.env.DB_PATH || path.join(root, "data", "portal.sqlite");
+  const db = options.db || createDatabase(dbPath);
+  const requireDiscordLink = options.requireDiscordLink !== false;
+  const webhooks = options.discordWebhooks || {};
+  webhooks.applications ??= options.webhookApplications ?? process.env.DISCORD_WEBHOOK_APPLICATIONS ?? "";
+  webhooks.help ??= options.webhookHelp ?? process.env.DISCORD_WEBHOOK_HELP ?? "";
+  webhooks.exams ??= options.webhookExams ?? process.env.DISCORD_WEBHOOK_EXAMS ?? "";
+  webhooks.logs ??= options.webhookLogs ?? process.env.DISCORD_WEBHOOK_LOGS ?? "";
+  webhooks.health ??= options.webhookHealth ?? process.env.DISCORD_WEBHOOK_HEALTH ?? "";
+  const webhookFetch = options.webhookFetch || globalThis.fetch;
+  /**
+   * Все исходящие уведомления в Discord идут через один диспетчер:
+   * он держит очередь на канал, повторяет отправку при сбоях и умеет
+   * отдавать состояние для панели управления.
+   */
+  const webhookDispatcher = createWebhookDispatcher({
+    webhooks,
+    fetchImpl: webhookFetch,
+    logger: console,
+    maxAttempts: options.webhookMaxAttempts ?? 4,
+    baseDelayMs: options.webhookBaseDelayMs ?? 400,
+    timeoutMs: options.webhookTimeoutMs ?? 8000
+  });
+  const deliverWebhook = async (url, title, description, fields = [], file = null) => {
+    const result = await webhookDispatcher.deliverToUrl(url, { title, description, fields, file });
+    return result.warning || "";
+  };
+  const discordFetch = options.discordFetch || options.fetchImpl || globalThis.fetch;
+  const discord = {
+    clientId: options.discordClientId ?? process.env.DISCORD_CLIENT_ID ?? "",
+    clientSecret: options.discordClientSecret ?? process.env.DISCORD_CLIENT_SECRET ?? "",
+    redirectUri: options.discordRedirectUri ?? process.env.DISCORD_REDIRECT_URI ?? "",
+    botToken: options.discordBotToken ?? process.env.DISCORD_BOT_TOKEN ?? "",
+    guildId: options.discordGuildId ?? process.env.DISCORD_GUILD_ID ?? ""
+  };
+  const discordPresenceProvider = options.discordPresenceProvider || (() => "offline");
+  const discordRoleIds = options.discordRoleIds || {
+    "Стажер КА": process.env.DISCORD_ROLE_TRAINEE || "",
+    "Юрист": process.env.DISCORD_ROLE_LAWYER || "",
+    "Адвокат": process.env.DISCORD_ROLE_ATTORNEY || "",
+    "Ст.Адвокат": process.env.DISCORD_ROLE_SENIOR_ATTORNEY || "",
+    "ЗГКА": process.env.DISCORD_ROLE_DEPUTY_HEAD || "",
+    "ГКА": process.env.DISCORD_ROLE_HEAD || "",
+    [citizenRole]: process.env.DISCORD_ROLE_CITIZEN || ""
+  };
+  const cookieSecure = options.cookieSecure ?? (process.env.COOKIE_SECURE === "true" || process.env.NODE_ENV === "production");
+  const googleSheetsUrl = validateGoogleSheetsWebAppUrl(
+    options.googleSheetsUrl ?? process.env.GOOGLE_SHEETS_WEB_APP_URL ?? ""
+  );
+  const googleSheetsToken = String(
+    options.googleSheetsToken ?? process.env.GOOGLE_SHEETS_SYNC_TOKEN ?? ""
+  );
+  const googleSheetsFetch = options.googleSheetsFetch || globalThis.fetch;
+  const googleSheetsConfigured = Boolean(googleSheetsUrl && googleSheetsToken.length >= 32);
+
+  /**
+   * Простое ограничение частоты запросов в памяти процесса.
+   * Нужно, чтобы перебор паролей и массовая регистрация аккаунтов не могли
+   * незаметно нагружать сервер. Возвращает 0, если запрос разрешён, иначе —
+   * число секунд до сброса окна.
+   */
+  const rateBuckets = new Map();
+  function consumeRateLimit(key, limit, windowMs) {
+    const now = Date.now();
+    if (rateBuckets.size > 5000) {
+      for (const [bucketKey, bucket] of rateBuckets) {
+        if (bucket.resetAt <= now) rateBuckets.delete(bucketKey);
+      }
+    }
+    const bucket = rateBuckets.get(key);
+    if (!bucket || bucket.resetAt <= now) {
+      rateBuckets.set(key, { count: 1, resetAt: now + windowMs });
+      return 0;
+    }
+    bucket.count += 1;
+    return bucket.count > limit ? Math.ceil((bucket.resetAt - now) / 1000) : 0;
+  }
+
+  const clientAddress = (req) => String(req.socket?.remoteAddress || "local");
+
+  function assertRateLimit(key, limit, windowMs, message) {
+    const retryAfter = consumeRateLimit(key, limit, windowMs);
+    if (retryAfter) {
+      throw new HttpError(429, `${message} Повторите попытку через ${retryAfter} с.`);
+    }
+  }
+
+  async function syncMonthlyReport(periodValue) {
+    if (!googleSheetsConfigured) {
+      throw new HttpError(503, "Синхронизация не настроена: проверьте GOOGLE_SHEETS_WEB_APP_URL и GOOGLE_SHEETS_SYNC_TOKEN в .env.");
+    }
+    const report = buildMonthlyReport(db, validateReportPeriod(periodValue));
+    let response;
+    try {
+      response = await googleSheetsFetch(googleSheetsUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token: googleSheetsToken, report }),
+        signal: AbortSignal.timeout(15000)
+      });
+    } catch (error) {
+      throw new HttpError(502, `Не удалось связаться с Google Sheets: ${error.message}`);
+    }
+    let result;
+    try {
+      result = await response.json();
+    } catch {
+      throw new HttpError(502, `Google Sheets вернул некорректный ответ (HTTP ${response.status}).`);
+    }
+    if (!response.ok || result?.ok !== true) {
+      throw new HttpError(502, result?.error
+        ? `Google Sheets: ${String(result.error).slice(0, 300)}`
+        : `Синхронизация с Google Sheets завершилась с HTTP ${response.status}.`);
+    }
+    return { report, syncedAt: new Date().toISOString() };
+  }
+
+  async function discordBotRequest(method, route, body) {
+    const response = await discordFetch(`https://discord.com/api/v10${route}`, {
+      method,
+      headers: {
+        authorization: `Bot ${discord.botToken}`,
+        ...(body ? { "content-type": "application/json" } : {})
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+      signal: AbortSignal.timeout(8000)
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      if (error.code === 50013) {
+        throw new Error("Discord отказал в доступе (Missing Permissions). Проверь право «Управлять ролями/никнеймами» и положение роли бота.");
+      }
+      if (error.code === 50001) {
+        throw new Error("Discord не дал боту доступ к серверу. Проверь, что бот добавлен на сервер.");
+      }
+      throw new Error(`Discord API вернул HTTP ${response.status}${error.code ? ` (${error.code})` : ""}${error.message ? `: ${error.message}` : "."}`);
+    }
+    if (response.status === 204) return null;
+    return response.json();
+  }
+
+  let calendarReminderInProgress = false;
+  async function sendDueCalendarReminders(now = Date.now()) {
+    if (!discord.botToken) return { sent: 0, configured: false };
+    if (calendarReminderInProgress) return { sent: 0, skipped: true };
+    calendarReminderInProgress = true;
+    let sent = 0;
+    try {
+      const events = db.prepare(`SELECT id, title, starts_at, responsible_id, is_all_staff
+        FROM calendar_events WHERE status = 'scheduled'`).all();
+      for (const event of events) {
+        const startsAt = Date.parse(event.starts_at);
+        const minutesUntil = (startsAt - now) / 60000;
+        if (!Number.isFinite(minutesUntil) || minutesUntil <= 0 || minutesUntil > 1440) continue;
+        const leadMinutes = minutesUntil <= 60 ? 60 : 1440;
+        const recipients = event.is_all_staff
+          ? db.prepare(`SELECT id, display_name, discord_id FROM users
+              WHERE status = 'active' AND role != ? AND discord_id != ''`).all(citizenRole)
+          : db.prepare(`SELECT DISTINCT u.id, u.display_name, u.discord_id FROM users u
+              WHERE u.status = 'active' AND u.role != ? AND u.discord_id != '' AND (
+                u.id = ? OR EXISTS (SELECT 1 FROM calendar_event_participants p
+                  WHERE p.event_id = ? AND p.user_id = u.id)
+              )`).all(citizenRole, event.responsible_id, event.id);
+        for (const recipient of recipients) {
+          if (!/^\d{15,22}$/.test(recipient.discord_id)) continue;
+          const previous = db.prepare(`SELECT last_attempt_at, sent_at FROM calendar_reminder_deliveries
+            WHERE event_id = ? AND user_id = ? AND lead_minutes = ?`)
+            .get(event.id, recipient.id, leadMinutes);
+          if (previous?.sent_at) continue;
+          if (previous && now - Date.parse(previous.last_attempt_at) < 15 * 60 * 1000) continue;
+          const attemptedAt = new Date(now).toISOString();
+          db.prepare(`INSERT INTO calendar_reminder_deliveries
+            (event_id,user_id,lead_minutes,last_attempt_at) VALUES (?,?,?,?)
+            ON CONFLICT(event_id,user_id,lead_minutes) DO UPDATE SET last_attempt_at = excluded.last_attempt_at`)
+            .run(event.id, recipient.id, leadMinutes, attemptedAt);
+          try {
+            const channel = await discordBotRequest("POST", "/users/@me/channels", {
+              recipient_id: recipient.discord_id
+            });
+            if (!channel?.id || !/^\d{15,22}$/.test(channel.id)) {
+              throw new Error("Discord не вернул канал личных сообщений.");
+            }
+            const currentMinutes = Math.max(1, Math.ceil(minutesUntil));
+            const duration = currentMinutes >= 60
+              ? `примерно через ${Math.ceil(currentMinutes / 60)} ч.`
+              : `примерно через ${currentMinutes} мин.`;
+            await discordBotRequest("POST", `/channels/${channel.id}/messages`, {
+              content: `Напоминание о мероприятии Коллегии ${duration}\n**${event.title}**\n${new Date(startsAt).toLocaleString("ru-RU")}`,
+              allowed_mentions: { parse: [] }
+            });
+            db.prepare(`UPDATE calendar_reminder_deliveries SET sent_at = ?
+              WHERE event_id = ? AND user_id = ? AND lead_minutes = ?`)
+              .run(new Date(now).toISOString(), event.id, recipient.id, leadMinutes);
+            sent += 1;
+          } catch (error) {
+            console.error(`Discord calendar reminder failed for event ${event.id}:`, error.message);
+          }
+        }
+      }
+      return { sent, configured: true };
+    } finally {
+      calendarReminderInProgress = false;
+    }
+  }
+
+  async function notifyReprimandByDm(target, id, reason, photo, fields) {
+    if (!target.discord_id) return "Discord не привязан: личное уведомление не отправлено.";
+    if (!discord.botToken) return "Личное уведомление не отправлено: не настроен DISCORD_BOT_TOKEN.";
+    if (!/^\d{15,22}$/.test(target.discord_id)) return "Личное уведомление не отправлено: некорректный Discord ID.";
+    try {
+      const channel = await discordBotRequest("POST", "/users/@me/channels", {
+        recipient_id: target.discord_id
+      });
+      if (!channel?.id || !/^\d{15,22}$/.test(channel.id)) {
+        throw new Error("Discord не вернул канал личных сообщений.");
+      }
+      const payload = {
+        embeds: [{
+          title: `⚠️ Выговор №${id}`,
+          description: `${target.display_name} получил(а) дисциплинарное взыскание.`,
+          color: 15158332,
+          timestamp: new Date().toISOString(),
+          footer: { text: "Mirror GTA 5 RP · Коллегия адвокатов" },
+          fields: fields.slice(0, 25).map((field) => ({
+            name: String(field.name).slice(0, 256),
+            value: String(field.value || "—").slice(0, 1024),
+            inline: Boolean(field.inline)
+          })),
+          image: { url: `attachment://${photo.name}` }
+        }],
+        allowed_mentions: { parse: [] }
+      };
+      const form = new FormData();
+      form.set("payload_json", JSON.stringify(payload));
+      form.set("files[0]", new Blob([photo.content], { type: photo.contentType }), photo.name);
+      const response = await discordFetch(`https://discord.com/api/v10/channels/${channel.id}/messages`, {
+        method: "POST",
+        headers: { authorization: `Bot ${discord.botToken}` },
+        body: form,
+        signal: AbortSignal.timeout(8000)
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || `Discord API ответил HTTP ${response.status}.`);
+      }
+      return "";
+    } catch (error) {
+      console.error("Discord reprimand DM failed:", error.message);
+      return `Выговор сохранён, но личное сообщение Discord не отправлено: ${error.message}`;
+    }
+  }
+
+  async function syncDiscordMember(memberId) {
+    const member = db.prepare("SELECT * FROM users WHERE id = ?").get(memberId);
+    if (!member?.discord_id) return { syncError: "", nicknameWarning: "" };
+    if (!discord.botToken || !discord.guildId) {
+      const warning = "Discord привязан, но для выдачи ролей не настроены DISCORD_BOT_TOKEN и DISCORD_GUILD_ID.";
+      db.prepare("UPDATE users SET discord_sync_error = ?, discord_nickname_error = '' WHERE id = ?").run(warning, memberId);
+      return { syncError: warning, nicknameWarning: "" };
+    }
+    if (!/^\d{15,22}$/.test(discord.guildId) || !/^\d{15,22}$/.test(member.discord_id)) {
+      const warning = "Discord не синхронизирован: проверьте Discord Guild ID и ID аккаунта.";
+      db.prepare("UPDATE users SET discord_sync_error = ?, discord_nickname_error = '' WHERE id = ?").run(warning, memberId);
+      return { syncError: warning, nicknameWarning: "" };
+    }
+    const prefix = member.status === "pending" ? "Заявка"
+      : member.status === "suspended" ? "Доступ закрыт"
+        : member.role;
+    const nickname = Array.from(`[${prefix}] ${member.display_name}`).slice(0, 32).join("");
+    const targetRole = member.status === "active" ? discordRoleIds[member.role] : "";
+    if (member.status === "active" && (!targetRole || !/^\d{15,22}$/.test(targetRole))) {
+      const warning = `Discord не синхронизирован: не задан корректный Discord role ID для роли «${member.role}».`;
+      db.prepare("UPDATE users SET discord_sync_error = ?, discord_nickname_error = '' WHERE id = ?").run(warning, memberId);
+      return { syncError: warning, nicknameWarning: "" };
+    }
+    const route = `/guilds/${discord.guildId}/members/${member.discord_id}`;
+    let discordMember;
+    try {
+      discordMember = await discordBotRequest("GET", route);
+    } catch (error) {
+      const warning = `Не удалось прочитать участника Discord: ${error.message}`;
+      db.prepare("UPDATE users SET discord_sync_error = ?, discord_nickname_error = '' WHERE id = ?").run(warning, memberId);
+      console.error("Discord role synchronization failed:", warning);
+      return { syncError: warning, nicknameWarning: "" };
+    }
+    if (!Array.isArray(discordMember?.roles)) {
+      const warning = "Discord вернул некорректный список ролей участника.";
+      db.prepare("UPDATE users SET discord_sync_error = ?, discord_nickname_error = '' WHERE id = ?").run(warning, memberId);
+      return { syncError: warning, nicknameWarning: "" };
+    }
+
+    const failures = [];
+    const attempt = async (label, operation) => {
+      try {
+        await operation();
+      } catch (error) {
+        failures.push(`${label}: ${error.message}`);
+      }
+    };
+    let nicknameWarning = "";
+    try {
+      await discordBotRequest("PATCH", route, { nick: nickname });
+    } catch (error) {
+      nicknameWarning = `Не удалось изменить ник: ${error.message}`;
+      console.warn("Discord nickname synchronization warning:", nicknameWarning);
+    }
+    const managedRoleIds = [...new Set(Object.values(discordRoleIds).filter((id) => /^\d{15,22}$/.test(id)))];
+    for (const roleId of managedRoleIds) {
+      if (roleId !== targetRole && discordMember.roles.includes(roleId)) {
+        await attempt("не удалось снять старую роль", () => discordBotRequest("DELETE", `${route}/roles/${roleId}`));
+      }
+    }
+    if (targetRole && !discordMember.roles.includes(targetRole)) {
+      await attempt(`не удалось выдать роль «${member.role}»`, () => discordBotRequest("PUT", `${route}/roles/${targetRole}`));
+    }
+    const syncError = failures.length ? `Не удалось синхронизировать Discord: ${failures.join(" · ")}` : "";
+    db.prepare("UPDATE users SET discord_sync_error = ?, discord_nickname_error = ? WHERE id = ?")
+      .run(syncError, nicknameWarning, memberId);
+    if (syncError) console.error("Discord role synchronization failed:", syncError);
+    return { syncError, nicknameWarning };
+  }
+
+  const canAccessTask = (user, taskId) => managementRoles.includes(user.role) ||
+    Boolean(db.prepare(`SELECT 1 FROM tasks t WHERE t.id = ? AND (
+      t.created_by = ? OR EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.id AND a.user_id = ?)
+    )`).get(taskId, user.id, user.id));
+  const taskPayload = (task) => ({
+    ...task,
+    assignees: db.prepare(`SELECT u.id, u.display_name, u.role FROM task_assignees a
+      JOIN users u ON u.id = a.user_id WHERE a.task_id = ? ORDER BY u.display_name COLLATE NOCASE`).all(task.id),
+    attachments: db.prepare(`SELECT id, file_name, content_type, length(content) AS size, uploaded_by, created_at
+      FROM task_attachments WHERE task_id = ? ORDER BY id`).all(task.id)
+  });
+  const taskListPayload = (tasks) => {
+    if (!tasks.length) return [];
+    const ids = tasks.map((task) => task.id);
+    const placeholders = ids.map(() => "?").join(",");
+    const assignees = new Map(ids.map((id) => [id, []]));
+    const attachments = new Map(ids.map((id) => [id, []]));
+    for (const item of db.prepare(`SELECT a.task_id,u.id,u.display_name,u.role FROM task_assignees a
+      JOIN users u ON u.id = a.user_id WHERE a.task_id IN (${placeholders})
+      ORDER BY u.display_name COLLATE NOCASE`).all(...ids)) {
+      assignees.get(item.task_id).push({ id: item.id, display_name: item.display_name, role: item.role });
+    }
+    for (const item of db.prepare(`SELECT id,task_id,file_name,content_type,length(content) AS size,uploaded_by,created_at
+      FROM task_attachments WHERE task_id IN (${placeholders}) ORDER BY id`).all(...ids)) {
+      const { task_id: taskId, ...attachment } = item;
+      attachments.get(taskId).push(attachment);
+    }
+    return tasks.map((task) => ({
+      ...task,
+      assignees: assignees.get(task.id),
+      attachments: attachments.get(task.id)
+    }));
+  };
+  const canAccessCalendarEvent = (user, eventId) => managementRoles.includes(user.role) ||
+    Boolean(db.prepare(`SELECT 1 FROM calendar_events e WHERE e.id = ? AND (
+      e.is_all_staff = 1 OR e.created_by = ? OR e.responsible_id = ? OR EXISTS (
+        SELECT 1 FROM calendar_event_participants p WHERE p.event_id = e.id AND p.user_id = ?
+      )
+    )`).get(eventId, user.id, user.id, user.id));
+  const calendarEventPayload = (event) => ({
+    ...event,
+    participants: db.prepare(`SELECT u.id, u.display_name, u.role FROM calendar_event_participants p
+      JOIN users u ON u.id = p.user_id WHERE p.event_id = ? ORDER BY u.display_name COLLATE NOCASE`).all(event.id)
+  });
+  const calendarEventListPayload = (events) => {
+    if (!events.length) return [];
+    const ids = events.map((event) => event.id);
+    const placeholders = ids.map(() => "?").join(",");
+    const participants = new Map(ids.map((id) => [id, []]));
+    for (const item of db.prepare(`SELECT p.event_id,u.id,u.display_name,u.role FROM calendar_event_participants p
+      JOIN users u ON u.id = p.user_id WHERE p.event_id IN (${placeholders})
+      ORDER BY u.display_name COLLATE NOCASE`).all(...ids)) {
+      participants.get(item.event_id).push({ id: item.id, display_name: item.display_name, role: item.role });
+    }
+    return events.map((event) => ({ ...event, participants: participants.get(event.id) }));
+  };
+
+  const server = createServer(async (req, res) => {
+    res.setHeader("x-content-type-options", "nosniff");
+    res.setHeader("referrer-policy", "same-origin");
+    res.setHeader("x-frame-options", "DENY");
+    res.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://cdn.discordapp.com; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+    try {
+      const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+      const pathname = requestUrl.pathname;
+
+      if (pathname === "/api/discord/callback" && req.method === "GET") {
+        let targetUserId = 0;
+        try {
+          if (!discord.clientId || !discord.clientSecret || !discord.redirectUri) {
+            throw new HttpError(503, "Discord OAuth не настроен.");
+          }
+          const state = String(requestUrl.searchParams.get("state") || "");
+          const code = String(requestUrl.searchParams.get("code") || "");
+          const session = getSession(db, req);
+          const stateRecord = state && db.prepare("SELECT * FROM discord_link_states WHERE state_hash = ? AND used_at IS NULL AND expires_at > ?")
+            .get(hashToken(state), Date.now());
+          if (!stateRecord || !session || session.user_id !== stateRecord.user_id || !code) {
+            throw new HttpError(400, "Ссылка Discord истекла или сессия портала изменилась. Начните привязку заново.");
+          }
+          targetUserId = stateRecord.user_id;
+          const tokenResponse = await discordFetch("https://discord.com/api/v10/oauth2/token", {
+            method: "POST",
+            headers: { "content-type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+              client_id: discord.clientId,
+              client_secret: discord.clientSecret,
+              grant_type: "authorization_code",
+              code,
+              redirect_uri: discord.redirectUri
+            }),
+            signal: AbortSignal.timeout(8000)
+          });
+          if (!tokenResponse.ok) throw new HttpError(502, `Discord OAuth не выдал токен (HTTP ${tokenResponse.status}).`);
+          const token = await tokenResponse.json();
+          if (!token.access_token) throw new HttpError(502, "Discord OAuth вернул пустой токен.");
+          const identityResponse = await discordFetch("https://discord.com/api/v10/users/@me", {
+            headers: { authorization: `Bearer ${token.access_token}` },
+            signal: AbortSignal.timeout(8000)
+          });
+          if (!identityResponse.ok) throw new HttpError(502, `Не удалось получить профиль Discord (HTTP ${identityResponse.status}).`);
+          const identity = await identityResponse.json();
+          if (!/^\d{15,22}$/.test(String(identity.id || "")) || !identity.username) {
+            throw new HttpError(502, "Discord вернул некорректный профиль.");
+          }
+          const existingLink = db.prepare("SELECT id FROM users WHERE discord_id = ?").get(String(identity.id));
+          if (existingLink && existingLink.id !== targetUserId) {
+            throw new HttpError(409, "Этот Discord уже привязан к другому аккаунту портала.");
+          }
+          const targetAccount = db.prepare("SELECT id, discord_id FROM users WHERE id = ?").get(targetUserId);
+          if (targetAccount?.discord_id && targetAccount.discord_id !== String(identity.id)) {
+            throw new HttpError(409, "К аккаунту уже привязан другой Discord. Сменить привязку может только ГКА.");
+          }
+          const avatarUrl = identity.avatar
+            ? `https://cdn.discordapp.com/avatars/${identity.id}/${identity.avatar}.png?size=128`
+            : `https://cdn.discordapp.com/embed/avatars/${Number((BigInt(identity.id) >> 22n) % 6n)}.png`;
+          db.prepare(`UPDATE users SET discord_id = ?, discord_username = ?, discord_avatar_url = ?,
+            discord_linked_at = COALESCE(discord_linked_at, CURRENT_TIMESTAMP),
+            discord_sync_error = '', discord_nickname_error = '' WHERE id = ?`)
+            .run(String(identity.id), String(identity.username).slice(0, 100), avatarUrl, targetUserId);
+          const consumed = db.prepare("UPDATE discord_link_states SET used_at = CURRENT_TIMESTAMP WHERE state_hash = ? AND used_at IS NULL AND expires_at > ?")
+            .run(hashToken(state), Date.now());
+          if (consumed.changes !== 1) throw new HttpError(400, "Ссылка Discord уже использована.");
+          await syncDiscordMember(targetUserId);
+          const user = publicUser(db, targetUserId);
+          await sendDiscordDirectMessage(String(identity.id), user, avatarUrl);
+          await deliverWebhook(webhooks.logs, "Discord привязан к аккаунту", `${user.display_name} (${user.role}) привязал Discord ${identity.username}.`);
+          res.statusCode = 303;
+          res.setHeader("location", "/?discord=linked");
+          return res.end();
+        } catch (error) {
+          if (targetUserId) db.prepare("UPDATE users SET discord_sync_error = ? WHERE id = ?")
+            .run(error.message, targetUserId);
+          console.error("Discord OAuth callback failed:", error.message);
+          res.statusCode = 303;
+          res.setHeader("location", "/?discord=error");
+          return res.end();
+        }
+      }
+
+      if (pathname.startsWith("/api/")) {
+        if (pathname === "/api/health" && req.method === "GET") return sendJson(res, 200, { ok: true, apiVersion: 4 });
+
+        if (pathname === "/api/auth/register" && req.method === "POST") {
+          assertRateLimit(`register:${clientAddress(req)}`, 30, 60 * 60 * 1000,
+            "Слишком много регистраций с этого адреса.");
+          const body = await readJson(req);
+          const username = String(body.username || "").trim().toLowerCase();
+          const displayName = String(body.displayName || "").trim();
+          const email = String(body.email || "").trim().slice(0, 160);
+          const password = String(body.password || "");
+          const accountType = String(body.accountType || "staff");
+          const inviteCode = String(body.inviteCode || "").trim();
+          if (!/^[a-z0-9._-]{3,32}$/.test(username)) throw new HttpError(400, "Логин: от 3 до 32 символов, латиница, цифры, точка, дефис или подчёркивание.");
+          if (displayName.length < 2 || displayName.length > 80) throw new HttpError(400, "Укажите игровое имя длиной от 2 до 80 символов.");
+          if (password.length < 12 || password.length > 128) throw new HttpError(400, "Пароль должен содержать от 12 до 128 символов.");
+          if (!["staff", "citizen"].includes(accountType)) throw new HttpError(400, "Выберите регистрацию гражданина или сотрудника.");
+          let invite = null;
+          if (accountType === "staff") {
+            if (!inviteCode || inviteCode.length > 100) throw new HttpError(400, "Для регистрации сотрудника нужен код-приглашение ГКА.");
+            invite = db.prepare("SELECT * FROM invites WHERE code_hash = ? AND used_at IS NULL AND expires_at > ?").get(hashToken(inviteCode), Date.now());
+            if (!invite) throw new HttpError(400, "Код приглашения недействителен, уже использован или истёк.");
+          }
+          const salt = randomBytes(16);
+          const key = await scrypt(password, salt, 64, { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
+          let result;
+          db.exec("BEGIN IMMEDIATE");
+          try {
+            if (invite) {
+              const consumed = db.prepare("UPDATE invites SET used_at = CURRENT_TIMESTAMP WHERE code_hash = ? AND used_at IS NULL AND expires_at > ?")
+                .run(invite.code_hash, Date.now());
+              if (consumed.changes !== 1) throw new HttpError(400, "Код приглашения уже использован или истёк.");
+            }
+            const role = accountType === "citizen" ? citizenRole : roles[0];
+            const status = accountType === "citizen" ? "active" : "pending";
+            result = db.prepare("INSERT INTO users (username, password_hash, display_name, email, role, status) VALUES (?, ?, ?, ?, ?, ?)")
+              .run(username, `scrypt$${salt.toString("base64")}$${Buffer.from(key).toString("base64")}`, displayName, email, role, status);
+            db.exec("COMMIT");
+          } catch (error) {
+            db.exec("ROLLBACK");
+            if (String(error.message).includes("UNIQUE")) throw new HttpError(409, "Этот логин уже занят.");
+            throw error;
+          }
+          const session = createSession(db, Number(result.lastInsertRowid));
+          setSessionCookie(res, session.token, cookieSecure);
+          if (accountType === "staff") {
+            const applicant = publicUser(db, Number(result.lastInsertRowid));
+            const webhookWarning = await deliverWebhook(webhooks.applications, "Новая заявка по коду-приглашению",
+              `${applicant.display_name} зарегистрировался по приглашению и ожидает решения ГКА.`,
+              [
+                { name: "Участник", value: applicant.display_name, inline: true },
+                { name: "Логин портала", value: applicant.username, inline: true },
+                { name: "Статус", value: "Ожидает принятия в состав", inline: true }
+              ]);
+            return sendJson(res, 201, {
+              user: cleanUser(applicant),
+              csrfToken: session.csrf,
+              webhookWarning
+            });
+          }
+          return sendJson(res, 201, { user: cleanUser(publicUser(db, Number(result.lastInsertRowid))), csrfToken: session.csrf });
+        }
+
+        if (pathname === "/api/auth/reset-password" && req.method === "POST") {
+          assertRateLimit(`reset:${clientAddress(req)}`, 15, 60 * 60 * 1000,
+            "Слишком много попыток восстановления пароля.");
+          const body = await readJson(req);
+          const username = String(body.username || "").trim().toLowerCase();
+          const code = String(body.code || "").trim();
+          const password = String(body.password || "");
+          if (!/^[a-z0-9._-]{3,32}$/.test(username) || code.length < 20 || code.length > 100) {
+            throw new HttpError(400, "Укажите логин и действующий код восстановления от руководителя.");
+          }
+          if (password.length < 12 || password.length > 128) {
+            throw new HttpError(400, "Пароль должен содержать от 12 до 128 символов.");
+          }
+          const reset = db.prepare(`SELECT r.token_hash, r.user_id FROM password_resets r
+            JOIN users u ON u.id = r.user_id
+            WHERE u.username = ? AND r.token_hash = ? AND r.used_at IS NULL AND r.expires_at > ?`)
+            .get(username, hashToken(code), Date.now());
+          if (!reset) throw new HttpError(400, "Код восстановления неверен, уже использован или истёк.");
+          const salt = randomBytes(16);
+          const key = await scrypt(password, salt, 64, { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
+          db.exec("BEGIN IMMEDIATE");
+          try {
+            const consumed = db.prepare("UPDATE password_resets SET used_at = CURRENT_TIMESTAMP WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?")
+              .run(reset.token_hash, Date.now());
+            if (consumed.changes !== 1) throw new HttpError(400, "Код восстановления уже использован или истёк.");
+            db.prepare("UPDATE users SET password_hash = ? WHERE id = ?")
+              .run(`scrypt$${salt.toString("base64")}$${Buffer.from(key).toString("base64")}`, reset.user_id);
+            db.prepare("DELETE FROM sessions WHERE user_id = ?").run(reset.user_id);
+            db.exec("COMMIT");
+          } catch (error) {
+            db.exec("ROLLBACK");
+            throw error;
+          }
+          return sendJson(res, 200, { ok: true });
+        }
+
+        if (pathname === "/api/auth/login" && req.method === "POST") {
+          const body = await readJson(req);
+          const username = String(body.username || "").trim().toLowerCase();
+          const password = String(body.password || "");
+          assertRateLimit(`login:${clientAddress(req)}:${username}`, 40, 5 * 60 * 1000,
+            "Слишком много попыток входа. Подождите немного.");
+          const user = db.prepare("SELECT * FROM users WHERE username = ?").get(username);
+          let valid = false;
+          if (user && user.password_hash.startsWith("scrypt$")) {
+            const [, saltBase64, keyBase64] = user.password_hash.split("$");
+            const expected = Buffer.from(keyBase64, "base64");
+            const actual = Buffer.from(await scrypt(password, Buffer.from(saltBase64, "base64"), expected.length, { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 }));
+            valid = safeEqual(actual, expected);
+          }
+          if (!valid) throw new HttpError(401, "Неверный логин или пароль.");
+          db.prepare("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?").run(user.id);
+          const session = createSession(db, user.id);
+          setSessionCookie(res, session.token, cookieSecure);
+          return sendJson(res, 200, { user: cleanUser(publicUser(db, user.id)), csrfToken: session.csrf });
+        }
+
+        if (pathname === "/api/auth/me" && req.method === "GET") {
+          const session = getSession(db, req);
+          return sendJson(res, 200, session
+            ? { user: cleanUser(publicUser(db, session.user_id)), csrfToken: session.csrf_token }
+            : { user: null, csrfToken: null });
+        }
+
+        if (pathname === "/api/auth/logout" && req.method === "POST") {
+          const session = getSession(db, req);
+          if (session) {
+            assertCsrf(req, session);
+            db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(session.token_hash);
+          }
+          clearSessionCookie(res, cookieSecure);
+          return sendJson(res, 200, { ok: true });
+        }
+
+        const session = getSession(db, req);
+        if (!session) throw new HttpError(401, "Войдите в аккаунт, чтобы продолжить.");
+        const user = publicUser(db, session.user_id);
+        if (req.method !== "GET") assertCsrf(req, session);
+        if (user.status !== "active") throw new HttpError(403, "Аккаунт ожидает одобрения ГКА или приостановлен.");
+        const requiresDiscordLink = requireDiscordLink && user.role !== citizenRole && !user.discord_id;
+        if (requiresDiscordLink && !["/api/discord/status", "/api/discord/link", "/api/auth/logout"].includes(pathname)) {
+          throw new HttpError(403, "Для доступа сотрудника сначала привяжите Discord к аккаунту.");
+        }
+
+        if (pathname === "/api/discord/status" && req.method === "GET") {
+          return sendJson(res, 200, {
+            configured: Boolean(discord.clientId && discord.clientSecret && discord.redirectUri),
+            botConfigured: Boolean(discord.botToken && discord.guildId),
+            linkRequired: requiresDiscordLink,
+            linked: Boolean(user.discord_id),
+            username: user.discord_username || "",
+            avatarUrl: user.discord_avatar_url || "",
+            linkedAt: user.discord_linked_at || null,
+            syncError: user.discord_sync_error || "",
+            nicknameWarning: user.discord_nickname_error || "",
+            presence: user.discord_id ? discordPresenceProvider(user.discord_id) : "offline"
+          });
+        }
+
+        if (pathname === "/api/discord/diagnostics" && req.method === "GET") {
+          if (user.role !== "ГКА") throw new HttpError(403, "Диагностика Discord доступна только ГКА.");
+          let redirectHost = "";
+          let redirectValid = false;
+          try {
+            const callback = new URL(discord.redirectUri);
+            redirectHost = callback.host;
+            redirectValid = callback.pathname === "/api/discord/callback" &&
+              (callback.protocol === "https:" || ["localhost", "127.0.0.1"].includes(callback.hostname));
+          } catch {
+            redirectValid = false;
+          }
+          const webhookState = webhookDispatcher.status();
+          return sendJson(res, 200, {
+            oauth: {
+              configured: Boolean(discord.clientId && discord.clientSecret && discord.redirectUri),
+              clientIdSet: Boolean(discord.clientId),
+              clientSecretSet: Boolean(discord.clientSecret),
+              redirectValid,
+              redirectHost
+            },
+            bot: {
+              configured: Boolean(discord.botToken && discord.guildId),
+              guildConfigured: Boolean(discord.guildId),
+              rolesConfigured: Object.values(discordRoleIds).filter(Boolean).length
+            },
+            webhooks: WEBHOOK_CHANNELS.map((kind) => ({
+              kind,
+              label: webhookChannelLabels[kind],
+              url: describeWebhook(webhooks[kind] || "", kind),
+              ...webhookState[kind]
+            })),
+            queue: { pending: webhookState.pending, queued: webhookState.queued }
+          });
+        }
+
+        if (pathname === "/api/webhooks/status" && req.method === "GET") {
+          if (user.role !== "ГКА") throw new HttpError(403, "Состояние уведомлений доступно только ГКА.");
+          const state = webhookDispatcher.status();
+          return sendJson(res, 200, {
+            pending: state.pending,
+            queued: state.queued,
+            channels: WEBHOOK_CHANNELS.map((kind) => ({
+              kind,
+              label: webhookChannelLabels[kind],
+              url: describeWebhook(webhooks[kind] || "", kind),
+              ...state[kind]
+            }))
+          });
+        }
+
+        if (pathname === "/api/webhooks/test" && req.method === "POST") {
+          if (user.role !== "ГКА") throw new HttpError(403, "Проверку уведомлений может запускать только ГКА.");
+          const body = await readJson(req);
+          const kind = String(body.kind || "");
+          let result;
+          try {
+            result = await webhookDispatcher.test(kind);
+          } catch (error) {
+            throw new HttpError(400, error.message);
+          }
+          const payload = { channel: kind, label: webhookChannelLabels[kind], ...result };
+          if (!result.ok) {
+            throw new HttpError(502, result.warning || "Канал уведомлений не настроен.");
+          }
+          return sendJson(res, 200, payload);
+        }
+
+        if (pathname === "/api/discord/sync" && req.method === "POST") {
+          if (!user.discord_id) throw new HttpError(409, "Сначала привяжите Discord к аккаунту.");
+          const result = await syncDiscordMember(user.id);
+          return sendJson(res, 200, { ok: !result.syncError, ...result });
+        }
+
+        if (pathname === "/api/discord/link" && req.method === "POST") {
+          if (!discord.clientId || !discord.clientSecret || !discord.redirectUri) {
+            throw new HttpError(503, "Владелец портала ещё не настроил Discord OAuth в .env.");
+          }
+          const callback = new URL(discord.redirectUri);
+          if (callback.pathname !== "/api/discord/callback" ||
+              (callback.protocol !== "https:" && !["localhost", "127.0.0.1"].includes(callback.hostname))) {
+            throw new HttpError(503, "DISCORD_REDIRECT_URI должен быть HTTPS URL маршрута /api/discord/callback.");
+          }
+          const state = randomBytes(32).toString("base64url");
+          db.prepare("DELETE FROM discord_link_states WHERE expires_at <= ? OR used_at IS NOT NULL").run(Date.now());
+          db.prepare("INSERT INTO discord_link_states (state_hash,user_id,expires_at) VALUES (?,?,?)")
+            .run(hashToken(state), user.id, Date.now() + 5 * 60 * 1000);
+          const authorizeUrl = new URL("https://discord.com/oauth2/authorize");
+          authorizeUrl.search = new URLSearchParams({
+            client_id: discord.clientId,
+            redirect_uri: discord.redirectUri,
+            response_type: "code",
+            scope: "identify",
+            state
+          }).toString();
+          return sendJson(res, 200, { authorizeUrl: authorizeUrl.toString() });
+        }
+
+        if (pathname === "/api/tasks" && req.method === "GET") {
+          if (user.role === citizenRole) throw new HttpError(403, "Поручения доступны только сотрудникам Коллегии.");
+          const manager = managementRoles.includes(user.role);
+          const rows = db.prepare(`SELECT t.*, creator.display_name AS creator_name,
+              reviewer.display_name AS reviewer_name
+            FROM tasks t
+            JOIN users creator ON creator.id = t.created_by
+            LEFT JOIN users reviewer ON reviewer.id = t.reviewer_id
+            WHERE ? = 1 OR t.created_by = ? OR EXISTS (
+              SELECT 1 FROM task_assignees a WHERE a.task_id = t.id AND a.user_id = ?
+            )
+            ORDER BY CASE t.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
+              CASE WHEN t.due_at IS NULL THEN 1 ELSE 0 END, t.due_at, t.updated_at DESC, t.id DESC
+            LIMIT 300`).all(manager ? 1 : 0, user.id, user.id);
+          return sendJson(res, 200, { tasks: taskListPayload(rows) });
+        }
+
+        if (pathname === "/api/tasks" && req.method === "POST") {
+          if (!managementRoles.includes(user.role)) throw new HttpError(403, "Создавать поручения может только руководство.");
+          const body = requireObject(await readJson(req, 8 * 1024 * 1024));
+          const title = String(body.title || "").trim();
+          const description = String(body.description || "").trim();
+          const priority = String(body.priority || "normal");
+          const dueAt = normalizeDateTime(body.dueAt, "Срок выполнения", { optional: true });
+          if (title.length < 3 || title.length > 150) throw new HttpError(400, "Название поручения должно содержать от 3 до 150 символов.");
+          if (description.length < 4 || description.length > 3000) throw new HttpError(400, "Описание поручения должно содержать от 4 до 3000 символов.");
+          if (!taskPriorities.includes(priority)) throw new HttpError(400, "Неизвестный приоритет поручения.");
+          const assigneeIds = parseStaffIds(db, body.assigneeIds, { maximum: 25 });
+          const attachments = parseApplicationAttachments(body.attachments);
+          let taskId;
+          db.exec("BEGIN IMMEDIATE");
+          try {
+            const result = db.prepare(`INSERT INTO tasks (title,description,priority,due_at,created_by)
+              VALUES (?,?,?,?,?)`).run(title, description, priority, dueAt, user.id);
+            taskId = Number(result.lastInsertRowid);
+            const addAssignee = db.prepare("INSERT INTO task_assignees (task_id,user_id,assigned_by) VALUES (?,?,?)");
+            for (const assigneeId of assigneeIds) addAssignee.run(taskId, assigneeId, user.id);
+            db.prepare(`INSERT INTO task_history (task_id,actor_id,action,to_status,comment)
+              VALUES (?,?,'created','new','Поручение создано.')`).run(taskId, user.id);
+            const addAttachment = db.prepare(`INSERT INTO task_attachments
+              (task_id,uploaded_by,file_name,content_type,content) VALUES (?,?,?,?,?)`);
+            for (const attachment of attachments) {
+              addAttachment.run(taskId, user.id, attachment.name, attachment.contentType, attachment.content);
+            }
+            db.exec("COMMIT");
+          } catch (error) {
+            db.exec("ROLLBACK");
+            throw error;
+          }
+          for (const assigneeId of assigneeIds) {
+            const assignee = db.prepare("SELECT discord_id, discord_avatar_url, display_name, role, username FROM users WHERE id = ?").get(assigneeId);
+            if (assignee?.discord_id) {
+              await sendDiscordDirectMessage(
+                assignee.discord_id,
+                assignee,
+                assignee.discord_avatar_url,
+                "Новое поручение",
+                `Вам назначено поручение **${title}**.\nПриоритет: ${priority}${dueAt ? `\nСрок: ${dueAt}` : ""}`
+              );
+            }
+          }
+          return sendJson(res, 201, { task: taskPayload(db.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId)) });
+        }
+
+        const taskAttachmentRoute = pathname.match(/^\/api\/tasks\/(\d+)\/attachments\/(\d+)$/);
+        if (taskAttachmentRoute && req.method === "GET") {
+          const taskId = Number(taskAttachmentRoute[1]);
+          if (!canAccessTask(user, taskId)) throw new HttpError(404, "Поручение не найдено.");
+          const attachment = db.prepare(`SELECT file_name,content_type,content FROM task_attachments
+            WHERE task_id = ? AND id = ?`).get(taskId, Number(taskAttachmentRoute[2]));
+          if (!attachment) throw new HttpError(404, "Вложение не найдено.");
+          res.writeHead(200, {
+            "content-type": attachment.content_type,
+            "content-length": attachment.content.length,
+            "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(attachment.file_name)}`,
+            "cache-control": "private, no-store",
+            "x-content-type-options": "nosniff"
+          });
+          return res.end(attachment.content);
+        }
+
+        const taskAttachmentUploadRoute = pathname.match(/^\/api\/tasks\/(\d+)\/attachments$/);
+        if (taskAttachmentUploadRoute && req.method === "POST") {
+          const taskId = Number(taskAttachmentUploadRoute[1]);
+          if (!canAccessTask(user, taskId)) throw new HttpError(404, "Поручение не найдено.");
+          const body = requireObject(await readJson(req, 8 * 1024 * 1024));
+          const attachments = parseApplicationAttachments(body.attachments);
+          if (!attachments.length) throw new HttpError(400, "Выберите хотя бы один файл.");
+          const count = Number(db.prepare("SELECT COUNT(*) AS count FROM task_attachments WHERE task_id = ?").get(taskId).count);
+          if (count + attachments.length > 5) throw new HttpError(400, "К одному поручению можно приложить не более пяти файлов.");
+          const insert = db.prepare(`INSERT INTO task_attachments
+            (task_id,uploaded_by,file_name,content_type,content) VALUES (?,?,?,?,?)`);
+          db.exec("BEGIN IMMEDIATE");
+          try {
+            for (const attachment of attachments) {
+              insert.run(taskId, user.id, attachment.name, attachment.contentType, attachment.content);
+            }
+            db.prepare(`INSERT INTO task_history (task_id,actor_id,action,comment)
+              VALUES (?,?,'attachment','Добавлены вложения.')`).run(taskId, user.id);
+            db.prepare("UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(taskId);
+            db.exec("COMMIT");
+          } catch (error) {
+            db.exec("ROLLBACK");
+            throw error;
+          }
+          return sendJson(res, 201, { task: taskPayload(db.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId)) });
+        }
+
+        const taskRoute = pathname.match(/^\/api\/tasks\/(\d+)$/);
+        if (taskRoute && req.method === "GET") {
+          const taskId = Number(taskRoute[1]);
+          if (!canAccessTask(user, taskId)) throw new HttpError(404, "Поручение не найдено.");
+          const task = db.prepare(`SELECT t.*, creator.display_name AS creator_name,
+              reviewer.display_name AS reviewer_name
+            FROM tasks t JOIN users creator ON creator.id = t.created_by
+            LEFT JOIN users reviewer ON reviewer.id = t.reviewer_id WHERE t.id = ?`).get(taskId);
+          if (!task) throw new HttpError(404, "Поручение не найдено.");
+          const history = db.prepare(`SELECT h.*, actor.display_name AS actor_name, actor.role AS actor_role
+            FROM task_history h JOIN users actor ON actor.id = h.actor_id
+            WHERE h.task_id = ? ORDER BY h.id DESC LIMIT 100`).all(taskId);
+          return sendJson(res, 200, { task: taskPayload(task), history });
+        }
+
+        if (taskRoute && req.method === "PATCH") {
+          const taskId = Number(taskRoute[1]);
+          if (!canAccessTask(user, taskId)) throw new HttpError(404, "Поручение не найдено.");
+          const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId);
+          const manager = managementRoles.includes(user.role);
+          const assignee = Boolean(db.prepare("SELECT 1 FROM task_assignees WHERE task_id = ? AND user_id = ?")
+            .get(taskId, user.id));
+          const body = requireObject(await readJson(req, 8 * 1024 * 1024));
+          const comment = String(body.comment || "").trim();
+          if (comment.length > 1000) throw new HttpError(400, "Комментарий не должен превышать 1000 символов.");
+          let nextStatus = task.status;
+          if (body.status !== undefined) {
+            nextStatus = String(body.status);
+            if (!taskStatuses.includes(nextStatus)) throw new HttpError(400, "Неизвестный статус поручения.");
+            if (nextStatus !== task.status) {
+              if (manager) {
+                const reviewDecision = task.status === "review" && ["revision", "completed"].includes(nextStatus);
+                const cancellation = nextStatus === "cancelled" && !["completed", "cancelled"].includes(task.status);
+                if (!reviewDecision && !cancellation) throw new HttpError(409, "Руководство может принять поручение на проверке, вернуть его или отменить.");
+                if (["revision", "completed"].includes(nextStatus) && comment.length < 3) {
+                  throw new HttpError(400, "Для решения по проверке укажите комментарий.");
+                }
+              } else {
+                const allowedTransitions = {
+                  new: ["accepted"],
+                  accepted: ["in_progress"],
+                  in_progress: ["review"],
+                  revision: ["in_progress"]
+                };
+                if (!assignee || !allowedTransitions[task.status]?.includes(nextStatus)) {
+                  throw new HttpError(403, "На этом этапе изменить статус может только назначенный исполнитель.");
+                }
+              }
+            }
+          }
+          let priority = task.priority;
+          let dueAt = task.due_at;
+          let title = task.title;
+          let description = task.description;
+          let assigneeIds;
+          if (!manager && ["priority", "dueAt", "title", "description", "assigneeIds"].some((key) => body[key] !== undefined)) {
+            throw new HttpError(403, "Редактировать параметры поручения может только руководство.");
+          }
+          if (body.priority !== undefined) {
+            priority = String(body.priority);
+            if (!taskPriorities.includes(priority)) throw new HttpError(400, "Неизвестный приоритет поручения.");
+          }
+          if (body.dueAt !== undefined) dueAt = normalizeDateTime(body.dueAt, "Срок выполнения", { optional: true });
+          if (body.title !== undefined) {
+            title = String(body.title).trim();
+            if (title.length < 3 || title.length > 150) throw new HttpError(400, "Название поручения должно содержать от 3 до 150 символов.");
+          }
+          if (body.description !== undefined) {
+            description = String(body.description).trim();
+            if (description.length < 4 || description.length > 3000) throw new HttpError(400, "Описание поручения должно содержать от 4 до 3000 символов.");
+          }
+          if (body.assigneeIds !== undefined) assigneeIds = parseStaffIds(db, body.assigneeIds, { maximum: 25 });
+          const attachments = parseApplicationAttachments(body.attachments);
+          const attachmentCount = Number(db.prepare("SELECT COUNT(*) AS count FROM task_attachments WHERE task_id = ?").get(taskId).count);
+          if (attachmentCount + attachments.length > 5) throw new HttpError(400, "К одному поручению можно приложить не более пяти файлов.");
+          const hasChanges = nextStatus !== task.status || priority !== task.priority || dueAt !== task.due_at ||
+            title !== task.title || description !== task.description || assigneeIds !== undefined ||
+            Boolean(comment) || attachments.length > 0;
+          if (!hasChanges) throw new HttpError(400, "Изменений для сохранения нет.");
+          db.exec("BEGIN IMMEDIATE");
+          try {
+            db.prepare(`UPDATE tasks SET title = ?, description = ?, priority = ?, due_at = ?, status = ?,
+              reviewer_id = ?, review_note = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+              .run(title, description, priority, dueAt, nextStatus,
+                manager && ["revision", "completed"].includes(nextStatus) ? user.id : task.reviewer_id,
+                manager && ["revision", "completed"].includes(nextStatus) ? comment : task.review_note, taskId);
+            if (nextStatus !== task.status) {
+              db.prepare(`INSERT INTO task_history (task_id,actor_id,action,from_status,to_status,comment)
+                VALUES (?,?,'status',?,?,?)`).run(taskId, user.id, task.status, nextStatus, comment);
+            }
+            if (comment && nextStatus === task.status) {
+              db.prepare(`INSERT INTO task_history (task_id,actor_id,action,comment)
+                VALUES (?,?,'comment',?)`).run(taskId, user.id, comment);
+            }
+            if (priority !== task.priority || dueAt !== task.due_at || title !== task.title || description !== task.description) {
+              db.prepare(`INSERT INTO task_history (task_id,actor_id,action,comment)
+                VALUES (?,?,'edited','Параметры поручения обновлены.')`).run(taskId, user.id);
+            }
+            if (assigneeIds !== undefined) {
+              db.prepare("DELETE FROM task_assignees WHERE task_id = ?").run(taskId);
+              const addAssignee = db.prepare("INSERT INTO task_assignees (task_id,user_id,assigned_by) VALUES (?,?,?)");
+              for (const assigneeId of assigneeIds) addAssignee.run(taskId, assigneeId, user.id);
+              db.prepare(`INSERT INTO task_history (task_id,actor_id,action,comment)
+                VALUES (?,?,'assignees','Список исполнителей обновлён.')`).run(taskId, user.id);
+            }
+            if (attachments.length) {
+              const addAttachment = db.prepare(`INSERT INTO task_attachments
+                (task_id,uploaded_by,file_name,content_type,content) VALUES (?,?,?,?,?)`);
+              for (const attachment of attachments) {
+                addAttachment.run(taskId, user.id, attachment.name, attachment.contentType, attachment.content);
+              }
+              db.prepare(`INSERT INTO task_history (task_id,actor_id,action,comment)
+                VALUES (?,?,'attachment','Добавлены вложения.')`).run(taskId, user.id);
+            }
+            db.exec("COMMIT");
+          } catch (error) {
+            db.exec("ROLLBACK");
+            throw error;
+          }
+          const updated = db.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId);
+          return sendJson(res, 200, { task: taskPayload(updated) });
+        }
+
+        if (pathname === "/api/calendar" && req.method === "GET") {
+          if (user.role === citizenRole) throw new HttpError(403, "Календарь доступен только сотрудникам Коллегии.");
+          const manager = managementRoles.includes(user.role);
+          const includeArchived = requestUrl.searchParams.get("archived") === "1";
+          if (includeArchived && user.role !== "ГКА") throw new HttpError(403, "Архив календаря доступен только ГКА.");
+          const rows = db.prepare(`SELECT e.*, responsible.display_name AS responsible_name,
+              creator.display_name AS creator_name
+            FROM calendar_events e
+            JOIN users responsible ON responsible.id = e.responsible_id
+            JOIN users creator ON creator.id = e.created_by
+            WHERE (? = 1 OR e.archived_at IS NULL) AND (? = 1 OR e.is_all_staff = 1 OR e.created_by = ? OR e.responsible_id = ?
+              OR EXISTS (SELECT 1 FROM calendar_event_participants p WHERE p.event_id = e.id AND p.user_id = ?))
+            ORDER BY CASE WHEN e.status = 'scheduled' THEN 0 ELSE 1 END, e.starts_at, e.id
+            LIMIT 300`).all(includeArchived ? 1 : 0, manager ? 1 : 0, user.id, user.id, user.id);
+          return sendJson(res, 200, { events: calendarEventListPayload(rows) });
+        }
+
+        if (pathname === "/api/calendar" && req.method === "POST") {
+          if (!managementRoles.includes(user.role)) throw new HttpError(403, "Создавать мероприятия может только руководство.");
+          const body = requireObject(await readJson(req));
+          const eventType = String(body.eventType || "");
+          const title = String(body.title || "").trim();
+          const description = String(body.description || "").trim();
+          const startsAt = normalizeDateTime(body.startsAt, "Дата мероприятия");
+          const responsibleId = Number(body.responsibleId);
+          if (body.isAllStaff !== undefined && typeof body.isAllStaff !== "boolean") {
+            throw new HttpError(400, "Параметр показа всем сотрудникам должен быть логическим значением.");
+          }
+          const isAllStaff = body.isAllStaff === true;
+          if (!calendarEventTypes.includes(eventType)) throw new HttpError(400, "Выберите тип мероприятия.");
+          if (title.length < 3 || title.length > 150) throw new HttpError(400, "Название должно содержать от 3 до 150 символов.");
+          if (description.length > 2000) throw new HttpError(400, "Описание не должно превышать 2000 символов.");
+          const responsible = parseStaffIds(db, [responsibleId], { maximum: 1 })[0];
+          const participantIds = parseStaffIds(db, body.participantIds ?? [], { required: false });
+          const participants = [...new Set([responsible, ...participantIds])];
+          let eventId;
+          db.exec("BEGIN IMMEDIATE");
+          try {
+            const result = db.prepare(`INSERT INTO calendar_events
+              (event_type,title,description,starts_at,is_all_staff,responsible_id,created_by)
+              VALUES (?,?,?,?,?,?,?)`).run(eventType, title, description, startsAt, isAllStaff ? 1 : 0, responsible, user.id);
+            eventId = Number(result.lastInsertRowid);
+            const addParticipant = db.prepare("INSERT INTO calendar_event_participants (event_id,user_id,added_by) VALUES (?,?,?)");
+            for (const participantId of participants) addParticipant.run(eventId, participantId, user.id);
+            db.exec("COMMIT");
+          } catch (error) {
+            db.exec("ROLLBACK");
+            throw error;
+          }
+          const event = db.prepare(`SELECT e.*, responsible.display_name AS responsible_name,
+              creator.display_name AS creator_name FROM calendar_events e
+            JOIN users responsible ON responsible.id = e.responsible_id
+            JOIN users creator ON creator.id = e.created_by WHERE e.id = ?`).get(eventId);
+          return sendJson(res, 201, { event: calendarEventPayload(event) });
+        }
+
+        const calendarRoute = pathname.match(/^\/api\/calendar\/(\d+)$/);
+        if (calendarRoute && req.method === "GET") {
+          const eventId = Number(calendarRoute[1]);
+          if (!canAccessCalendarEvent(user, eventId)) throw new HttpError(404, "Мероприятие не найдено.");
+          const event = db.prepare(`SELECT e.*, responsible.display_name AS responsible_name,
+              creator.display_name AS creator_name FROM calendar_events e
+            JOIN users responsible ON responsible.id = e.responsible_id
+            JOIN users creator ON creator.id = e.created_by WHERE e.id = ?`).get(eventId);
+          if (!event) throw new HttpError(404, "Мероприятие не найдено.");
+          return sendJson(res, 200, { event: calendarEventPayload(event) });
+        }
+
+        if (calendarRoute && req.method === "PATCH") {
+          if (!managementRoles.includes(user.role)) throw new HttpError(403, "Изменять мероприятия может только руководство.");
+          const eventId = Number(calendarRoute[1]);
+          const event = db.prepare("SELECT * FROM calendar_events WHERE id = ?").get(eventId);
+          if (!event) throw new HttpError(404, "Мероприятие не найдено.");
+          const body = requireObject(await readJson(req));
+          const eventType = body.eventType === undefined ? event.event_type : String(body.eventType);
+          const title = body.title === undefined ? event.title : String(body.title).trim();
+          const description = body.description === undefined ? event.description : String(body.description).trim();
+          const startsAt = body.startsAt === undefined ? event.starts_at : normalizeDateTime(body.startsAt, "Дата мероприятия");
+          const status = body.status === undefined ? event.status : String(body.status);
+          if (body.isAllStaff !== undefined && typeof body.isAllStaff !== "boolean") {
+            throw new HttpError(400, "Параметр показа всем сотрудникам должен быть логическим значением.");
+          }
+          const isAllStaff = body.isAllStaff === undefined ? Boolean(event.is_all_staff) : body.isAllStaff === true;
+          let responsibleId = event.responsible_id;
+          if (body.responsibleId !== undefined) responsibleId = parseStaffIds(db, [body.responsibleId], { maximum: 1 })[0];
+          if (!calendarEventTypes.includes(eventType)) throw new HttpError(400, "Неизвестный тип мероприятия.");
+          if (title.length < 3 || title.length > 150) throw new HttpError(400, "Название должно содержать от 3 до 150 символов.");
+          if (description.length > 2000) throw new HttpError(400, "Описание не должно превышать 2000 символов.");
+          if (!["scheduled", "completed", "cancelled"].includes(status)) throw new HttpError(400, "Неизвестный статус мероприятия.");
+          let participantIds;
+          if (body.participantIds !== undefined) {
+            participantIds = parseStaffIds(db, body.participantIds, { required: false });
+            participantIds = [...new Set([responsibleId, ...participantIds])];
+          } else if (body.responsibleId !== undefined) {
+            const currentParticipants = db.prepare("SELECT user_id FROM calendar_event_participants WHERE event_id = ?")
+              .all(eventId).map((participant) => participant.user_id);
+            participantIds = [...new Set([responsibleId, ...currentParticipants])];
+          }
+          db.exec("BEGIN IMMEDIATE");
+          try {
+            db.prepare(`UPDATE calendar_events SET event_type=?,title=?,description=?,starts_at=?,status=?,
+              is_all_staff=?,responsible_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+              .run(eventType, title, description, startsAt, status, isAllStaff ? 1 : 0, responsibleId, eventId);
+            if (participantIds !== undefined) {
+              db.prepare("DELETE FROM calendar_event_participants WHERE event_id = ?").run(eventId);
+              const addParticipant = db.prepare("INSERT INTO calendar_event_participants (event_id,user_id,added_by) VALUES (?,?,?)");
+              for (const participantId of participantIds) addParticipant.run(eventId, participantId, user.id);
+            }
+            db.exec("COMMIT");
+          } catch (error) {
+            db.exec("ROLLBACK");
+            throw error;
+          }
+          const updated = db.prepare(`SELECT e.*, responsible.display_name AS responsible_name,
+              creator.display_name AS creator_name FROM calendar_events e
+            JOIN users responsible ON responsible.id = e.responsible_id
+            JOIN users creator ON creator.id = e.created_by WHERE e.id = ?`).get(eventId);
+          return sendJson(res, 200, { event: calendarEventPayload(updated) });
+        }
+
+        if (pathname === "/api/promotion-requirements" && req.method === "GET") {
+          const settings = db.prepare("SELECT lawyer_calls_required, updated_at FROM promotion_settings WHERE id = 1").get();
+          return sendJson(res, 200, {
+            lawyerCallsRequired: Number(settings.lawyer_calls_required),
+            updatedAt: settings.updated_at
+          });
+        }
+
+        if (pathname === "/api/promotion-requirements" && req.method === "PATCH") {
+          if (!["ГКА", "ЗГКА"].includes(user.role)) throw new HttpError(403, "Менять норму вызовов может только руководство.");
+          const body = await readJson(req);
+          const lawyerCallsRequired = Number(body.lawyerCallsRequired);
+          if (!Number.isInteger(lawyerCallsRequired) || lawyerCallsRequired < 1 || lawyerCallsRequired > 100) {
+            throw new HttpError(400, "Укажите от 1 до 100 вызовов.");
+          }
+          db.prepare(`UPDATE promotion_settings SET lawyer_calls_required = ?, updated_by = ?,
+            updated_at = CURRENT_TIMESTAMP WHERE id = 1`).run(lawyerCallsRequired, user.id);
+          return sendJson(res, 200, { lawyerCallsRequired });
+        }
+
+        if (pathname === "/api/exams/start" && req.method === "POST") {
+          if (!examBank[user.role] || !nextRank[user.role]) {
+            throw new HttpError(403, "Для вашей роли нет программы повышения на портале.");
+          }
+          const body = await readJson(req);
+          if (body.studyConfirmed !== true) throw new HttpError(400, "Сначала ознакомьтесь с материалами подготовки.");
+          let application = db.prepare(`SELECT id FROM applications
+            WHERE user_id = ? AND type = 'exam' AND stage_role = ? AND status = 'pending'
+            ORDER BY id DESC LIMIT 1`).get(user.id, user.role);
+          if (application) {
+            const result = db.prepare("SELECT passed FROM exam_results WHERE application_id = ? ORDER BY id DESC LIMIT 1")
+              .get(application.id);
+            if (result?.passed) throw new HttpError(409, "Тест уже сдан. Продолжите следующий шаг заявки.");
+            db.prepare("UPDATE applications SET study_read_at = COALESCE(study_read_at, CURRENT_TIMESTAMP) WHERE id = ?")
+              .run(application.id);
+            return sendJson(res, 200, { applicationId: application.id });
+          }
+          const promotionData = user.role === "Стажер КА" ? { lectureAttended: true } : {};
+          const created = db.prepare(`INSERT INTO applications
+            (user_id, type, requested_role, stage_role, study_read_at, interview_status, career_flow, details, promotion_data_json)
+            VALUES (?, 'exam', ?, ?, CURRENT_TIMESTAMP, ?, 1, ?, ?)`)
+            .run(user.id, nextRank[user.role], user.role,
+              user.role === "Стажер КА" ? "not_required" : "waiting",
+              `Самостоятельный экзамен: ${user.role} → ${nextRank[user.role]}.`, JSON.stringify(promotionData));
+          const applicationId = Number(created.lastInsertRowid);
+          const webhookWarning = await deliverWebhook(webhooks.applications, "Начат этап повышения",
+            `${user.display_name} (${user.role}) открыл материалы и начал подготовку к тесту.`,
+            [
+              { name: "Участник", value: user.display_name, inline: true },
+              { name: "Этап", value: `${user.role} → ${nextRank[user.role]}`, inline: true },
+              { name: "Заявка", value: `#${applicationId}`, inline: true }
+            ]);
+          return sendJson(res, 201, { applicationId, webhookWarning });
+        }
+
+        if (pathname === "/api/applications" && req.method === "GET") {
+          const includeArchived = requestUrl.searchParams.get("archived") === "1";
+          if (includeArchived && user.role !== "ГКА") throw new HttpError(403, "Архив заявок доступен только ГКА.");
+          let rows = db.prepare(`SELECT a.*, u.display_name, u.username, u.role AS current_role,
+              u.discord_username AS applicant_discord_username,
+              assigned.id AS assigned_user_id,
+              assigned.display_name AS assigned_name,
+              assigned.discord_username AS assigned_discord_username,
+              requested.display_name AS requested_lawyer_name,
+              (SELECT rating FROM lawyer_reviews r WHERE r.application_id = a.id AND r.reviewer_id = ?) AS my_rating,
+              (SELECT comment FROM lawyer_reviews r WHERE r.application_id = a.id AND r.reviewer_id = ?) AS my_review
+            FROM applications a JOIN users u ON u.id = a.user_id
+            LEFT JOIN users assigned ON assigned.id = a.assigned_to
+            LEFT JOIN users requested ON requested.id = a.requested_lawyer_id
+            WHERE (? = 1 OR a.archived_at IS NULL)
+            ORDER BY a.created_at DESC LIMIT 300`).all(user.id, user.id, includeArchived ? 1 : 0);
+          if (!["ГКА", "ЗГКА"].includes(user.role)) {
+            const citizenCase = (item) => ["citizen_help", "citizen_complaint"].includes(item.type);
+            if (user.role === "Ст.Адвокат") rows = rows.filter((item) =>
+              item.type === "practice" || item.type === "training" || citizenCase(item) || item.user_id === user.id);
+            else if (user.role === "Адвокат") rows = rows.filter((item) => item.type === "practice" || citizenCase(item) || item.user_id === user.id);
+            else rows = rows.filter((item) => item.user_id === user.id);
+          }
+          rows = rows.map((item) => ({
+            ...item,
+            applicant_discord_username: item.user_id === user.id || item.assigned_to === user.id ||
+              ["ГКА", "ЗГКА"].includes(user.role) ? item.applicant_discord_username : "",
+            promotion_data: parseStoredJson(item.promotion_data_json, "отчёт о повышении"),
+            review_data: parseStoredJson(item.review_data_json, "проверка заявки"),
+            attachments: db.prepare(`SELECT id, file_name, content_type, length(content) AS size
+              FROM application_attachments WHERE application_id = ? ORDER BY id`).all(item.id)
+          }));
+          return sendJson(res, 200, { applications: rows });
+        }
+
+        if (pathname === "/api/applications" && req.method === "POST") {
+          const body = await readJson(req, 7 * 1024 * 1024);
+          const type = String(body.type || "");
+          const details = String(body.details || "").trim();
+          if (!roleActions[user.role]?.includes(type)) throw new HttpError(403, "Этот тип заявки недоступен для вашей роли.");
+          if (details.length < 4 || details.length > 2000) throw new HttpError(400, "Описание должно содержать от 4 до 2000 символов.");
+          const passportId = String(body.passportId || "").trim();
+          if (passportId.length > 40) throw new HttpError(400, "Номер паспорта не должен превышать 40 символов.");
+          const requestedRole = type === "promotion" ? nextRank[user.role] : null;
+          if (type === "promotion" && !requestedRole) throw new HttpError(403, "Для вашей роли повышение по заявке не предусмотрено.");
+          const promotionData = {};
+          if (type === "employment") {
+            const discordUsername = String(body.discordUsername || "").trim();
+            const gtaName = String(body.gtaName || "").trim();
+            if (!/^[a-zA-Z0-9._]{2,32}$/.test(discordUsername)) {
+              throw new HttpError(400, "Укажите Discord-ник: 2–32 символа, латиница, цифры, точка или подчёркивание.");
+            }
+            if (gtaName.length < 2 || gtaName.length > 80) {
+              throw new HttpError(400, "Укажите игровое имя GTA 5 RP длиной от 2 до 80 символов.");
+            }
+            if (passportId.length < 1) throw new HttpError(400, "Укажите номер паспорта персонажа GTA 5 RP.");
+            promotionData.discordUsername = discordUsername;
+            promotionData.gtaName = gtaName;
+          } else if (type === "exam" && user.role === "Стажер КА") {
+            if (body.promotionData?.lectureAttended !== true) {
+              throw new HttpError(400, "Перед заявкой подтвердите, что прослушали лекцию руководящего состава.");
+            }
+            promotionData.lectureAttended = true;
+          } else if (type === "exam" && user.role === "Юрист") {
+            const requiredCalls = Number(db.prepare("SELECT lawyer_calls_required FROM promotion_settings WHERE id = 1").get().lawyer_calls_required);
+            if (!requiredCalls) throw new HttpError(409, "ГКА ещё не установил необходимое число вызовов для юриста.");
+            const completedCalls = Number(body.promotionData?.completedCalls);
+            const trialLawsuitReference = String(body.promotionData?.trialLawsuitReference || "").trim();
+            if (!Number.isInteger(completedCalls) || completedCalls < requiredCalls) {
+              throw new HttpError(400, `Для заявки нужно отработать не менее ${requiredCalls} вызовов.`);
+            }
+            if (trialLawsuitReference.length < 3 || trialLawsuitReference.length > 300) {
+              throw new HttpError(400, "Укажите ссылку или номер пробного искового заявления.");
+            }
+            promotionData.completedCalls = completedCalls;
+            promotionData.requiredCalls = requiredCalls;
+            promotionData.trialLawsuitReference = trialLawsuitReference;
+          } else if (type === "promotion" && user.role === "Адвокат") {
+            const completedCalls = Number(body.promotionData?.completedCalls);
+            const callsWithLawyer = Number(body.promotionData?.callsWithLawyer);
+            const acceptedLawsuitReference = String(body.promotionData?.acceptedLawsuitReference || "").trim();
+            if (!Number.isInteger(completedCalls) || completedCalls < 25) {
+              throw new HttpError(400, "Для повышения до старшего адвоката требуется не менее 25 вызовов.");
+            }
+            if (!Number.isInteger(callsWithLawyer) || callsWithLawyer < 5 || callsWithLawyer > completedCalls) {
+              throw new HttpError(400, "Укажите не менее 5 вызовов, отработанных совместно с юристом.");
+            }
+            if (acceptedLawsuitReference.length < 3 || acceptedLawsuitReference.length > 300) {
+              throw new HttpError(400, "Укажите номер или ссылку на принятое исковое заявление.");
+            }
+            const approvedExam = db.prepare(`SELECT review_data_json FROM applications
+              WHERE user_id = ? AND type = 'exam' AND status = 'approved' ORDER BY reviewed_at DESC`).all(user.id)
+              .some((application) => parseStoredJson(application.review_data_json, "проверка экзамена").stage === "Адвокат");
+            if (!approvedExam) throw new HttpError(409, "Сначала пройдите тест и получите одобрение проверки знаний.");
+            promotionData.completedCalls = completedCalls;
+            promotionData.callsWithLawyer = callsWithLawyer;
+            promotionData.acceptedLawsuitReference = acceptedLawsuitReference;
+          }
+          const attachments = parseApplicationAttachments(body.attachments);
+          let requestedLawyerId = null;
+          if (["citizen_help", "citizen_complaint"].includes(type) && body.lawyerId !== undefined && body.lawyerId !== null && body.lawyerId !== "") {
+            requestedLawyerId = Number(body.lawyerId);
+            if (!Number.isSafeInteger(requestedLawyerId) ||
+                !db.prepare("SELECT id FROM users WHERE id = ? AND status = 'active' AND role IN ('Адвокат','Ст.Адвокат')").get(requestedLawyerId)) {
+              throw new HttpError(400, "Выбранный адвокат недоступен. Обновите список и выберите другого.");
+            }
+          }
+          const pending = db.prepare("SELECT id FROM applications WHERE user_id = ? AND type = ? AND status = 'pending'").get(user.id, type);
+          if (pending) throw new HttpError(409, "У вас уже есть такая заявка на рассмотрении.");
+          const title = type === "promotion" ? `Заявка на повышение: ${requestedRole}` : applicationNames[type];
+          db.exec("BEGIN");
+          let created;
+          try {
+            created = db.prepare(`INSERT INTO applications
+              (user_id, type, requested_role, stage_role, study_read_at, details, requested_lawyer_id, passport_id, promotion_data_json)
+              VALUES (?, ?, ?, ?, CASE WHEN ? = 'exam' THEN CURRENT_TIMESTAMP ELSE NULL END, ?, ?, ?, ?)`)
+              .run(user.id, type, requestedRole, type === "exam" ? user.role : "", type,
+                details, requestedLawyerId, passportId, JSON.stringify(promotionData));
+            const insertAttachment = db.prepare(`INSERT INTO application_attachments
+              (application_id, file_name, content_type, content) VALUES (?, ?, ?, ?)`);
+            for (const attachment of attachments) {
+              insertAttachment.run(Number(created.lastInsertRowid), attachment.name, attachment.contentType, attachment.content);
+            }
+            db.prepare(`INSERT INTO application_history (application_id, actor_id, event_type, details)
+              VALUES (?, ?, 'created', ?)`)
+              .run(Number(created.lastInsertRowid), user.id, `Заявка создана: ${title}.`);
+            db.exec("COMMIT");
+          } catch (error) {
+            db.exec("ROLLBACK");
+            throw error;
+          }
+          const appId = Number(created.lastInsertRowid);
+          const webhookWarning = await deliverWebhook(
+            webhooks.applications,
+            `Новая заявка: ${title}`,
+            `${user.display_name} (${user.role})\n${details}`,
+            type === "promotion" ? [
+              { name: "Участник", value: user.display_name, inline: true },
+              { name: "Текущая роль", value: user.role, inline: true },
+              { name: "Запрашиваемая роль", value: requestedRole, inline: true },
+              { name: "Отчёт", value: details.slice(0, 1000), inline: false },
+              { name: "Вызовы", value: `${promotionData.completedCalls} всего · ${promotionData.callsWithLawyer} с юристом`, inline: true },
+              { name: "Принятый иск", value: promotionData.acceptedLawsuitReference, inline: false },
+              { name: "Вложения", value: attachments.map((attachment) => attachment.name).join(", ") || "нет", inline: false }
+            ] : type === "employment" ? [
+              { name: "🎮 Discord", value: `@${promotionData.discordUsername}`, inline: true },
+              { name: "👤 Имя в GTA 5 RP", value: promotionData.gtaName, inline: true },
+              { name: "Аккаунт портала", value: `#${user.id}`, inline: true }
+            ] : requestedLawyerId ? [
+              { name: "Выбранный адвокат", value: db.prepare("SELECT display_name FROM users WHERE id = ?").get(requestedLawyerId).display_name, inline: true }
+            ] : [
+              { name: "Паспорт персонажа", value: passportId || "не указан", inline: true },
+              { name: "Вложения", value: attachments.map((attachment) => attachment.name).join(", ") || "нет", inline: false }
+            ]
+          );
+          return sendJson(res, 201, { id: appId, webhookWarning });
+        }
+
+        const interviewRoute = pathname.match(/^\/api\/applications\/(\d+)\/interview$/);
+        if (interviewRoute && req.method === "PATCH") {
+          const item = db.prepare("SELECT * FROM applications WHERE id = ?").get(Number(interviewRoute[1]));
+          if (!item || item.user_id !== user.id || item.type !== "exam" || !item.career_flow) {
+            throw new HttpError(404, "Этап повышения не найден.");
+          }
+          if (item.stage_role === "Стажер КА") throw new HttpError(409, "Стажёру не требуется обзвон.");
+          if (item.status !== "pending" ||
+              !db.prepare("SELECT passed FROM exam_results WHERE application_id = ? ORDER BY id DESC LIMIT 1").get(item.id)?.passed) {
+            throw new HttpError(409, "Сначала успешно сдайте тест.");
+          }
+          const body = await readJson(req);
+          if (!["ready", "waiting"].includes(body.status)) {
+            throw new HttpError(400, "Выберите готовность к обзвону или ожидание.");
+          }
+          if (item.interview_status !== body.status) {
+            db.prepare(`UPDATE applications SET interview_status = ?,
+              interview_ready_at = CASE WHEN ? = 'ready' THEN CURRENT_TIMESTAMP ELSE NULL END WHERE id = ?`)
+              .run(body.status, body.status, item.id);
+            const state = body.status === "ready" ? "готов к обзвону" : "пока не может пройти обзвон";
+            const logWarning = await deliverWebhook(webhooks.logs, "Готовность к обзвону",
+              `${user.display_name} (${item.stage_role}) ${state} на этапе повышения до ${item.requested_role}.`,
+              [
+                { name: "Участник", value: user.display_name, inline: true },
+                { name: "Этап", value: `${item.stage_role} → ${item.requested_role || "следующий ранг"}`, inline: true },
+                { name: "Состояние", value: body.status === "ready" ? "Готов сейчас" : "Ожидает удобного времени", inline: true },
+                { name: "Заявка", value: `#${item.id}`, inline: true }
+              ]);
+            return sendJson(res, 200, { ok: true, interviewStatus: body.status, logWarning });
+          }
+          return sendJson(res, 200, { ok: true, interviewStatus: item.interview_status });
+        }
+
+        const promotionDataRoute = pathname.match(/^\/api\/applications\/(\d+)\/promotion-data$/);
+        if (promotionDataRoute && req.method === "PATCH") {
+          const item = db.prepare("SELECT * FROM applications WHERE id = ?").get(Number(promotionDataRoute[1]));
+          if (!item || item.user_id !== user.id || item.type !== "exam" ||
+              !item.career_flow || item.stage_role !== "Юрист") {
+            throw new HttpError(404, "Отчёт по этапу повышения не найден.");
+          }
+          if (item.status !== "pending" ||
+              !db.prepare("SELECT passed FROM exam_results WHERE application_id = ? ORDER BY id DESC LIMIT 1").get(item.id)?.passed) {
+            throw new HttpError(409, "Сначала успешно сдайте тест.");
+          }
+          const body = await readJson(req);
+          const requiredCalls = Number(db.prepare("SELECT lawyer_calls_required FROM promotion_settings WHERE id = 1")
+            .get().lawyer_calls_required);
+          const completedCalls = Number(body.completedCalls);
+          const trialLawsuitReference = String(body.trialLawsuitReference || "").trim();
+          if (!requiredCalls) throw new HttpError(409, "Руководство ещё не установило норму вызовов для юриста.");
+          if (!Number.isInteger(completedCalls) || completedCalls < requiredCalls) {
+            throw new HttpError(400, `Укажите не менее ${requiredCalls} отработанных вызовов.`);
+          }
+          if (trialLawsuitReference.length < 3 || trialLawsuitReference.length > 300) {
+            throw new HttpError(400, "Укажите ссылку или номер пробного искового заявления.");
+          }
+          const promotionData = parseStoredJson(item.promotion_data_json, "отчёт о повышении");
+          promotionData.completedCalls = completedCalls;
+          promotionData.requiredCalls = requiredCalls;
+          promotionData.trialLawsuitReference = trialLawsuitReference;
+          db.prepare("UPDATE applications SET promotion_data_json = ? WHERE id = ?")
+            .run(JSON.stringify(promotionData), item.id);
+          return sendJson(res, 200, { ok: true });
+        }
+
+        const chatRoute = pathname.match(/^\/api\/applications\/(\d+)\/messages$/);
+        if (chatRoute && req.method === "GET") {
+          const item = db.prepare("SELECT id, user_id, assigned_to, completed_at FROM applications WHERE id = ?")
+            .get(Number(chatRoute[1]));
+          const manager = ["ГКА", "ЗГКА"].includes(user.role);
+          if (!item || (item.user_id !== user.id && item.assigned_to !== user.id && !manager)) {
+            throw new HttpError(404, "Чат обращения не найден.");
+          }
+          if (!item.assigned_to) throw new HttpError(409, "Чат откроется после того, как адвокат возьмёт обращение.");
+          const messages = db.prepare(`SELECT m.id, m.kind, m.message, m.created_at,
+              m.sender_id, sender.display_name AS sender_name, sender.role AS sender_role,
+              sender.discord_username AS sender_discord_username
+            FROM application_messages m JOIN users sender ON sender.id = m.sender_id
+            WHERE m.application_id = ? ORDER BY m.id DESC LIMIT 200`).all(item.id).reverse();
+          return sendJson(res, 200, {
+            applicationId: item.id,
+            completed: Boolean(item.completed_at),
+            canClose: item.assigned_to === user.id && !item.completed_at,
+            messages
+          });
+        }
+        if (chatRoute && req.method === "POST") {
+          const item = db.prepare("SELECT id, user_id, assigned_to, completed_at FROM applications WHERE id = ?")
+            .get(Number(chatRoute[1]));
+          if (!item || (item.user_id !== user.id && item.assigned_to !== user.id)) {
+            throw new HttpError(404, "Чат обращения не найден.");
+          }
+          if (!item.assigned_to || item.completed_at) throw new HttpError(409, "Чат закрыт или ещё не назначен.");
+          const body = await readJson(req);
+          const message = String(body.message || "").trim();
+          if (message.length < 1 || message.length > 2000) throw new HttpError(400, "Сообщение должно содержать от 1 до 2000 символов.");
+          const result = db.prepare(`INSERT INTO application_messages
+            (application_id, sender_id, kind, message) VALUES (?, ?, 'message', ?)`)
+            .run(item.id, user.id, message);
+          const recipient = item.user_id === user.id
+            ? db.prepare("SELECT display_name FROM users WHERE id = ?").get(item.assigned_to).display_name
+            : db.prepare("SELECT display_name FROM users WHERE id = ?").get(item.user_id).display_name;
+          const recipientAccount = item.user_id === user.id
+            ? db.prepare("SELECT discord_id, discord_avatar_url, display_name, role, username FROM users WHERE id = ?").get(item.assigned_to)
+            : db.prepare("SELECT discord_id, discord_avatar_url, display_name, role, username FROM users WHERE id = ?").get(item.user_id);
+          if (recipientAccount?.discord_id) {
+            await sendDiscordDirectMessage(
+              recipientAccount.discord_id,
+              recipientAccount,
+              recipientAccount.discord_avatar_url,
+              `Ответ по обращению #${item.id}`,
+              `${user.display_name}: ${message}`
+            );
+          }
+          const webhookWarning = await deliverWebhook(webhooks.applications, "Сообщение по обращению",
+            `${user.display_name} отправил сообщение в обращении #${item.id}.`,
+            [
+              { name: "Отправитель", value: user.display_name, inline: true },
+              { name: "Получатель", value: recipient, inline: true },
+              { name: "Обращение", value: `#${item.id}`, inline: true }
+            ]);
+          return sendJson(res, 201, { id: Number(result.lastInsertRowid), webhookWarning });
+        }
+
+        const contactRoute = pathname.match(/^\/api\/applications\/(\d+)\/contact$/);
+        if (contactRoute && req.method === "POST") {
+          const item = db.prepare("SELECT id, user_id, assigned_to, completed_at FROM applications WHERE id = ?")
+            .get(Number(contactRoute[1]));
+          if (!item || (item.user_id !== user.id && item.assigned_to !== user.id)) {
+            throw new HttpError(404, "Чат обращения не найден.");
+          }
+          if (!item.assigned_to || item.completed_at) throw new HttpError(409, "Передать контакт можно только в открытом обращении.");
+          const body = await readJson(req);
+          if (!["contact", "discord"].includes(body.type)) {
+            throw new HttpError(400, "Выберите передачу контакта Discord.");
+          }
+          const discordUsername = String(user.discord_username || "").trim();
+          const alias = discordUsername.toLowerCase().replace(/[^a-z0-9._]/g, "").slice(0, 32);
+          if (!user.discord_id || !alias) throw new HttpError(409, "Сначала привяжите Discord в профиле.");
+          const message = `Контакт для связи: ${alias}@sa.com (Discord: ${discordUsername})`;
+          const result = db.prepare(`INSERT INTO application_messages
+            (application_id, sender_id, kind, message) VALUES (?, ?, 'contact', ?)`)
+            .run(item.id, user.id, message);
+          return sendJson(res, 201, { id: Number(result.lastInsertRowid) });
+        }
+
+        const attachmentRoute = pathname.match(/^\/api\/applications\/(\d+)\/attachments\/(\d+)$/);
+        if (attachmentRoute && req.method === "GET") {
+          const applicationId = Number(attachmentRoute[1]);
+          const attachmentId = Number(attachmentRoute[2]);
+          const application = db.prepare("SELECT id, user_id, assigned_to FROM applications WHERE id = ?").get(applicationId);
+          if (!application || (application.user_id !== user.id && application.assigned_to !== user.id &&
+              !["ГКА", "ЗГКА"].includes(user.role))) {
+            throw new HttpError(404, "Вложение не найдено.");
+          }
+          const attachment = db.prepare(`SELECT file_name, content_type, content
+            FROM application_attachments WHERE id = ? AND application_id = ?`).get(attachmentId, applicationId);
+          if (!attachment) throw new HttpError(404, "Вложение не найдено.");
+          const fallbackName = attachment.file_name.replace(/[^A-Za-z0-9._-]/g, "_") || "attachment";
+          res.writeHead(200, {
+            "content-type": attachment.content_type,
+            "content-length": attachment.content.length,
+            "content-disposition": `attachment; filename="${fallbackName}"; filename*=UTF-8''${encodeURIComponent(attachment.file_name)}`,
+            "cache-control": "private, no-store",
+            "x-content-type-options": "nosniff"
+          });
+          return res.end(attachment.content);
+        }
+
+        const applicationHistoryRoute = pathname.match(/^\/api\/applications\/(\d+)\/history$/);
+        if (applicationHistoryRoute && req.method === "GET") {
+          const item = db.prepare("SELECT id, user_id, assigned_to FROM applications WHERE id = ?")
+            .get(Number(applicationHistoryRoute[1]));
+          if (!item || (item.user_id !== user.id && item.assigned_to !== user.id &&
+              !["ГКА", "ЗГКА"].includes(user.role))) {
+            throw new HttpError(404, "История обращения не найдена.");
+          }
+          const history = db.prepare(`SELECT h.id, h.event_type, h.details, h.created_at,
+              actor.display_name AS actor_name, actor.role AS actor_role
+            FROM application_history h LEFT JOIN users actor ON actor.id = h.actor_id
+            WHERE h.application_id = ? ORDER BY h.id`).all(item.id);
+          return sendJson(res, 200, { history });
+        }
+
+        const applicationWorkflowRoute = pathname.match(/^\/api\/applications\/(\d+)\/workflow$/);
+        if (applicationWorkflowRoute && req.method === "PATCH") {
+          if (!["ГКА", "ЗГКА"].includes(user.role)) {
+            throw new HttpError(403, "Менять приоритет и срок обращения может только руководство.");
+          }
+          const item = db.prepare("SELECT id, type, status, completed_at, priority, due_at FROM applications WHERE id = ?")
+            .get(Number(applicationWorkflowRoute[1]));
+          if (!item || !["citizen_help", "citizen_complaint"].includes(item.type)) {
+            throw new HttpError(404, "Обращение гражданина не найдено.");
+          }
+          if (item.completed_at || item.status === "rejected") {
+            throw new HttpError(409, "Срок и приоритет закрытого обращения нельзя менять.");
+          }
+          const body = await readJson(req);
+          const priority = String(body.priority || "");
+          const dueAt = body.dueAt === null || body.dueAt === "" ? null : String(body.dueAt || "");
+          if (!["low", "normal", "high", "urgent"].includes(priority)) {
+            throw new HttpError(400, "Выберите допустимый приоритет обращения.");
+          }
+          if (dueAt && (dueAt.length > 40 || Number.isNaN(Date.parse(dueAt)))) {
+            throw new HttpError(400, "Укажите корректный срок рассмотрения.");
+          }
+          const changes = [];
+          if (item.priority !== priority) changes.push(`Приоритет: ${item.priority} → ${priority}.`);
+          if (item.due_at !== dueAt) changes.push(`Срок: ${item.due_at || "не установлен"} → ${dueAt || "снят"}.`);
+          if (changes.length) {
+            db.prepare("UPDATE applications SET priority = ?, due_at = ? WHERE id = ?")
+              .run(priority, dueAt, item.id);
+            db.prepare(`INSERT INTO application_history (application_id, actor_id, event_type, details)
+              VALUES (?, ?, 'workflow_updated', ?)`).run(item.id, user.id, changes.join(" "));
+          }
+          return sendJson(res, 200, { ok: true, changed: changes.length > 0 });
+        }
+
+        const assignmentRoute = pathname.match(/^\/api\/applications\/(\d+)\/assign$/);
+        if (assignmentRoute && req.method === "PATCH") {
+          if (!["Адвокат", "Ст.Адвокат", "ЗГКА", "ГКА"].includes(user.role)) {
+            throw new HttpError(403, "Взять обращение гражданина может адвокат или руководство.");
+          }
+          const item = db.prepare("SELECT * FROM applications WHERE id = ?").get(Number(assignmentRoute[1]));
+          if (!item || !["citizen_help", "citizen_complaint"].includes(item.type)) {
+            throw new HttpError(404, "Обращение гражданина не найдено.");
+          }
+          const body = await readJson(req);
+          if (Object.hasOwn(body, "userId")) {
+            if (!["ГКА", "ЗГКА"].includes(user.role)) {
+              throw new HttpError(403, "Переназначать обращения может только руководство.");
+            }
+            if (item.completed_at || !["pending", "approved"].includes(item.status)) {
+              throw new HttpError(409, "Закрытое обращение нельзя переназначить.");
+            }
+            const targetId = body.userId === null || body.userId === "" ? null : Number(body.userId);
+            if (targetId !== null && !Number.isSafeInteger(targetId)) throw new HttpError(400, "Выберите активного адвоката или руководителя.");
+            const target = targetId === null ? null : db.prepare(`SELECT id, display_name, role, discord_id, discord_avatar_url FROM users
+              WHERE id = ? AND status = 'active' AND role IN ('Адвокат','Ст.Адвокат','ЗГКА','ГКА')`).get(targetId);
+            if (targetId !== null && !target) throw new HttpError(400, "Выберите активного адвоката или руководителя.");
+            if (item.assigned_to === targetId) return sendJson(res, 200, { ok: true, unchanged: true });
+            const previous = item.assigned_to
+              ? db.prepare("SELECT display_name FROM users WHERE id = ?").get(item.assigned_to)?.display_name || "неизвестный сотрудник"
+              : "";
+            const nextStatus = targetId === null ? "pending" : "approved";
+            const result = targetId
+              ? `Обращение назначено: ${target.display_name}.`
+              : "Обращение снято с назначения и возвращено в очередь.";
+            db.prepare(`UPDATE applications SET status = ?, assigned_to = ?, reviewed_by = ?,
+              reviewed_at = CASE WHEN ? IS NULL THEN NULL ELSE CURRENT_TIMESTAMP END,
+              result = ? WHERE id = ?`)
+              .run(nextStatus, targetId, targetId === null ? null : user.id, targetId, result, item.id);
+            const historyText = targetId
+              ? `Обращение переназначено: ${previous || "очередь"} → ${target.display_name}.`
+              : `Назначение снято с ${previous}. Обращение возвращено в очередь.`;
+            db.prepare(`INSERT INTO application_history (application_id, actor_id, event_type, details)
+              VALUES (?, ?, 'reassigned', ?)`).run(item.id, user.id, historyText);
+            const warning = await deliverWebhook(webhooks.applications, "Переназначено обращение гражданина",
+              `${user.display_name} изменил(а) назначение обращения #${item.id}.`,
+              [
+                { name: "Обращение", value: `#${item.id}`, inline: true },
+                { name: "Предыдущий исполнитель", value: previous || "очередь", inline: true },
+                { name: "Новый исполнитель", value: target?.display_name || "очередь", inline: true }
+              ]);
+            if (target?.discord_id) {
+              await sendDiscordDirectMessage(
+                target.discord_id,
+                target,
+                target.discord_avatar_url,
+                "Вам назначено обращение",
+                `Обращение #${item.id} назначено вам для работы.`
+              );
+            }
+            if (options.discordCloseCaseChannel) await options.discordCloseCaseChannel(item.id);
+            if (target?.discord_id && options.discordCreateCaseChannel) {
+              const citizen = db.prepare("SELECT discord_id FROM users WHERE id = ?").get(item.user_id);
+              await options.discordCreateCaseChannel(item.id, citizen?.discord_id || "", target.discord_id);
+            }
+            return sendJson(res, 200, { ok: true, webhookWarning: warning });
+          }
+          if (item.status !== "pending") throw new HttpError(409, "Обращение уже взято в работу или закрыто.");
+          if (item.requested_lawyer_id && item.requested_lawyer_id !== user.id && !["ГКА", "ЗГКА"].includes(user.role)) {
+            throw new HttpError(403, "Гражданин выбрал другого адвоката для этого обращения.");
+          }
+          db.prepare(`UPDATE applications SET status = 'approved', assigned_to = ?, reviewed_by = ?,
+            reviewed_at = CURRENT_TIMESTAMP, result = ? WHERE id = ?`)
+            .run(user.id, user.id, `Взял в работу: ${user.display_name}. Свяжитесь с гражданином через указанные им контакты.`, item.id);
+          db.prepare(`INSERT INTO application_history (application_id, actor_id, event_type, details)
+            VALUES (?, ?, 'assigned', ?)`)
+            .run(item.id, user.id, `Обращение взял(а) ${user.display_name}.`);
+          const citizen = db.prepare("SELECT display_name,discord_username,discord_id FROM users WHERE id = ?").get(item.user_id);
+          const webhookWarning = await deliverWebhook(webhooks.applications, "Адвокат назначен по обращению",
+            `${user.display_name} взял обращение #${item.id} (${applicationNames[item.type]}).`,
+            [
+              { name: "Адвокат", value: `${user.display_name} · ${user.role}`, inline: true },
+              { name: "Гражданин", value: citizen.display_name, inline: true },
+              { name: "Discord гражданина", value: citizen.discord_username ? `@${citizen.discord_username}` : "не привязан", inline: true },
+              { name: "Обращение", value: `#${item.id}`, inline: true }
+            ]);
+          if (options.discordCreateCaseChannel) {
+            await options.discordCreateCaseChannel(item.id, citizen.discord_id || "", user.discord_id || "");
+          }
+          await sendDiscordDirectMessage(
+            user.discord_id,
+            user,
+            user.discord_avatar_url,
+            "Обращение принято в работу",
+            `Вы приняли обращение #${item.id}. Откройте раздел «Обращения», чтобы начать работу.`
+          );
+          return sendJson(res, 200, { ok: true, webhookWarning });
+        }
+
+        const ratingRoute = pathname.match(/^\/api\/applications\/(\d+)\/rating$/);
+        if (ratingRoute && req.method === "POST") {
+          if (user.role !== citizenRole) throw new HttpError(403, "Оценить помощь может только гражданин, который подал обращение.");
+          const body = await readJson(req);
+          const rating = Number(body.rating);
+          const comment = String(body.comment || "").trim();
+          if (!Number.isInteger(rating) || rating < 1 || rating > 5) throw new HttpError(400, "Оценка должна быть от 1 до 5.");
+          if (comment.length > 500) throw new HttpError(400, "Отзыв не должен превышать 500 символов.");
+          const item = db.prepare(`SELECT id, user_id, type, assigned_to, completed_at FROM applications WHERE id = ?`)
+            .get(Number(ratingRoute[1]));
+          if (!item || item.user_id !== user.id || !["citizen_help", "citizen_complaint"].includes(item.type)) {
+            throw new HttpError(404, "Завершённое обращение не найдено.");
+          }
+          if (!item.assigned_to || !item.completed_at) throw new HttpError(409, "Поставить оценку можно после закрытия обращения адвокатом.");
+          if (db.prepare("SELECT id FROM lawyer_reviews WHERE application_id = ?").get(item.id)) {
+            throw new HttpError(409, "Для этого обращения оценка уже отправлена.");
+          }
+          const review = db.prepare(`INSERT OR IGNORE INTO lawyer_reviews
+            (application_id, lawyer_id, reviewer_id, rating, comment) VALUES (?, ?, ?, ?, ?)`)
+            .run(item.id, item.assigned_to, user.id, rating, comment);
+          if (review.changes !== 1) throw new HttpError(409, "Для этого обращения оценка уже отправлена.");
+          db.prepare(`INSERT INTO application_history (application_id, actor_id, event_type, details)
+            VALUES (?, ?, 'rated', ?)`).run(item.id, user.id, `Гражданин оставил оценку ${rating}/5.`);
+          return sendJson(res, 201, { ok: true });
+        }
+
+        const closeCaseRoute = pathname.match(/^\/api\/applications\/(\d+)\/close$/);
+        if (closeCaseRoute && req.method === "PATCH") {
+          const item = db.prepare("SELECT * FROM applications WHERE id = ?").get(Number(closeCaseRoute[1]));
+          if (!item || !["citizen_help", "citizen_complaint"].includes(item.type)) {
+            throw new HttpError(404, "Обращение гражданина не найдено.");
+          }
+          if (item.assigned_to !== user.id) {
+            throw new HttpError(403, "Закрыть обращение может только назначенный адвокат.");
+          }
+          if (item.status !== "approved" || item.completed_at) throw new HttpError(409, "Обращение уже закрыто или ещё не принято в работу.");
+          db.prepare("UPDATE applications SET completed_at = CURRENT_TIMESTAMP, result = 'Обращение закрыто адвокатом.' WHERE id = ?")
+            .run(item.id);
+          db.prepare(`INSERT INTO application_history (application_id, actor_id, event_type, details)
+            VALUES (?, ?, 'closed', 'Обращение закрыто исполнителем.')`).run(item.id, user.id);
+          const citizen = db.prepare("SELECT discord_id, discord_avatar_url, display_name, role, username FROM users WHERE id = ?").get(item.user_id);
+          if (citizen?.discord_id) {
+            await sendDiscordDirectMessage(citizen.discord_id, citizen, citizen.discord_avatar_url,
+              "Обращение закрыто", `Ваше обращение #${item.id} закрыто адвокатом. Теперь можно оставить оценку в портале.`);
+          }
+          if (options.discordCloseCaseChannel) await options.discordCloseCaseChannel(item.id);
+          const webhookWarning = await deliverWebhook(webhooks.applications, "Обращение гражданина закрыто", `${user.display_name} закрыл обращение #${item.id}.`);
+          return sendJson(res, 200, { ok: true, webhookWarning });
+        }
+
+        const applicationReview = pathname.match(/^\/api\/applications\/(\d+)\/review$/);
+        if (applicationReview && req.method === "PATCH") {
+          const body = await readJson(req);
+          if (!["approved", "rejected"].includes(body.status)) throw new HttpError(400, "Неизвестный статус решения.");
+          const item = db.prepare("SELECT * FROM applications WHERE id = ?").get(Number(applicationReview[1]));
+          if (!item) throw new HttpError(404, "Заявка не найдена.");
+          assertCanReview(user.role, item);
+          if (item.status !== "pending") throw new HttpError(409, "По этой заявке уже вынесено решение.");
+          if (body.status === "approved" && ["citizen_help", "citizen_complaint"].includes(item.type)) {
+            throw new HttpError(409, "Назначьте адвоката кнопкой «Взять в работу».");
+          }
+          const criteria = body.criteria && typeof body.criteria === "object" && !Array.isArray(body.criteria)
+            ? body.criteria : {};
+          const requireCriteria = (names) => {
+            const missing = names.filter((name) => criteria[name] !== true);
+            if (missing.length) throw new HttpError(400, "Перед одобрением подтвердите все пункты проверки.");
+          };
+          let reviewData = {};
+          let resultText = "";
+          let roleChanged = false;
+          if (body.status === "approved" && item.type === "employment") {
+            const applicant = db.prepare("SELECT role, status FROM users WHERE id = ?").get(item.user_id);
+            if (applicant?.role !== citizenRole || applicant.status !== "active") {
+              throw new HttpError(409, "Заявка на вступление больше не соответствует активному аккаунту гражданина.");
+            }
+            db.prepare("UPDATE users SET role = 'Стажер КА', status = 'active' WHERE id = ?").run(item.user_id);
+            recordEmploymentEvent(db, {
+              userId: item.user_id, actorId: user.id, fromRole: applicant.role, toRole: "Стажер КА",
+              fromStatus: applicant.status, toStatus: "active", details: "Заявка на вступление одобрена."
+            });
+            roleChanged = true;
+            resultText = "Заявка на вступление одобрена. Аккаунт принят в Коллегию в роли стажёра КА.";
+          }
+          if (body.status === "approved" && item.type === "exam") {
+            const member = db.prepare("SELECT role FROM users WHERE id = ?").get(item.user_id);
+            const exam = db.prepare(`SELECT passed, score FROM exam_results
+              WHERE user_id = ? AND track = ? AND application_id = ? ORDER BY id DESC LIMIT 1`)
+              .get(item.user_id, item.stage_role || member.role, item.id);
+            if (!exam?.passed) throw new HttpError(409, "Проверку знаний нельзя одобрить без успешно сданного теста.");
+            const promotionData = parseStoredJson(item.promotion_data_json, "отчёт о повышении");
+            const stageRole = item.stage_role || member.role;
+            if (item.career_flow && item.interview_status !== "ready" && stageRole !== "Стажер КА") {
+              throw new HttpError(409, "Перед одобрением участник должен отметить готовность и пройти обзвон.");
+            }
+            if (stageRole === "Стажер КА") {
+              if (!promotionData.lectureAttended) throw new HttpError(409, "В заявке не подтверждено прохождение лекции.");
+              if (!item.career_flow) requireCriteria(["lectureVerified"]);
+              const target = nextRank[stageRole];
+              db.prepare("UPDATE users SET role = ? WHERE id = ?").run(target, item.user_id);
+              recordEmploymentEvent(db, {
+                userId: item.user_id, actorId: user.id, fromRole: member.role, toRole: target,
+                fromStatus: "active", toStatus: "active", details: "Повышение после одобрения экзамена."
+              });
+              roleChanged = true;
+              resultText = `Проверка знаний одобрена. Роль изменена на ${target}.`;
+            } else if (stageRole === "Юрист") {
+              requireCriteria(item.career_flow
+                ? ["callsVerified", "trialLawsuitVerified", "interviewPassed"]
+                : ["callsVerified", "trialLawsuitVerified"]);
+              const currentRequiredCalls = Number(db.prepare("SELECT lawyer_calls_required FROM promotion_settings WHERE id = 1")
+                .get().lawyer_calls_required);
+              if (!currentRequiredCalls || Number(promotionData.completedCalls) < currentRequiredCalls ||
+                  !promotionData.trialLawsuitReference) {
+                throw new HttpError(409, "Не выполнены заявленные условия перехода юриста в адвокаты.");
+              }
+              const target = nextRank[member.role];
+              db.prepare("UPDATE users SET role = ? WHERE id = ?").run(target, item.user_id);
+              recordEmploymentEvent(db, {
+                userId: item.user_id, actorId: user.id, fromRole: member.role, toRole: target,
+                fromStatus: "active", toStatus: "active", details: "Повышение после одобрения экзамена."
+              });
+              roleChanged = true;
+              resultText = `Экзамен и требования одобрены. Роль изменена на ${target}.`;
+            } else {
+              if (item.career_flow) requireCriteria(["interviewPassed"]);
+              resultText = "Проверка знаний одобрена. Для повышения до старшего адвоката подайте отдельный отчёт с подтверждениями.";
+            }
+            reviewData = { stage: stageRole, criteria };
+          }
+          if (body.status === "approved" && item.type === "promotion") {
+            const target = item.requested_role;
+            const member = db.prepare("SELECT role FROM users WHERE id = ?").get(item.user_id);
+            const permitted = member.role;
+            if (permitted !== "Адвокат" || target !== "Ст.Адвокат" || target !== nextRank[permitted]) {
+              throw new HttpError(409, "Заявка больше не соответствует текущей ступени участника.");
+            }
+            requireCriteria([
+              "callsVerified", "juniorCallsVerified", "acceptedLawsuitVerified",
+              "interviewPassed", "vacancyAvailable", "headApproved"
+            ]);
+            const careerExam = db.prepare(`SELECT interview_status FROM applications
+              WHERE user_id = ? AND type = 'exam' AND stage_role = 'Адвокат' AND career_flow = 1
+                AND status = 'approved' ORDER BY id DESC LIMIT 1`).get(item.user_id);
+            if (careerExam && careerExam.interview_status !== "ready") {
+              throw new HttpError(409, "Сначала отметьте готовность и пройдите обзвон по результатам теста.");
+            }
+            const promotionData = parseStoredJson(item.promotion_data_json, "отчёт о повышении");
+            if (Number(promotionData.completedCalls) < 25 || Number(promotionData.callsWithLawyer) < 5 ||
+                !promotionData.acceptedLawsuitReference) {
+              throw new HttpError(409, "Заявка не подтверждает обязательные показатели повышения.");
+            }
+            db.prepare("UPDATE users SET role = ? WHERE id = ?").run(target, item.user_id);
+            recordEmploymentEvent(db, {
+              userId: item.user_id, actorId: user.id, fromRole: member.role, toRole: target,
+              fromStatus: "active", toStatus: "active", details: "Повышение до старшего адвоката одобрено."
+            });
+            roleChanged = true;
+            reviewData = { stage: "Адвокат", criteria };
+            resultText = `Отчёт одобрен. Роль изменена на ${target}.`;
+          }
+          db.prepare(`UPDATE applications SET status = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP,
+            review_data_json = ?, result = CASE WHEN ? = '' THEN result ELSE ? END WHERE id = ?`)
+            .run(body.status, user.id, JSON.stringify(reviewData), resultText, resultText, item.id);
+          db.prepare(`INSERT INTO application_history (application_id, actor_id, event_type, details)
+            VALUES (?, ?, ?, ?)`).run(item.id, user.id, body.status,
+              resultText || `Заявка ${body.status === "approved" ? "одобрена" : "отклонена"}.`);
+          let discordWarning = "";
+          let nicknameWarning = "";
+          if (body.status === "approved" && roleChanged) {
+            const result = await syncDiscordMember(item.user_id);
+            discordWarning = result.syncError;
+            nicknameWarning = result.nicknameWarning;
+          }
+          const logWarning = await deliverWebhook(webhooks.logs, "Решение по заявке", `${user.display_name} ${body.status === "approved" ? "одобрил" : "отклонил"} заявку #${item.id} (${item.type}).`);
+          return sendJson(res, 200, { ok: true, discordWarning, nicknameWarning, logWarning });
+        }
+
+        if (pathname === "/api/exams/current" && req.method === "GET") {
+          const attestationId = Number(requestUrl.searchParams.get("attestationId") || 0);
+          const subject = String(requestUrl.searchParams.get("subject") || "");
+          if (subject) {
+            if (user.role === citizenRole) throw new HttpError(403, "Тесты по законодательству доступны только сотрудникам Коллегии.");
+            const questions = Object.hasOwn(lawExamBank, subject) ? lawExamBank[subject] : null;
+            if (!questions) throw new HttpError(400, "Выберите один из доступных тестов по законодательству.");
+            return sendJson(res, 200, {
+              track: lawExamTitles[subject],
+              subject,
+              questions: questions.map(({ q, a }) => ({ q, answers: a }))
+            });
+          }
+          let track = user.role;
+          if (track === citizenRole) throw new HttpError(403, "Проверка знаний доступна только сотрудникам Коллегии.");
+          let attestation = null;
+          if (attestationId) {
+            attestation = db.prepare("SELECT * FROM attestations WHERE id = ?").get(attestationId);
+            if (!attestation || attestation.user_id !== user.id) {
+              throw new HttpError(404, "Назначение на переаттестацию не найдено.");
+            }
+            track = attestation.track;
+          } else if (!db.prepare(`SELECT id FROM applications WHERE user_id = ? AND type = 'exam'
+            AND stage_role = ? AND status = 'pending'`).get(user.id, user.role)) {
+            throw new HttpError(409, "Сначала подайте заявку на проверку знаний.");
+          }
+          const questions = examBank[track];
+          if (!questions) throw new HttpError(403, "Для вашей ступени тест не предусмотрен.");
+          const application = attestation ? null : db.prepare(`SELECT id, result, interview_status, study_read_at
+            FROM applications WHERE user_id = ? AND type = 'exam' AND stage_role = ? AND status = 'pending'
+            ORDER BY id DESC LIMIT 1`).get(user.id, user.role);
+          if (application && !application.result.includes("пройдена")) {
+            db.prepare("UPDATE applications SET study_read_at = COALESCE(study_read_at, CURRENT_TIMESTAMP) WHERE id = ?")
+              .run(application.id);
+          }
+          return sendJson(res, 200, {
+            track, applicationId: application?.id || null, result: application?.result || "",
+            interviewStatus: application?.interview_status || "not_required",
+            questions: questions.map(({ q, a }) => ({ q, answers: a }))
+          });
+        }
+
+        if (pathname === "/api/exams" && req.method === "POST") {
+          const body = await readJson(req);
+          const answers = body.answers;
+          const attestationId = Number(body.attestationId || 0);
+          const subject = String(body.subject || "");
+          const isCodeTest = Boolean(subject);
+          let track = user.role;
+          if (track === citizenRole) throw new HttpError(403, "Проверка знаний доступна только сотрудникам Коллегии.");
+          let attestation = null;
+          let application = null;
+          let questions;
+          if (isCodeTest) {
+            if (attestationId) throw new HttpError(400, "Тест по законодательству нельзя привязать к переаттестации.");
+            questions = Object.hasOwn(lawExamBank, subject) ? lawExamBank[subject] : null;
+            if (!questions) throw new HttpError(400, "Выберите один из доступных тестов по законодательству.");
+            track = `law:${subject}`;
+          } else if (attestationId) {
+            attestation = db.prepare("SELECT * FROM attestations WHERE id = ?").get(attestationId);
+            if (!attestation || attestation.user_id !== user.id) throw new HttpError(404, "Назначение не найдено.");
+            track = attestation.track;
+          } else {
+            application = db.prepare(`SELECT id, stage_role, career_flow, promotion_data_json, interview_status, study_read_at
+              FROM applications WHERE user_id = ? AND type = 'exam' AND stage_role = ? AND status = 'pending'
+              ORDER BY id DESC LIMIT 1`).get(user.id, user.role);
+            if (!application) throw new HttpError(409, "Сначала подайте заявку на проверку знаний.");
+            if (!application.study_read_at && !attestation) {
+              throw new HttpError(409, "Сначала ознакомьтесь с материалами подготовки.");
+            }
+          }
+          if (application?.career_flow &&
+              db.prepare("SELECT passed FROM exam_results WHERE application_id = ? ORDER BY id DESC LIMIT 1").get(application.id)?.passed) {
+            throw new HttpError(409, "Тест по этому этапу уже сдан.");
+          }
+          if (!questions) questions = examBank[track];
+          if (!questions || !Array.isArray(answers) || answers.length !== questions.length ||
+              answers.some((answer, index) => !Number.isInteger(answer) || answer < 0 || answer >= questions[index].a.length)) {
+            throw new HttpError(400, "Ответы теста заполнены некорректно.");
+          }
+          const score = answers.reduce((sum, answer, index) => sum + (answer === questions[index].correct ? 1 : 0), 0);
+          const passed = score >= Math.ceil(questions.length * 0.8);
+          db.prepare(`INSERT INTO exam_results
+            (user_id, application_id, track, score, passed, answers_json) VALUES (?, ?, ?, ?, ?, ?)`)
+            .run(attestation ? attestation.user_id : user.id, application ? application.id : null,
+              track, score, passed ? 1 : 0, JSON.stringify(answers));
+          if (attestation) {
+            db.prepare("UPDATE attestations SET score = ?, status = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?")
+              .run(score, passed ? "passed" : "failed", attestation.id);
+          } else if (application && !isCodeTest) {
+            db.prepare("UPDATE applications SET result = ? WHERE id = ?")
+              .run(`Проверка знаний: ${score}/${questions.length}, ${passed ? "пройдена" : "не пройдена"}`, application.id);
+          }
+          await deliverWebhook(webhooks.exams, `Результат проверки знаний: ${score}/${questions.length}`, `${user.display_name} · ${track} · ${passed ? "тест пройден" : "тест не пройден"}`);
+          let discordWarning = "";
+          let nicknameWarning = "";
+          let interviewStatus = "not_required";
+          let promotedUser = null;
+          if (application?.career_flow && passed) {
+            if (application.stage_role === "Стажер КА") {
+              const target = nextRank[application.stage_role];
+              db.prepare(`UPDATE applications SET status = 'approved', reviewed_at = CURRENT_TIMESTAMP,
+                review_data_json = ?, result = ? WHERE id = ?`)
+                .run(JSON.stringify({ stage: application.stage_role, criteria: { knowledgeTestPassed: true } }),
+                  `Тест пройден: ${score}/${questions.length}. Роль изменена на ${target}.`, application.id);
+              db.prepare("UPDATE users SET role = ? WHERE id = ?").run(target, user.id);
+              recordEmploymentEvent(db, {
+                userId: user.id, actorId: user.id, fromRole: user.role, toRole: target,
+                fromStatus: user.status, toStatus: user.status, details: "Экзамен стажёра пройден."
+              });
+              const syncResult = await syncDiscordMember(user.id);
+              discordWarning = syncResult.syncError;
+              nicknameWarning = syncResult.nicknameWarning;
+              promotedUser = cleanUser(publicUser(db, user.id));
+              await deliverWebhook(webhooks.logs, "Стажёр прошёл тест",
+                `${user.display_name} сдал тест стажёра: ${score}/${questions.length}. Роль изменена на ${target}.`,
+                [
+                  { name: "Участник", value: user.display_name, inline: true },
+                  { name: "Результат", value: `${score}/${questions.length}`, inline: true },
+                  { name: "Новая роль", value: target, inline: true }
+                ]);
+            } else {
+              interviewStatus = "waiting";
+              db.prepare(`UPDATE applications SET interview_status = 'waiting',
+                interview_ready_at = NULL WHERE id = ?`).run(application.id);
+            }
+          }
+          return sendJson(res, 200, {
+            score, total: questions.length, passed, subject,
+            interviewRequired: Boolean(application?.career_flow && passed && application.stage_role !== "Стажер КА"),
+            interviewStatus, applicationId: application?.id || null,
+            user: promotedUser, discordWarning, nicknameWarning
+          });
+        }
+
+        if (pathname === "/api/rating-settings" && req.method === "GET") {
+          if (!managementRoles.includes(user.role)) throw new HttpError(403, "Настройки рейтинга доступны только руководству.");
+          const history = db.prepare(`SELECT h.id, h.weights_json, h.created_at, u.display_name AS updated_by
+            FROM rating_settings_history h JOIN users u ON u.id = h.updated_by
+            ORDER BY h.id DESC LIMIT 20`).all()
+            .map((item) => ({ ...item, weights: JSON.parse(item.weights_json) }));
+          return sendJson(res, 200, { weights: getRatingWeights(db), history });
+        }
+
+        if (pathname === "/api/rating-settings" && req.method === "PATCH") {
+          if (user.role !== "ГКА") throw new HttpError(403, "Изменять формулу рейтинга может только ГКА.");
+          const body = await readJson(req);
+          const weights = body.weights;
+          if (!weights || typeof weights !== "object" || Array.isArray(weights) ||
+              Object.keys(weights).some((key) => !Object.hasOwn(defaultRatingWeights, key)) ||
+              Object.keys(defaultRatingWeights).some((key) =>
+                !Number.isInteger(weights[key]) || weights[key] < 0 || weights[key] > 100) ||
+              Object.values(weights).every((weight) => weight === 0)) {
+            throw new HttpError(400, "Для каждого показателя задайте целый вес от 0 до 100; хотя бы один вес должен быть больше нуля.");
+          }
+          const serialized = JSON.stringify(weights);
+          db.prepare(`INSERT INTO portal_settings (key,value) VALUES ('attorney_rating_weights',?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(serialized);
+          db.prepare("INSERT INTO rating_settings_history (updated_by,weights_json) VALUES (?,?)")
+            .run(user.id, serialized);
+          return sendJson(res, 200, { weights });
+        }
+
+        if (pathname === "/api/attorneys" && req.method === "GET") {
+          const period = requestUrl.searchParams.get("period") || "all";
+          return sendJson(res, 200, buildAttorneyRanking(db, period));
+        }
+
+        if (pathname === "/api/reserve" && req.method === "GET") {
+          if (user.role === citizenRole) throw new HttpError(403, "Кадровый резерв доступен только сотрудникам.");
+          const reserve = db.prepare(`SELECT r.user_id, r.status, r.note, r.created_at, r.updated_at,
+              target.display_name, target.role, actor.display_name AS added_by_name
+            FROM staff_reserve r JOIN users target ON target.id = r.user_id
+            JOIN users actor ON actor.id = r.added_by
+            ${["ГКА", "ЗГКА"].includes(user.role) ? "" : "WHERE r.user_id = ?"}
+            ORDER BY CASE r.status WHEN 'ready' THEN 0 ELSE 1 END, target.display_name`)
+            .all(...(["ГКА", "ЗГКА"].includes(user.role) ? [] : [user.id]));
+          return sendJson(res, 200, { reserve });
+        }
+
+        if (pathname === "/api/reserve" && req.method === "POST") {
+          if (!["ГКА", "ЗГКА"].includes(user.role)) throw new HttpError(403, "Управлять кадровым резервом может только руководство.");
+          const body = await readJson(req);
+          const targetId = Number(body.userId);
+          const status = String(body.status || "considering");
+          const note = String(body.note || "").trim();
+          const target = db.prepare("SELECT id, role, discord_id, discord_avatar_url, display_name, username FROM users WHERE id = ? AND status = 'active'").get(targetId);
+          if (!target || target.role === citizenRole) throw new HttpError(404, "Активный сотрудник не найден.");
+          if (!["considering", "ready"].includes(status) || note.length > 1000) {
+            throw new HttpError(400, "Проверьте статус резерва и комментарий (до 1000 символов).");
+          }
+          db.prepare(`INSERT INTO staff_reserve (user_id, added_by, status, note)
+            VALUES (?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET
+              added_by = excluded.added_by, status = excluded.status, note = excluded.note,
+              updated_at = CURRENT_TIMESTAMP`).run(targetId, user.id, status, note);
+          return sendJson(res, 200, { saved: true });
+        }
+
+        const reserveRoute = pathname.match(/^\/api\/reserve\/(\d+)$/);
+        if (reserveRoute && req.method === "DELETE") {
+          if (!["ГКА", "ЗГКА"].includes(user.role)) throw new HttpError(403, "Управлять кадровым резервом может только руководство.");
+          const result = db.prepare("DELETE FROM staff_reserve WHERE user_id = ?").run(Number(reserveRoute[1]));
+          if (!result.changes) throw new HttpError(404, "Запись кадрового резерва не найдена.");
+          return sendJson(res, 200, { removed: true });
+        }
+
+        if (pathname === "/api/absences" && req.method === "GET") {
+          if (user.role === citizenRole) throw new HttpError(403, "Заявки на отсутствие доступны только сотрудникам.");
+          const manager = ["ГКА", "ЗГКА"].includes(user.role);
+          const includeArchived = requestUrl.searchParams.get("archived") === "1";
+          if (includeArchived && user.role !== "ГКА") throw new HttpError(403, "Архив отсутствий доступен только ГКА.");
+          const absences = db.prepare(`SELECT a.id, a.user_id, a.start_date, a.end_date, a.reason, a.status,
+              a.review_note, a.reviewed_at, a.created_at, target.display_name, target.role,
+              reviewer.display_name AS reviewer_name
+            FROM absence_requests a JOIN users target ON target.id = a.user_id
+            LEFT JOIN users reviewer ON reviewer.id = a.reviewed_by
+            WHERE (? = 1 OR a.archived_at IS NULL) ${manager ? "" : "AND a.user_id = ?"}
+            ORDER BY CASE a.status WHEN 'pending' THEN 0 ELSE 1 END, a.start_date DESC`)
+            .all(includeArchived ? 1 : 0, ...(manager ? [] : [user.id]));
+          return sendJson(res, 200, { absences });
+        }
+
+        if (pathname === "/api/absences" && req.method === "POST") {
+          if (user.role === citizenRole) throw new HttpError(403, "Подавать заявку на отсутствие могут сотрудники.");
+          const body = await readJson(req);
+          const startDate = String(body.startDate || "");
+          const endDate = String(body.endDate || "");
+          const reason = String(body.reason || "").trim();
+          const isDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+            !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) &&
+            new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+          if (!isDate(startDate) || !isDate(endDate) || startDate > endDate ||
+              reason.length < 4 || reason.length > 1000) {
+            throw new HttpError(400, "Укажите корректный период и причину отсутствия (от 4 до 1000 символов).");
+          }
+          const overlap = db.prepare(`SELECT id FROM absence_requests WHERE user_id = ?
+            AND status IN ('pending','approved') AND start_date <= ? AND end_date >= ? LIMIT 1`)
+            .get(user.id, endDate, startDate);
+          if (overlap) throw new HttpError(409, "На этот период уже есть заявка на отсутствие.");
+          const result = db.prepare(`INSERT INTO absence_requests (user_id, start_date, end_date, reason)
+            VALUES (?, ?, ?, ?)`).run(user.id, startDate, endDate, reason);
+          const warning = await deliverWebhook(webhooks.logs, "Заявка на отсутствие",
+            `${user.display_name} подал(а) заявку на отсутствие с ${startDate} по ${endDate}.`);
+          return sendJson(res, 201, { id: Number(result.lastInsertRowid), warning });
+        }
+
+        const absenceRoute = pathname.match(/^\/api\/absences\/(\d+)$/);
+        if (absenceRoute && req.method === "PATCH") {
+          if (!["ГКА", "ЗГКА"].includes(user.role)) throw new HttpError(403, "Рассматривать отсутствие может только руководство.");
+          const body = await readJson(req);
+          if (!["approved", "rejected"].includes(body.status)) throw new HttpError(400, "Выберите решение по заявке.");
+          const reviewNote = String(body.reviewNote || "").trim();
+          if (reviewNote.length > 500) throw new HttpError(400, "Комментарий не должен превышать 500 символов.");
+          const request = db.prepare("SELECT id, user_id, status FROM absence_requests WHERE id = ?")
+            .get(Number(absenceRoute[1]));
+          if (!request) throw new HttpError(404, "Заявка на отсутствие не найдена.");
+          if (request.status !== "pending") throw new HttpError(409, "Заявка уже рассмотрена.");
+          db.prepare(`UPDATE absence_requests SET status = ?, review_note = ?, reviewed_by = ?,
+            reviewed_at = CURRENT_TIMESTAMP WHERE id = ?`).run(body.status, reviewNote, user.id, request.id);
+          return sendJson(res, 200, { status: body.status });
+        }
+
+        if (pathname === "/api/characteristics" && req.method === "GET") {
+          if (!["ГКА", "ЗГКА"].includes(user.role)) throw new HttpError(403, "Внутренние характеристики доступны только руководству.");
+          const characteristics = db.prepare(`SELECT c.id, c.user_id, c.criterion, c.score, c.note, c.created_at,
+              target.display_name, target.role, evaluator.display_name AS evaluator_name
+            FROM member_characteristics c JOIN users target ON target.id = c.user_id
+            JOIN users evaluator ON evaluator.id = c.evaluator_id
+            ORDER BY c.created_at DESC LIMIT 500`).all();
+          return sendJson(res, 200, { characteristics });
+        }
+
+        if (pathname === "/api/characteristics" && req.method === "POST") {
+          if (!["ГКА", "ЗГКА"].includes(user.role)) throw new HttpError(403, "Добавлять внутренние характеристики может только руководство.");
+          const body = await readJson(req);
+          const targetId = Number(body.userId);
+          const criterion = String(body.criterion || "");
+          const score = Number(body.score);
+          const note = String(body.note || "").trim();
+          const allowedCriteria = ["law", "discipline", "activity", "professionalism", "citizens", "teamwork"];
+          const target = db.prepare("SELECT id, role, discord_id, discord_avatar_url, display_name, username FROM users WHERE id = ? AND status = 'active'").get(targetId);
+          if (!target || target.role === citizenRole) throw new HttpError(404, "Активный сотрудник не найден.");
+          if (!allowedCriteria.includes(criterion) || !Number.isInteger(score) || score < 1 || score > 5 || note.length > 1000) {
+            throw new HttpError(400, "Проверьте направление, оценку от 1 до 5 и комментарий (до 1000 символов).");
+          }
+          const result = db.prepare(`INSERT INTO member_characteristics
+            (user_id, evaluator_id, criterion, score, note) VALUES (?, ?, ?, ?, ?)`)
+            .run(targetId, user.id, criterion, score, note);
+          return sendJson(res, 201, { id: Number(result.lastInsertRowid) });
+        }
+
+        if (pathname === "/api/academy" && req.method === "GET") {
+          if (user.role === citizenRole) throw new HttpError(403, "Академия доступна сотрудникам Коллегии.");
+          const materials = db.prepare(`SELECT m.id, m.category, m.kind, m.title, m.body, m.created_at, m.updated_at,
+              author.display_name AS author_name, editor.display_name AS editor_name
+            FROM academy_materials m JOIN users author ON author.id = m.created_by
+            JOIN users editor ON editor.id = m.updated_by
+            ORDER BY m.category, m.updated_at DESC, m.id DESC`).all();
+          return sendJson(res, 200, { materials });
+        }
+
+        if (pathname === "/api/academy" && req.method === "POST") {
+          if (!["ГКА", "ЗГКА"].includes(user.role)) throw new HttpError(403, "Добавлять материалы Академии может только руководство.");
+          const body = await readJson(req);
+          const category = String(body.category || "");
+          const kind = String(body.kind || "");
+          const title = String(body.title || "").trim();
+          const content = String(body.body || "").trim();
+          const categories = ["constitutional", "administrative", "criminal", "labor", "advocacy", "court", "documents", "internal"];
+          if (!categories.includes(category) || !["lecture", "manual", "exercise"].includes(kind) ||
+              title.length < 3 || title.length > 150 || content.length < 5 || content.length > 20000) {
+            throw new HttpError(400, "Проверьте раздел, тип, название и содержимое материала.");
+          }
+          const result = db.prepare(`INSERT INTO academy_materials
+            (category, kind, title, body, created_by, updated_by) VALUES (?, ?, ?, ?, ?, ?)`)
+            .run(category, kind, title, content, user.id, user.id);
+          return sendJson(res, 201, { id: Number(result.lastInsertRowid) });
+        }
+
+        const academyRoute = pathname.match(/^\/api\/academy\/(\d+)$/);
+        if (academyRoute && ["PATCH", "DELETE"].includes(req.method)) {
+          if (!["ГКА", "ЗГКА"].includes(user.role)) throw new HttpError(403, "Управлять материалами Академии может только руководство.");
+          const materialId = Number(academyRoute[1]);
+          const existing = db.prepare("SELECT id FROM academy_materials WHERE id = ?").get(materialId);
+          if (!existing) throw new HttpError(404, "Материал Академии не найден.");
+          if (req.method === "DELETE") {
+            db.prepare("DELETE FROM academy_materials WHERE id = ?").run(materialId);
+            return sendJson(res, 200, { deleted: true });
+          }
+          const body = await readJson(req);
+          const category = String(body.category || "");
+          const kind = String(body.kind || "");
+          const title = String(body.title || "").trim();
+          const content = String(body.body || "").trim();
+          const categories = ["constitutional", "administrative", "criminal", "labor", "advocacy", "court", "documents", "internal"];
+          if (!categories.includes(category) || !["lecture", "manual", "exercise"].includes(kind) ||
+              title.length < 3 || title.length > 150 || content.length < 5 || content.length > 20000) {
+            throw new HttpError(400, "Проверьте раздел, тип, название и содержимое материала.");
+          }
+          db.prepare(`UPDATE academy_materials SET category = ?, kind = ?, title = ?, body = ?,
+            updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+            .run(category, kind, title, content, user.id, materialId);
+          return sendJson(res, 200, { updated: true });
+        }
+
+        if (pathname === "/api/profile" && req.method === "GET") {
+          const metrics = evaluateAchievements(db, user.id);
+          const profile = db.prepare(`SELECT id, display_name, role, discord_id, created_at, member_since, reattest_due,
+              discord_username, discord_avatar_url, forum_profile_url, forum_profile_verified_at,
+              profile_bio, profile_pinned_cases, profile_effect, profile_quote,
+              (SELECT COUNT(*) FROM documents d WHERE d.user_id = users.id AND d.forum_status = 'approved') AS document_count,
+              (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
+                WHERE l.user_id = users.id AND d.forum_status = 'approved') AS lawsuit_count,
+              (SELECT COUNT(*) FROM applications a WHERE a.assigned_to = users.id
+                AND a.completed_at IS NOT NULL AND a.type IN ('citizen_help','citizen_complaint')) AS closed_request_count,
+              (SELECT COUNT(*) FROM task_assignees ta JOIN tasks t ON t.id = ta.task_id
+                WHERE ta.user_id = users.id AND t.status = 'completed') AS completed_task_count,
+              (SELECT COUNT(*) FROM exam_results e WHERE e.user_id = users.id AND e.passed = 1) AS passed_exam_count,
+              (SELECT COUNT(*) FROM lawyer_reviews r WHERE r.lawyer_id = users.id) AS review_count,
+              (SELECT COALESCE(AVG(r.rating),0) FROM lawyer_reviews r WHERE r.lawyer_id = users.id) AS average_rating
+            FROM users WHERE id = ? AND status = 'active'`).get(user.id);
+          if (!profile) throw new HttpError(404, "Профиль пользователя не найден.");
+          const promotionRows = db.prepare(`SELECT a.requested_role, a.stage_role, a.result, a.reviewed_at,
+              reviewer.display_name AS reviewed_by
+            FROM applications a LEFT JOIN users reviewer ON reviewer.id = a.reviewed_by
+            WHERE a.user_id = ? AND a.type = 'promotion' AND a.status = 'approved'
+            ORDER BY COALESCE(a.reviewed_at, a.created_at) DESC LIMIT 50`).all(user.id);
+          const reportedCalls = db.prepare(`SELECT promotion_data_json FROM applications
+            WHERE user_id = ? AND type = 'promotion' AND status = 'approved'`).all(user.id)
+            .map((row) => Number(parseStoredJson(row.promotion_data_json, "отчёт о повышении").completedCalls) || 0);
+          profile.approved_call_count = reportedCalls.length ? Math.max(...reportedCalls) : 0;
+          profile.average_rating = Number(Number(profile.average_rating).toFixed(1));
+          profile.profile_pinned_cases = parseStoredJson(profile.profile_pinned_cases, "закреплённые дела");
+          profile.presence = profile.discord_id ? discordPresenceProvider(profile.discord_id) : "offline";
+          const [exams, attestationsForProfile, reprimandsForProfile, tasksForProfile, achievements, awards, absencesForProfile, reserveForProfile] = [
+            db.prepare(`SELECT track, score, passed, created_at FROM exam_results
+              WHERE user_id = ? ORDER BY id DESC LIMIT 30`).all(user.id),
+            db.prepare(`SELECT track, status, score, due_at, created_at, completed_at FROM attestations
+              WHERE user_id = ? ORDER BY id DESC LIMIT 30`).all(user.id),
+            db.prepare(`SELECT r.id, r.reason, r.created_at, issuer.display_name AS issuer_name FROM reprimands r
+              JOIN users issuer ON issuer.id = r.issued_by WHERE r.user_id = ? ORDER BY r.id DESC LIMIT 30`).all(user.id),
+            db.prepare(`SELECT t.id, t.title, t.status, t.updated_at FROM tasks t
+              JOIN task_assignees ta ON ta.task_id = t.id
+              WHERE ta.user_id = ? ORDER BY t.updated_at DESC LIMIT 30`).all(user.id),
+            db.prepare(`SELECT a.id, a.slug, a.title, a.description, a.icon, a.metric, a.threshold, ua.awarded_at
+              FROM user_achievements ua JOIN achievements a ON a.id = ua.achievement_id
+              WHERE ua.user_id = ? ORDER BY ua.awarded_at DESC`).all(user.id),
+            db.prepare(`SELECT w.kind, w.title, w.description, w.created_at, issuer.display_name AS granted_by_name
+              FROM user_awards w JOIN users issuer ON issuer.id = w.granted_by
+              WHERE w.user_id = ? ORDER BY w.id DESC LIMIT 50`).all(user.id),
+            db.prepare(`SELECT a.start_date, a.end_date, a.status, a.review_note, a.created_at, a.reviewed_at,
+                reviewer.display_name AS reviewer_name
+              FROM absence_requests a LEFT JOIN users reviewer ON reviewer.id = a.reviewed_by
+              WHERE a.user_id = ? ORDER BY a.id DESC LIMIT 30`).all(user.id),
+            db.prepare(`SELECT status, note, updated_at FROM staff_reserve WHERE user_id = ?`).all(user.id)
+          ];
+          const reviews = db.prepare(`SELECT rating, comment, created_at FROM lawyer_reviews
+            WHERE lawyer_id = ? ORDER BY id DESC LIMIT 20`).all(user.id);
+          const employmentHistory = db.prepare(`SELECT h.event_type, h.from_role, h.to_role, h.from_status,
+              h.to_status, h.details, h.created_at, actor.display_name AS actor_name
+            FROM member_employment_history h LEFT JOIN users actor ON actor.id = h.actor_id
+            WHERE h.user_id = ? ORDER BY h.id DESC LIMIT 50`).all(user.id);
+          return sendJson(res, 200, {
+            profile, metrics, promotions: promotionRows, exams, attestations: attestationsForProfile,
+            reprimands: reprimandsForProfile, tasks: tasksForProfile, achievements, awards, reviews, employmentHistory,
+            absences: absencesForProfile, reserve: reserveForProfile
+          });
+        }
+
+        if (pathname === "/api/profile" && req.method === "PATCH") {
+          const body = await readJson(req);
+          const hasForumProfileUpdate = Object.hasOwn(body, "forumProfileUrl");
+          const forumProfileUrl = hasForumProfileUpdate
+            ? validateForumProfileUrl(body.forumProfileUrl)
+            : null;
+          const profileBio = typeof body.profileBio === "string"
+            ? body.profileBio.trim().slice(0, 700)
+            : null;
+          const pinnedCases = Array.isArray(body.pinnedCases)
+            ? body.pinnedCases.slice(0, 3).map((item) => ({
+              title: String(item?.title || "").trim().slice(0, 100),
+              status: String(item?.status || "").trim().slice(0, 60)
+            })).filter((item) => item.title)
+            : null;
+          const profileEffect = typeof body.profileEffect === "string"
+            ? body.profileEffect
+            : null;
+          const profileQuote = typeof body.profileQuote === "string"
+            ? body.profileQuote.trim().slice(0, 220)
+            : null;
+          if (profileEffect && !["none", "snow", "confetti", "snowman"].includes(profileEffect)) {
+            throw new HttpError(400, "Неизвестный эффект профиля.");
+          }
+          const updates = [];
+          const values = [];
+          if (forumProfileUrl !== null) {
+            updates.push("forum_profile_url = ?", "forum_profile_verified_at = NULL", "forum_profile_verified_by = NULL");
+            values.push(forumProfileUrl);
+          }
+          if (profileBio !== null) {
+            updates.push("profile_bio = ?");
+            values.push(profileBio);
+          }
+          if (pinnedCases !== null) {
+            updates.push("profile_pinned_cases = ?");
+            values.push(JSON.stringify(pinnedCases));
+          }
+          if (profileEffect !== null) {
+            updates.push("profile_effect = ?");
+            values.push(profileEffect);
+          }
+          if (profileQuote !== null) {
+            updates.push("profile_quote = ?");
+            values.push(profileQuote);
+          }
+          if (updates.length) {
+            db.prepare(`UPDATE users SET ${updates.join(", ")} WHERE id = ?`).run(...values, user.id);
+          }
+          return sendJson(res, 200, {
+            forumProfileUrl,
+            profileBio: profileBio ?? user.profile_bio,
+            pinnedCases: pinnedCases ?? parseStoredJson(user.profile_pinned_cases, "закреплённые дела"),
+            profileEffect: profileEffect ?? user.profile_effect,
+            profileQuote: profileQuote ?? user.profile_quote,
+            verified: false
+          });
+        }
+
+        if (pathname === "/api/achievements" && req.method === "GET") {
+          const achievements = db.prepare(`SELECT a.id, a.slug, a.title, a.description, a.icon, a.metric,
+              a.threshold, a.active, a.created_at,
+              ua.awarded_at, ua.awarded_by
+            FROM achievements a LEFT JOIN user_achievements ua
+              ON ua.achievement_id = a.id AND ua.user_id = ?
+            ${["ГКА", "ЗГКА"].includes(user.role) ? "" : "WHERE a.active = 1"}
+            ORDER BY a.active DESC, a.id`).all(user.id);
+          return sendJson(res, 200, { achievements });
+        }
+
+        if (pathname === "/api/achievements" && req.method === "POST") {
+          if (!["ГКА", "ЗГКА"].includes(user.role)) throw new HttpError(403, "Создавать достижения может только руководство.");
+          const body = await readJson(req);
+          const title = String(body.title || "").trim();
+          const description = String(body.description || "").trim();
+          const icon = String(body.icon || "★").trim();
+          const metric = String(body.metric || "");
+          const threshold = Number(body.threshold);
+          if (title.length < 2 || title.length > 80 || description.length < 2 || description.length > 500 ||
+              icon.length > 16 || !["approved_lawsuits", "closed_requests", "approved_documents", "high_reviews", "service_days", "manual"].includes(metric) ||
+              !Number.isSafeInteger(threshold) || threshold < 1 || threshold > 100000) {
+            throw new HttpError(400, "Проверьте название, описание, условие и порог достижения.");
+          }
+          const slug = `custom-${Date.now()}-${randomBytes(4).toString("hex")}`;
+          const result = db.prepare(`INSERT INTO achievements
+            (slug, title, description, icon, metric, threshold, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?)`).run(slug, title, description, icon, metric, threshold, user.id);
+          return sendJson(res, 201, { id: Number(result.lastInsertRowid), slug });
+        }
+
+        const achievementAwardRoute = pathname.match(/^\/api\/achievements\/(\d+)\/award$/);
+        if (achievementAwardRoute && req.method === "POST") {
+          if (!["ГКА", "ЗГКА"].includes(user.role)) throw new HttpError(403, "Выдавать достижения может только руководство.");
+          const body = await readJson(req);
+          const targetId = Number(body.userId);
+          if (!Number.isSafeInteger(targetId)) throw new HttpError(400, "Выберите сотрудника.");
+          const achievement = db.prepare("SELECT id, title, metric FROM achievements WHERE id = ? AND active = 1")
+            .get(Number(achievementAwardRoute[1]));
+          const target = db.prepare("SELECT id, role, discord_id, discord_avatar_url, display_name, username FROM users WHERE id = ? AND status = 'active'").get(targetId);
+          if (!achievement || achievement.metric !== "manual") throw new HttpError(404, "Ручное достижение не найдено.");
+          if (!target || target.role === citizenRole) throw new HttpError(404, "Активный сотрудник не найден.");
+          const result = db.prepare(`INSERT OR IGNORE INTO user_achievements
+            (user_id, achievement_id, awarded_by) VALUES (?, ?, ?)`).run(targetId, achievement.id, user.id);
+          if (!result.changes) throw new HttpError(409, "Это достижение уже есть у сотрудника.");
+          const logWarning = await deliverWebhook(webhooks.logs, "Выдано достижение",
+            `${user.display_name} выдал достижение «${achievement.title}» сотруднику ${targetId}.`);
+          if (target.discord_id) {
+            await sendDiscordDirectMessage(target.discord_id, target, target.discord_avatar_url,
+              "Получено достижение", `Вам выдано достижение «${achievement.title}» руководством Коллегии.`);
+          }
+          return sendJson(res, 201, { awarded: true, logWarning });
+        }
+
+        if (pathname === "/api/awards" && req.method === "POST") {
+          if (!["ГКА", "ЗГКА"].includes(user.role)) throw new HttpError(403, "Вручать награды может только руководство.");
+          const body = await readJson(req);
+          const targetId = Number(body.userId);
+          const kind = String(body.kind || "");
+          const title = String(body.title || "").trim();
+          const description = String(body.description || "").trim();
+          if (!Number.isSafeInteger(targetId) || !["thanks", "certificate", "special", "individual"].includes(kind) ||
+              title.length < 2 || title.length > 100 || description.length > 1000) {
+            throw new HttpError(400, "Проверьте сотрудника, тип и описание награды.");
+          }
+          const target = db.prepare("SELECT id, role, discord_id, discord_avatar_url, display_name, username FROM users WHERE id = ? AND status = 'active'").get(targetId);
+          if (!target || target.role === citizenRole) throw new HttpError(404, "Активный сотрудник не найден.");
+          const result = db.prepare(`INSERT INTO user_awards (user_id, granted_by, kind, title, description)
+            VALUES (?, ?, ?, ?, ?)`).run(targetId, user.id, kind, title, description);
+          const logWarning = await deliverWebhook(webhooks.logs, "Вручена награда",
+            `${user.display_name} вручил «${title}» сотруднику ${targetId}.`);
+          if (target.discord_id) {
+            await sendDiscordDirectMessage(target.discord_id, target, target.discord_avatar_url,
+              "Вручена награда", `Вам вручена награда «${title}».\nОснование: ${description || "решение руководства"}`);
+          }
+          return sendJson(res, 201, { id: Number(result.lastInsertRowid), logWarning });
+        }
+
+        const profileRoute = pathname.match(/^\/api\/profiles\/(\d+)$/);
+        if (profileRoute && req.method === "GET") {
+          const profileId = Number(profileRoute[1]);
+          const profile = db.prepare(`SELECT u.id, u.display_name, u.role, u.discord_id, u.discord_username, u.discord_avatar_url, u.created_at,
+              u.member_since, u.forum_profile_url, u.forum_profile_verified_at,
+              u.profile_bio, u.profile_pinned_cases, u.profile_effect, u.profile_quote,
+              (SELECT COUNT(*) FROM documents d WHERE d.user_id = u.id AND d.forum_status = 'approved') AS document_count,
+              (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
+                WHERE l.user_id = u.id AND d.forum_status = 'approved') AS lawsuit_count,
+              (SELECT COUNT(*) FROM applications a WHERE (a.assigned_to = u.id OR a.user_id = u.id) AND a.completed_at IS NOT NULL) AS closed_case_count,
+              COUNT(r.id) AS review_count, COALESCE(AVG(r.rating), 0) AS average_rating
+            FROM users u LEFT JOIN lawyer_reviews r ON r.lawyer_id = u.id
+            WHERE u.id = ? AND u.status = 'active' AND (u.role != 'Гражданин' OR u.id = ?)
+            GROUP BY u.id`).get(profileId, user.id);
+          if (!profile) throw new HttpError(404, "Профиль участника не найден.");
+          profile.average_rating = Number(Number(profile.average_rating).toFixed(1));
+          profile.profile_pinned_cases = parseStoredJson(profile.profile_pinned_cases, "закреплённые дела");
+          profile.presence = profile.discord_id ? discordPresenceProvider(profile.discord_id) : "offline";
+          const reviews = db.prepare(`SELECT r.rating, r.comment, r.created_at, 'Гражданин' AS reviewer_name
+            FROM lawyer_reviews r
+            WHERE r.lawyer_id = ? ORDER BY r.created_at DESC LIMIT 20`).all(profile.id);
+          evaluateAchievements(db, profile.id);
+          const achievements = db.prepare(`SELECT a.title, a.description, a.icon, a.metric, a.threshold, ua.awarded_at
+            FROM user_achievements ua JOIN achievements a ON a.id = ua.achievement_id
+            WHERE ua.user_id = ? ORDER BY ua.awarded_at DESC`).all(profile.id);
+          const awards = db.prepare(`SELECT w.kind, w.title, w.description, w.created_at, issuer.display_name AS granted_by_name
+            FROM user_awards w JOIN users issuer ON issuer.id = w.granted_by
+            WHERE w.user_id = ? ORDER BY w.id DESC LIMIT 50`).all(profile.id);
+          return sendJson(res, 200, { profile, reviews, achievements, awards });
+        }
+
+        if (pathname === "/api/colleagues" && req.method === "GET") {
+          if (user.role === citizenRole) throw new HttpError(403, "Список коллег доступен сотрудникам Коллегии.");
+          const colleagues = db.prepare(`SELECT u.id, u.display_name, u.role, u.status, u.discord_id, u.discord_username,
+              u.profile_bio, u.profile_pinned_cases, u.profile_effect, u.profile_quote, u.member_since,
+              u.forum_profile_url, u.forum_profile_verified_at,
+              (SELECT COUNT(*) FROM documents d WHERE d.user_id = u.id AND d.forum_status = 'approved') AS document_count,
+              (SELECT COUNT(*) FROM applications a WHERE a.assigned_to = u.id AND a.completed_at IS NOT NULL
+                AND a.type IN ('citizen_help','citizen_complaint')) AS closed_case_count,
+              (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
+                WHERE l.user_id = u.id AND d.forum_status = 'approved') AS lawsuit_count
+            FROM users u
+            WHERE u.role != 'Гражданин' AND u.status = 'active'
+            ORDER BY CASE u.role
+              WHEN 'ГКА' THEN 1 WHEN 'ЗГКА' THEN 2 WHEN 'Ст.Адвокат' THEN 3
+              WHEN 'Адвокат' THEN 4 WHEN 'Юрист' THEN 5 ELSE 6 END, u.display_name`).all();
+          return sendJson(res, 200, {
+            colleagues: colleagues.map((item) => ({
+              ...item,
+              pinnedCases: parseStoredJson(item.profile_pinned_cases, "закреплённые дела"),
+              achievements: db.prepare(`SELECT a.id, a.title, a.description, a.icon, a.metric, a.threshold, ua.awarded_at
+                FROM user_achievements ua JOIN achievements a ON a.id = ua.achievement_id
+                WHERE ua.user_id = ? ORDER BY ua.awarded_at DESC LIMIT 8`).all(item.id),
+              presence: item.discord_id ? discordPresenceProvider(item.discord_id) : "offline"
+            }))
+          });
+        }
+
+        if (pathname === "/api/members" && req.method === "GET") {
+          if (!["ГКА", "ЗГКА"].includes(user.role)) throw new HttpError(403, "Нет доступа к составу.");
+          const members = db.prepare(`SELECT id, username, display_name, email, role, status, created_at, reattest_due, last_login,
+            discord_id, discord_username, discord_avatar_url, forum_profile_url, forum_profile_verified_at, member_since,
+            (SELECT COUNT(*) FROM documents WHERE user_id = users.id AND forum_status = 'approved') AS document_count,
+            (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
+              WHERE l.user_id = users.id AND d.forum_status = 'approved') AS lawsuit_count
+            FROM users ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'active' THEN 1 ELSE 2 END, role, display_name`).all();
+          return sendJson(res, 200, { members });
+        }
+
+        const passwordResetRoute = pathname.match(/^\/api\/members\/(\d+)\/reset-password$/);
+        if (passwordResetRoute && req.method === "POST") {
+          if (user.role !== "ГКА") throw new HttpError(403, "Создать код восстановления может только ГКА.");
+          const memberId = Number(passwordResetRoute[1]);
+          const member = db.prepare("SELECT id, display_name FROM users WHERE id = ?").get(memberId);
+          if (!member) throw new HttpError(404, "Участник не найден.");
+          const code = randomBytes(32).toString("base64url");
+          db.prepare("UPDATE password_resets SET used_at = CURRENT_TIMESTAMP WHERE user_id = ? AND used_at IS NULL")
+            .run(memberId);
+          db.prepare("INSERT INTO password_resets (token_hash,user_id,created_by,expires_at) VALUES (?,?,?,?)")
+            .run(hashToken(code), memberId, user.id, Date.now() + 30 * 60 * 1000);
+          const logWarning = await deliverWebhook(webhooks.logs, "Выдан код восстановления", `${user.display_name} подготовил одноразовый код восстановления для ${member.display_name}.`);
+          return sendJson(res, 201, { code, expiresAt: Date.now() + 30 * 60 * 1000, logWarning });
+        }
+
+        if (pathname === "/api/invites" && req.method === "POST") {
+          if (user.role !== "ГКА") throw new HttpError(403, "Создавать приглашения может только ГКА.");
+          const code = randomBytes(24).toString("base64url");
+          const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
+          db.prepare("INSERT INTO invites (code_hash, created_by, expires_at) VALUES (?, ?, ?)")
+            .run(hashToken(code), user.id, expiresAt);
+          const logWarning = await deliverWebhook(webhooks.logs, "Создано приглашение в коллегию", `${user.display_name} создал одноразовое приглашение для нового стажера.`);
+          return sendJson(res, 201, { code, expiresAt, logWarning });
+        }
+
+        const memberRoute = pathname.match(/^\/api\/members\/(\d+)$/);
+        if (memberRoute && req.method === "PATCH") {
+          if (user.role !== "ГКА") throw new HttpError(403, "Изменять роли и статус аккаунта может только ГКА.");
+          const body = await readJson(req);
+          const memberId = Number(memberRoute[1]);
+          const member = db.prepare("SELECT * FROM users WHERE id = ?").get(memberId);
+          if (!member) throw new HttpError(404, "Участник не найден.");
+          if (body.role !== undefined && !roles.includes(body.role)) throw new HttpError(400, "Неизвестная роль.");
+          if (body.status !== undefined && !["pending", "active", "suspended"].includes(body.status)) {
+            throw new HttpError(400, "Неизвестный статус аккаунта.");
+          }
+          if (body.displayName !== undefined && typeof body.displayName !== "string") {
+            throw new HttpError(400, "Имя должно быть текстом длиной от 2 до 80 символов.");
+          }
+          if (body.memberSince !== undefined && typeof body.memberSince !== "string") {
+            throw new HttpError(400, "Дата вступления должна быть указана в формате ГГГГ-ММ-ДД.");
+          }
+          if (body.forumProfileVerified !== undefined && typeof body.forumProfileVerified !== "boolean") {
+            throw new HttpError(400, "Статус привязки форума указан некорректно.");
+          }
+          if ((body.memberSince !== undefined || body.forumProfileVerified !== undefined) && user.role !== "ГКА") {
+            throw new HttpError(403, "Дату вступления и проверку профиля форума может менять только ГКА.");
+          }
+          const displayName = body.displayName === undefined ? undefined : body.displayName.trim();
+          if (displayName !== undefined && (displayName.length < 2 || displayName.length > 80)) {
+            throw new HttpError(400, "Имя должно содержать от 2 до 80 символов.");
+          }
+          const memberSince = body.memberSince === undefined ? undefined : body.memberSince.trim();
+          if (memberSince !== undefined && memberSince !== "" &&
+              (!/^\d{4}-\d{2}-\d{2}$/.test(memberSince) || Number.isNaN(Date.parse(`${memberSince}T00:00:00Z`)) ||
+               new Date(`${memberSince}T00:00:00Z`).toISOString().slice(0, 10) !== memberSince)) {
+            throw new HttpError(400, "Укажите корректную дату вступления.");
+          }
+          if (body.forumProfileVerified === true && !member.forum_profile_url) {
+            throw new HttpError(409, "Сначала участник должен сохранить ссылку на профиль форума.");
+          }
+          if (memberId === user.id && (body.role !== undefined || body.status === "suspended")) {
+            throw new HttpError(409, "Нельзя лишить текущий аккаунт ГКА последнего доступа к управлению.");
+          }
+          db.exec("BEGIN IMMEDIATE");
+          try {
+          if (body.role !== undefined) {
+            db.prepare("UPDATE users SET role = ? WHERE id = ?").run(body.role, memberId);
+          }
+          if (body.status !== undefined) {
+            db.prepare("UPDATE users SET status = ? WHERE id = ?").run(body.status, memberId);
+          }
+          if (displayName !== undefined) {
+            db.prepare("UPDATE users SET display_name = ? WHERE id = ?").run(displayName, memberId);
+          }
+          if (memberSince !== undefined) {
+            db.prepare("UPDATE users SET member_since = ? WHERE id = ?").run(memberSince, memberId);
+          }
+          if (body.forumProfileVerified !== undefined) {
+            db.prepare(`UPDATE users SET forum_profile_verified_at = ${body.forumProfileVerified ? "CURRENT_TIMESTAMP" : "NULL"},
+              forum_profile_verified_by = ? WHERE id = ?`)
+              .run(body.forumProfileVerified ? user.id : null, memberId);
+          }
+            recordEmploymentEvent(db, {
+              userId: memberId, actorId: user.id,
+              fromRole: member.role, toRole: body.role ?? member.role,
+              fromStatus: member.status, toStatus: body.status ?? member.status,
+              details: body.status === "suspended" ? "Доступ сотрудника приостановлен руководством."
+                : body.status === "active" && member.status !== "active" ? "Доступ сотрудника восстановлен руководством."
+                  : body.role !== undefined ? "Должность изменена руководством." : ""
+            });
+            db.exec("COMMIT");
+          } catch (error) {
+            db.exec("ROLLBACK");
+            throw error;
+          }
+          const changed = [
+            body.role !== undefined ? `роль: ${member.role} → ${body.role}` : "",
+            body.status !== undefined ? `статус: ${member.status} → ${body.status}` : "",
+            memberSince !== undefined && memberSince !== member.member_since
+              ? `дата вступления: ${member.member_since || "не указана"} → ${memberSince || "не указана"}` : "",
+            body.forumProfileVerified !== undefined
+              ? `профиль форума: ${body.forumProfileVerified ? "подтвержден" : "не подтвержден"}` : "",
+            displayName !== undefined && displayName !== member.display_name
+              ? `имя: ${member.display_name} → ${displayName}` : ""
+          ].filter(Boolean).join("; ");
+          const discordChanged = body.role !== undefined || body.status !== undefined ||
+            (displayName !== undefined && displayName !== member.display_name);
+          const discordResult = discordChanged
+            ? await syncDiscordMember(memberId)
+            : { syncError: "", nicknameWarning: "" };
+          const logWarning = changed
+            ? await deliverWebhook(webhooks.logs, "Изменен состав коллегии", `${user.display_name} изменил ${member.display_name}: ${changed}.`)
+            : "";
+          return sendJson(res, 200, {
+            user: cleanUser(publicUser(db, memberId)),
+            discordWarning: discordResult.syncError,
+            nicknameWarning: discordResult.nicknameWarning,
+            logWarning
+          });
+        }
+
+        if (pathname === "/api/reprimands" && req.method === "GET") {
+          if (user.role === citizenRole) throw new HttpError(403, "Выговоры доступны только сотрудникам Коллегии.");
+          const manager = ["ГКА", "ЗГКА"].includes(user.role);
+          const includeArchived = requestUrl.searchParams.get("archived") === "1";
+          if (includeArchived && user.role !== "ГКА") throw new HttpError(403, "Архив взысканий доступен только ГКА.");
+          const rows = db.prepare(`SELECT r.id, r.user_id, r.issued_by, r.reason, r.photo_name, r.created_at,
+              target.display_name, target.role, target.discord_id, target.discord_username,
+              issuer.display_name AS issuer_name
+            FROM reprimands r JOIN users target ON target.id = r.user_id
+            JOIN users issuer ON issuer.id = r.issued_by
+            WHERE (? = 1 OR r.archived_at IS NULL) ${manager ? "" : "AND r.user_id = ?"}
+            ORDER BY r.id DESC LIMIT 200`)
+            .all(includeArchived ? 1 : 0, ...(manager ? [] : [user.id]));
+          return sendJson(res, 200, { reprimands: rows });
+        }
+
+        if (pathname === "/api/reprimands" && req.method === "POST") {
+          if (!["ГКА", "ЗГКА"].includes(user.role)) throw new HttpError(403, "Выдавать выговоры может только руководство.");
+          const body = await readJson(req, 3 * 1024 * 1024);
+          const targetId = Number(body.userId);
+          const reason = String(body.reason || "").trim();
+          if (!Number.isSafeInteger(targetId) || reason.length < 4 || reason.length > 1000) {
+            throw new HttpError(400, "Выберите сотрудника и укажите основание длиной от 4 до 1000 символов.");
+          }
+          const target = db.prepare("SELECT id, display_name, role, discord_id, discord_username, status FROM users WHERE id = ?")
+            .get(targetId);
+          if (!target || target.role === citizenRole || target.status !== "active") {
+            throw new HttpError(404, "Активный сотрудник не найден.");
+          }
+          if (target.role === "ГКА" && user.role !== "ГКА") {
+            throw new HttpError(403, "ЗГКА не может выдать выговор Главе Коллегии.");
+          }
+          const [photo] = parseApplicationAttachments([body.photo]);
+          if (!photo || !photo.contentType.startsWith("image/")) {
+            throw new HttpError(400, "К выговору нужно приложить фотографию в формате JPG, PNG или WebP.");
+          }
+          const insert = db.prepare(`INSERT INTO reprimands
+            (user_id, issued_by, reason, photo_name, photo_type, photo)
+            VALUES (?, ?, ?, ?, ?, ?)`)
+            .run(target.id, user.id, reason, photo.name, photo.contentType, photo.content);
+          const id = Number(insert.lastInsertRowid);
+          const fields = [
+            { name: "👤 Сотрудник", value: `${target.display_name} · ${target.role}`, inline: true },
+            { name: "🆔 ID портала", value: `#${target.id}`, inline: true },
+            { name: "🆔 Discord ID", value: target.discord_id || "не привязан", inline: true },
+            { name: "💬 Discord", value: target.discord_username ? `@${target.discord_username}` : "не привязан", inline: true },
+            { name: "📌 Основание", value: reason },
+            { name: "🖋️ Выдал", value: `${user.display_name} · ${user.role}`, inline: true },
+            { name: "📷 Фото", value: `Прикреплено: ${photo.name}`, inline: true }
+          ];
+          const dmWarning = await notifyReprimandByDm(target, id, reason, photo, fields);
+          const warning = await deliverWebhook(webhooks.logs, `⚠️ Выговор №${id}`, 
+            `${target.display_name} получил(а) дисциплинарное взыскание.`,
+            fields,
+            { name: photo.name, contentType: photo.contentType, content: photo.content });
+          return sendJson(res, 201, { id, dmWarning, webhookWarning: warning });
+        }
+
+        const reprimandPhotoRoute = pathname.match(/^\/api\/reprimands\/(\d+)\/photo$/);
+        if (reprimandPhotoRoute && req.method === "GET") {
+          const item = db.prepare("SELECT * FROM reprimands WHERE id = ?").get(Number(reprimandPhotoRoute[1]));
+          if (!item || (item.user_id !== user.id && !["ГКА", "ЗГКА"].includes(user.role))) {
+            throw new HttpError(404, "Фотография выговора не найдена.");
+          }
+          res.writeHead(200, {
+            "content-type": item.photo_type,
+            "content-length": item.photo.length,
+            "content-disposition": "inline",
+            "cache-control": "private, no-store",
+            "x-content-type-options": "nosniff"
+          });
+          return res.end(item.photo);
+        }
+
+        if (pathname === "/api/attestations" && req.method === "GET") {
+          let rows = db.prepare(`SELECT a.*, u.display_name, u.username, creator.display_name AS assigned_by
+            FROM attestations a JOIN users u ON u.id = a.user_id JOIN users creator ON creator.id = a.created_by
+            ORDER BY a.due_at DESC LIMIT 300`).all();
+          if (!["ГКА", "ЗГКА"].includes(user.role)) rows = rows.filter((item) => item.user_id === user.id);
+          return sendJson(res, 200, { attestations: rows });
+        }
+
+        if (pathname === "/api/attestations" && req.method === "POST") {
+          if (!["ГКА", "ЗГКА"].includes(user.role)) throw new HttpError(403, "Назначать переаттестацию может руководство.");
+          const body = await readJson(req);
+          const memberId = Number(body.userId);
+          const track = String(body.track || "");
+          const dueAt = new Date(String(body.dueAt || ""));
+          const member = db.prepare("SELECT id, role FROM users WHERE id = ? AND status = 'active'").get(memberId);
+          if (!member) throw new HttpError(404, "Активный участник не найден.");
+          if (!examBank[track]) throw new HttpError(400, "Для выбранной ступени нет учебного теста.");
+          if (dueAt.toString() === "Invalid Date" || dueAt.getTime() < Date.now()) throw new HttpError(400, "Укажите будущий срок переаттестации.");
+          const result = db.prepare("INSERT INTO attestations (user_id, track, due_at, created_by) VALUES (?, ?, ?, ?)")
+            .run(memberId, track, dueAt.toISOString(), user.id);
+          return sendJson(res, 201, { id: Number(result.lastInsertRowid) });
+        }
+
+        if (pathname === "/api/documents" && req.method === "GET") {
+          if (!documentRoles.includes(user.role)) throw new HttpError(403, "Документы доступны начиная с должности «Юрист».");
+          const manager = ["ГКА", "ЗГКА"].includes(user.role);
+          const documents = manager
+            ? db.prepare(`SELECT d.id,d.user_id,d.template,d.title,d.created_at,d.forum_url,d.forum_status,
+                d.forum_review_note,d.forum_reviewed_at,u.display_name
+              FROM documents d JOIN users u ON u.id=d.user_id ORDER BY d.created_at DESC LIMIT 200`).all()
+            : db.prepare(`SELECT id,user_id,template,title,created_at,forum_url,forum_status,
+                forum_review_note,forum_reviewed_at FROM documents WHERE user_id = ? ORDER BY created_at DESC LIMIT 100`).all(user.id);
+          const myCount = db.prepare("SELECT COUNT(*) AS count FROM documents WHERE user_id = ? AND forum_status = 'approved'").get(user.id).count;
+          const approvedCount = manager
+           ? db.prepare("SELECT COUNT(*) AS count FROM documents WHERE forum_status = 'approved'").get().count
+           : myCount;
+          return sendJson(res, 200, { documents, myCount, approvedCount });
+        }
+
+        const documentMatch = pathname.match(/^\/api\/documents\/(\d+)$/);
+        if (documentMatch && req.method === "GET") {
+          if (!documentRoles.includes(user.role)) throw new HttpError(403, "Документы доступны начиная с должности «Юрист».");
+          const document = db.prepare("SELECT * FROM documents WHERE id = ?").get(Number(documentMatch[1]));
+          if (!document || (document.user_id !== user.id && !["ГКА", "ЗГКА"].includes(user.role))) {
+            throw new HttpError(404, "Документ не найден.");
+          }
+          return sendJson(res, 200, { document });
+        }
+
+        if (pathname === "/api/documents" && req.method === "POST") {
+          if (!documentRoles.includes(user.role)) throw new HttpError(403, "Создавать документы можно начиная с должности «Юрист».");
+          const body = await readJson(req);
+          const template = String(body.template || "").slice(0, 60);
+          const title = String(body.title || "").trim().slice(0, 150);
+          const bbcode = String(body.bbcode || "");
+          if (!template || title.length < 3 || bbcode.length < 30 || bbcode.length > 50000) {
+            throw new HttpError(400, "Проверьте тип, название и содержимое документа.");
+          }
+          const result = db.prepare("INSERT INTO documents (user_id,template,title,bbcode) VALUES (?,?,?,?)")
+            .run(user.id, template, title, bbcode);
+          return sendJson(res, 201, { id: Number(result.lastInsertRowid) });
+        }
+
+        const documentForumRoute = pathname.match(/^\/api\/documents\/(\d+)\/forum$/);
+        if (documentForumRoute && req.method === "POST") {
+          if (!documentRoles.includes(user.role)) throw new HttpError(403, "Публикации документов доступны начиная с должности «Юрист».");
+          const body = await readJson(req);
+          const forumUrl = validateForumUrl(body.forumUrl);
+          const document = db.prepare("SELECT id,user_id,forum_status FROM documents WHERE id = ?")
+            .get(Number(documentForumRoute[1]));
+          if (!document || document.user_id !== user.id) throw new HttpError(404, "Документ не найден.");
+          if (!["draft", "rejected"].includes(document.forum_status)) {
+            throw new HttpError(409, "Эта публикация уже ожидает или получила решение руководства.");
+          }
+          db.prepare(`UPDATE documents SET forum_url = ?, forum_status = 'pending',
+            forum_review_note = '', forum_reviewed_by = NULL, forum_reviewed_at = NULL WHERE id = ?`)
+            .run(forumUrl, document.id);
+          const warning = await deliverWebhook(webhooks.applications, "Документ отправлен на проверку",
+            `${user.display_name} отправил публикацию на подтверждение.`,
+            [
+              { name: "Участник", value: user.display_name, inline: true },
+              { name: "Документ", value: `#${document.id}`, inline: true },
+              { name: "Ссылка на форум", value: forumUrl.slice(0, 1000), inline: false }
+            ]);
+          return sendJson(res, 200, { ok: true, warning });
+        }
+        if (documentForumRoute && req.method === "PATCH") {
+          if (!["ГКА", "ЗГКА"].includes(user.role)) throw new HttpError(403, "Подтверждать публикации может только руководство.");
+          const body = await readJson(req);
+          const status = String(body.status || "");
+          const note = String(body.note || "").trim().slice(0, 500);
+          if (!["approved", "rejected"].includes(status)) throw new HttpError(400, "Выберите одобрить или отклонить публикацию.");
+          const document = db.prepare(`SELECT d.id,d.user_id,d.title,d.forum_status,u.display_name
+            FROM documents d JOIN users u ON u.id = d.user_id WHERE d.id = ?`)
+            .get(Number(documentForumRoute[1]));
+          if (!document) throw new HttpError(404, "Документ не найден.");
+          if (document.forum_status !== "pending") throw new HttpError(409, "Публикация уже рассмотрена или не отправлена.");
+          if (status === "rejected" && note.length < 4) {
+            throw new HttpError(400, "При отклонении укажите причину для автора.");
+          }
+          db.prepare(`UPDATE documents SET forum_status = ?, forum_review_note = ?,
+            forum_reviewed_by = ?, forum_reviewed_at = CURRENT_TIMESTAMP WHERE id = ?`)
+            .run(status, note, user.id, document.id);
+          const logWarning = await deliverWebhook(webhooks.logs, "Решение по публикации документа",
+            `${user.display_name} ${status === "approved" ? "подтвердил" : "отклонил"} публикацию ${document.title} участника ${document.display_name}.`,
+            [
+              { name: "Документ", value: document.title, inline: true },
+              { name: "Автор", value: document.display_name, inline: true },
+              { name: "Решение", value: status === "approved" ? "Одобрено" : `Отклонено: ${note}`, inline: false }
+            ]);
+          return sendJson(res, 200, { ok: true, logWarning });
+        }
+
+        if (pathname === "/api/lawsuits" && req.method === "GET") {
+          if (!documentRoles.includes(user.role)) throw new HttpError(403, "Судебные дела доступны начиная с должности «Юрист».");
+          const manager = ["ГКА", "ЗГКА"].includes(user.role);
+          const rows = db.prepare(`SELECT l.*, u.display_name, u.role AS filer_role,
+              d.template, d.id AS document_id,d.forum_url,d.forum_status,d.forum_review_note,
+              reviewer.display_name AS updated_by_name
+            FROM lawsuits l JOIN users u ON u.id = l.user_id
+            JOIN documents d ON d.id = l.document_id
+            LEFT JOIN users reviewer ON reviewer.id = l.updated_by
+            ${manager ? "" : "WHERE l.user_id = ?"}
+            ORDER BY l.updated_at DESC, l.id DESC LIMIT 300`).all(...(manager ? [] : [user.id]));
+          return sendJson(res, 200, { lawsuits: rows });
+        }
+
+        const lawsuitHistoryRoute = pathname.match(/^\/api\/lawsuits\/(\d+)\/history$/);
+        if (lawsuitHistoryRoute && req.method === "GET") {
+          const item = db.prepare("SELECT id, user_id FROM lawsuits WHERE id = ?")
+            .get(Number(lawsuitHistoryRoute[1]));
+          if (!item || (item.user_id !== user.id && !["ГКА", "ЗГКА"].includes(user.role))) {
+            throw new HttpError(404, "История судебного дела не найдена.");
+          }
+          const history = db.prepare(`SELECT h.id, h.event_type, h.details, h.created_at,
+              actor.display_name AS actor_name, actor.role AS actor_role
+            FROM lawsuit_history h LEFT JOIN users actor ON actor.id = h.actor_id
+            WHERE h.lawsuit_id = ? ORDER BY h.id`).all(item.id);
+          return sendJson(res, 200, { history });
+        }
+
+        const lawsuitWorkflowRoute = pathname.match(/^\/api\/lawsuits\/(\d+)\/workflow$/);
+        if (lawsuitWorkflowRoute && req.method === "PATCH") {
+          if (!["ГКА", "ЗГКА"].includes(user.role)) {
+            throw new HttpError(403, "Менять срок и приоритет судебного дела может только руководство.");
+          }
+          const item = db.prepare("SELECT id, status, priority, due_at FROM lawsuits WHERE id = ?")
+            .get(Number(lawsuitWorkflowRoute[1]));
+          if (!item) throw new HttpError(404, "Судебное дело не найдено.");
+          if (["decided", "rejected"].includes(item.status)) {
+            throw new HttpError(409, "Срок и приоритет завершённого дела нельзя менять.");
+          }
+          const body = await readJson(req);
+          const priority = String(body.priority || "");
+          const dueAt = body.dueAt === null || body.dueAt === "" ? null : String(body.dueAt || "");
+          if (!["low", "normal", "high", "urgent"].includes(priority)) {
+            throw new HttpError(400, "Выберите допустимый приоритет дела.");
+          }
+          if (dueAt && (dueAt.length > 40 || Number.isNaN(Date.parse(dueAt)))) {
+            throw new HttpError(400, "Укажите корректный срок судебного дела.");
+          }
+          const changes = [];
+          if (item.priority !== priority) changes.push(`Приоритет: ${item.priority} → ${priority}.`);
+          if (item.due_at !== dueAt) changes.push(`Срок: ${item.due_at || "не установлен"} → ${dueAt || "снят"}.`);
+          if (changes.length) {
+            db.prepare("UPDATE lawsuits SET priority = ?, due_at = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+              .run(priority, dueAt, user.id, item.id);
+            db.prepare(`INSERT INTO lawsuit_history (lawsuit_id, actor_id, event_type, details)
+              VALUES (?, ?, 'workflow_updated', ?)`).run(item.id, user.id, changes.join(" "));
+          }
+          return sendJson(res, 200, { ok: true, changed: changes.length > 0 });
+        }
+
+        if (pathname === "/api/lawsuits" && req.method === "POST") {
+          if (!documentRoles.includes(user.role)) throw new HttpError(403, "Подавать исковые документы можно начиная с должности «Юрист».");
+          const body = await readJson(req);
+          const template = String(body.template || "");
+          const title = String(body.title || "").trim().slice(0, 150);
+          const bbcode = String(body.bbcode || "");
+          const forumUrl = validateForumUrl(body.forumUrl);
+          const courtTemplates = {
+            "lawsuit-supreme": "Верховный суд",
+            "lawsuit-federal": "Федеральный суд",
+            appeal: "Верховный суд · апелляция",
+            cassation: "Верховный суд · кассация",
+            constitutional: "Верховный суд · конституционное производство"
+          };
+          if (!courtTemplates[template] || title.length < 3 || bbcode.length < 30 || bbcode.length > 50000) {
+            throw new HttpError(400, "Проверьте вид, название и содержимое искового документа.");
+          }
+          db.exec("BEGIN IMMEDIATE");
+          try {
+            const document = db.prepare(`INSERT INTO documents
+              (user_id,template,title,bbcode,forum_url,forum_status) VALUES (?,?,?,?,?,'pending')`)
+              .run(user.id, template, title, bbcode, forumUrl);
+            const created = db.prepare("INSERT INTO lawsuits (user_id,document_id,title,court) VALUES (?,?,?,?)")
+              .run(user.id, Number(document.lastInsertRowid), title, courtTemplates[template]);
+            db.prepare(`INSERT INTO lawsuit_history (lawsuit_id, actor_id, event_type, details)
+              VALUES (?, ?, 'created', ?)`)
+              .run(Number(created.lastInsertRowid), user.id, `Иск подан в ${courtTemplates[template]}.`);
+            db.exec("COMMIT");
+            const warning = await deliverWebhook(webhooks.applications, "Иск опубликован на форуме и отправлен на проверку",
+              `${user.display_name} создал судебное дело и ожидает подтверждения ссылки.`,
+              [
+                { name: "Дело", value: `#${Number(created.lastInsertRowid)} · ${title}`, inline: false },
+                { name: "Суд", value: courtTemplates[template], inline: true },
+                { name: "Ссылка на форум", value: forumUrl, inline: false }
+              ]);
+            return sendJson(res, 201, { id: Number(created.lastInsertRowid), documentId: Number(document.lastInsertRowid), warning });
+          } catch (error) {
+            db.exec("ROLLBACK");
+            throw error;
+          }
+        }
+
+        const lawsuitRoute = pathname.match(/^\/api\/lawsuits\/(\d+)$/);
+        if (lawsuitRoute && req.method === "PATCH") {
+          if (!["ГКА", "ЗГКА"].includes(user.role)) throw new HttpError(403, "Рассматривать иски может только руководство.");
+          const body = await readJson(req);
+          const status = String(body.status || "");
+          const decision = String(body.decision || "").trim().slice(0, 2000);
+          if (!["in_review", "hearing", "decided", "rejected"].includes(status)) {
+            throw new HttpError(400, "Выберите допустимый статус рассмотрения.");
+          }
+          if (["decided", "rejected"].includes(status) && decision.length < 4) {
+            throw new HttpError(400, "Для итогового решения укажите причину или результат рассмотрения.");
+          }
+          const item = db.prepare(`SELECT l.id,l.document_id,d.forum_status FROM lawsuits l
+            JOIN documents d ON d.id = l.document_id WHERE l.id = ?`).get(Number(lawsuitRoute[1]));
+          if (!item) throw new HttpError(404, "Иск не найден.");
+          if (status !== "rejected" && item.forum_status !== "approved") {
+            throw new HttpError(409, "Сначала подтвердите ссылку на опубликованное заявление.");
+          }
+          const current = db.prepare("SELECT status FROM lawsuits WHERE id = ?").get(item.id);
+          const transitions = {
+            submitted: ["in_review", "rejected"],
+            in_review: ["hearing", "decided", "rejected"],
+            hearing: ["decided", "rejected"]
+          };
+          if (!transitions[current.status]?.includes(status)) {
+            throw new HttpError(409, "Нельзя перевести дело из текущего статуса на выбранный этап.");
+          }
+          db.prepare(`UPDATE lawsuits SET status = ?, decision = ?, updated_by = ?,
+            updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+            .run(status, decision, user.id, item.id);
+          db.prepare(`INSERT INTO lawsuit_history (lawsuit_id, actor_id, event_type, details)
+            VALUES (?, ?, ?, ?)`).run(item.id, user.id, status,
+              decision || `Статус изменён на ${status}.`);
+          return sendJson(res, 200, { ok: true });
+        }
+
+        if (pathname === "/api/sequences/next" && req.method === "POST") {
+          if (!documentRoles.includes(user.role)) throw new HttpError(403, "Конструкторы документов доступны начиная с должности «Юрист».");
+          const body = await readJson(req);
+          const sequence = body.type === "complaint" ? { key: "complaint", prefix: "CP", width: 4 }
+            : body.type === "rehabilitation" ? { key: "rehabilitation", prefix: "", width: 3 }
+              : null;
+          if (!sequence) throw new HttpError(400, "Для этого документа сквозная нумерация не предусмотрена.");
+          db.exec("BEGIN IMMEDIATE");
+          let number;
+          try {
+            const current = db.prepare("SELECT value FROM document_sequences WHERE name = ?").get(sequence.key);
+            const next = Number(current?.value || 0) + 1;
+            db.prepare(`INSERT INTO document_sequences (name,value) VALUES (?,?)
+              ON CONFLICT(name) DO UPDATE SET value=excluded.value`).run(sequence.key, next);
+            db.exec("COMMIT");
+            number = next;
+          } catch (error) {
+            db.exec("ROLLBACK");
+            throw error;
+          }
+          return sendJson(res, 200, { number: `${sequence.prefix}${String(number).padStart(sequence.width, "0")}` });
+        }
+
+        if (pathname === "/api/analytics" && req.method === "GET") {
+          if (!["ГКА", "ЗГКА"].includes(user.role)) throw new HttpError(403, "Аналитика доступна только руководству.");
+          const period = validateAnalyticsPeriod(requestUrl.searchParams.get("period"));
+          return sendJson(res, 200, buildAnalyticsReport(db, period));
+        }
+
+        if (pathname === "/api/weekly-reset/preview" && req.method === "GET") {
+          if (user.role !== "ГКА") throw new HttpError(403, "Новую неделю может запускать только ГКА.");
+          return sendJson(res, 200, { counts: getWeeklyResetPreview(db) });
+        }
+        if (pathname === "/api/weekly-reset/history" && req.method === "GET") {
+          if (user.role !== "ГКА") throw new HttpError(403, "История архивов доступна только ГКА.");
+          const runs = db.prepare(`SELECT r.id, r.archived_at, r.counts_json, r.restored_at,
+              creator.display_name AS created_by_name, restorer.display_name AS restored_by_name
+            FROM weekly_reset_runs r
+            JOIN users creator ON creator.id = r.created_by
+            LEFT JOIN users restorer ON restorer.id = r.restored_by
+            ORDER BY r.id DESC LIMIT 10`).all().map((run) => ({
+            ...run,
+            counts: parseStoredJson(run.counts_json, "счётчики архива")
+          }));
+          return sendJson(res, 200, { runs });
+        }
+        if (pathname === "/api/weekly-reset" && req.method === "POST") {
+          if (user.role !== "ГКА") throw new HttpError(403, "Новую неделю может запускать только ГКА.");
+          const body = requireObject(await readJson(req));
+          if (body.confirmed !== true) throw new HttpError(400, "Подтвердите запуск новой недели.");
+          return sendJson(res, 201, { run: createWeeklyReset(db, user.id) });
+        }
+        const weeklyResetRestore = pathname.match(/^\/api\/weekly-reset\/(\d+)\/restore$/);
+        if (weeklyResetRestore && req.method === "POST") {
+          if (user.role !== "ГКА") throw new HttpError(403, "Восстанавливать архив может только ГКА.");
+          return sendJson(res, 200, {
+            run: restoreWeeklyReset(db, Number(weeklyResetRestore[1]), user.id)
+          });
+        }
+
+        if (pathname === "/api/reports" && req.method === "GET") {
+          if (!["ГКА", "ЗГКА"].includes(user.role)) throw new HttpError(403, "Отчётность доступна только руководству.");
+          const period = validateReportPeriod(requestUrl.searchParams.get("period"));
+          return sendJson(res, 200, {
+            ...buildMonthlyReport(db, period),
+            googleSheetsConfigured
+          });
+        }
+        if (pathname === "/api/reports/sync" && req.method === "POST") {
+          if (user.role !== "ГКА") throw new HttpError(403, "Синхронизацию Google Sheets может запускать только ГКА.");
+          const body = await readJson(req);
+          const result = await syncMonthlyReport(body.period);
+          return sendJson(res, 200, { ...result, googleSheetsConfigured });
+        }
+
+        const lawRoute = pathname.match(/^\/api\/laws\/(ak|uk|pk|charter|zot|advocacy|road|labor|ethics|documents|justice)$/);
+        if (lawRoute && req.method === "GET") {
+          if (user.role === citizenRole) throw new HttpError(403, "Законодательная база доступна только сотрудникам Коллегии.");
+          const key = lawRoute[1];
+          const name = lawFiles[key];
+          try {
+            const text = normalizeLawText(
+              await readFile(path.join(root, "data", "laws", name), "utf8"),
+              key === "charter" || suppliedLawKeys.has(key)
+            );
+            return sendJson(res, 200, {
+              key,
+              name,
+              title: name.replace(/\.txt$/i, ""),
+              sourceNote: suppliedLawKeys.has(key) ? "Источник: текст, предоставленный пользователем." : "",
+              text
+            });
+          } catch (error) {
+            if (error.code === "ENOENT") throw new HttpError(404, "Файл закона не найден в data/laws.");
+            throw error;
+          }
+        }
+        if (pathname === "/api/laws" && req.method === "GET") {
+          if (user.role === citizenRole) throw new HttpError(403, "Законодательная база доступна только сотрудникам Коллегии.");
+          const laws = {};
+          for (const [key, name] of Object.entries(lawFiles)) {
+            try {
+              const info = await readFile(path.join(root, "data", "laws", name));
+              laws[key] = {
+                name,
+                bytes: info.length,
+                available: true,
+                sourceNote: suppliedLawKeys.has(key) ? "Источник: текст, предоставленный пользователем." : ""
+              };
+            } catch (error) {
+              if (error.code !== "ENOENT") throw error;
+              laws[key] = { name, bytes: 0, available: false };
+            }
+          }
+          return sendJson(res, 200, { laws });
+        }
+
+        throw new HttpError(404, "Маршрут API не найден.");
+      }
+
+      if (req.method === "GET" && await serveFrontendAsset(res, pathname)) return;
+
+      if (req.method === "GET" && (pathname === "/" || pathname === "/advokate.html")) {
+        const html = await readFile(path.join(root, "advokate.html"));
+        res.writeHead(200, {
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": "no-cache",
+          "x-content-type-options": "nosniff"
+        });
+        res.end(html);
+        return;
+      }
+      const publicImages = {
+        "/assets/collegium-seal.png": "collegium-seal.png",
+        "/assets/san-andreas-seal.png": "san-andreas-seal.png",
+        "/assets/collegium-main-seal.png": "collegium-main-seal.png",
+        "/assets/role-trainee.png": "role-trainee.png",
+        "/assets/role-lawyer.png": "role-lawyer.png",
+        "/assets/role-attorney.png": "role-attorney.png",
+        "/assets/role-senior-attorney.png": "role-senior-attorney.png",
+        "/assets/role-deputy-head.png": "role-deputy-head.png",
+        "/assets/role-head.png": "role-head.png",
+        "/favicon.ico": "portal.ico"
+      };
+      if (req.method === "GET" && Object.hasOwn(publicImages, pathname)) {
+        const image = await readFile(path.join(root, "assets", publicImages[pathname]));
+        res.writeHead(200, {
+          "content-type": pathname.endsWith(".ico") ? "image/x-icon" : "image/png",
+          "content-length": image.length,
+          "cache-control": "public, max-age=86400",
+          "x-content-type-options": "nosniff"
+        });
+        res.end(image);
+        return;
+      }
+      throw new HttpError(404, "Страница не найдена.");
+    } catch (error) {
+      if (error instanceof HttpError) return sendJson(res, error.status, { error: error.message });
+      console.error("Request failed:", error);
+      if (!res.headersSent) sendJson(res, 500, { error: "Внутренняя ошибка сервера. Подробности записаны в журнал." });
+      else res.destroy();
+    }
+  });
+  server.googleSheetsConfigured = googleSheetsConfigured;
+  server.syncMonthlyReport = syncMonthlyReport;
+  server.sendDueCalendarReminders = sendDueCalendarReminders;
+  server.portalDb = db;
+  server.webhookDispatcher = webhookDispatcher;
+  return server;
+}
+
+function createSession(db, userId) {
+  const token = randomBytes(32).toString("base64url");
+  const csrf = randomBytes(24).toString("base64url");
+  const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
+  db.prepare("INSERT INTO sessions (token_hash,csrf_token,user_id,expires_at) VALUES (?,?,?,?)")
+    .run(hashToken(token), csrf, userId, expiresAt);
+  return { token, csrf };
+}
+
+function getSession(db, req) {
+  const token = getCookie(req, "mirror_ka_session");
+  if (!token) return null;
+  const tokenHash = hashToken(token);
+  const session = db.prepare("SELECT * FROM sessions WHERE token_hash = ? AND expires_at > ?").get(tokenHash, Date.now());
+  if (!session) return null;
+  return session;
+}
+
+function assertCsrf(req, session) {
+  const origin = req.headers.origin;
+  if (origin && new URL(origin).host !== req.headers.host) throw new HttpError(403, "Запрос отклонён: источник не совпадает с сайтом.");
+  if (!safeEqual(req.headers["x-csrf-token"], session.csrf_token)) throw new HttpError(403, "CSRF-токен отсутствует или недействителен. Перезагрузите страницу и войдите снова.");
+}
+
+async function sendDiscordDirectMessage(discordUserId, account, avatarUrl, customTitle = "", customDescription = "") {
+  const token = process.env.DISCORD_BOT_TOKEN || "";
+  if (!/^[\w.-]+$/.test(token) || !/^\d{15,22}$/.test(discordUserId)) return;
+  try {
+    const channelResponse = await (globalThis.fetch)("https://discord.com/api/v10/users/@me/channels", {
+      method: "POST",
+      headers: {
+        authorization: `Bot ${token}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({ recipient_id: discordUserId }),
+      signal: AbortSignal.timeout(8000)
+    });
+    if (!channelResponse.ok) return;
+    const channel = await channelResponse.json();
+    if (!channel.id) return;
+    await (globalThis.fetch)(`https://discord.com/api/v10/channels/${channel.id}/messages`, {
+      method: "POST",
+      headers: {
+        authorization: `Bot ${token}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        embeds: [{
+          title: customTitle || "Discord успешно привязан",
+          description: customDescription || `Аккаунт **${account.display_name}** привязан к порталу Коллегии адвокатов.`,
+          color: 0xB09A63,
+          fields: [
+            { name: "Должность", value: account.role, inline: true },
+            { name: "Аккаунт портала", value: account.username || "не указан", inline: true }
+          ],
+          thumbnail: avatarUrl ? { url: avatarUrl } : undefined,
+          footer: { text: "Коллегия адвокатов · Mirror GTA 5 RP" },
+          timestamp: new Date().toISOString()
+        }],
+        allowed_mentions: { parse: [] }
+      }),
+      signal: AbortSignal.timeout(8000)
+    });
+  } catch (error) {
+    console.error("Discord direct notification could not be delivered:", error.message);
+  }
+}
+
+function setSessionCookie(res, token, secure) {
+  const secureText = secure ? "; Secure" : "";
+  res.setHeader("set-cookie", `mirror_ka_session=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800${secureText}`);
+}
+
+function clearSessionCookie(res, secure) {
+  const secureText = secure ? "; Secure" : "";
+  res.setHeader("set-cookie", `mirror_ka_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secureText}`);
+}
+
+function assertCanReview(role, item) {
+  const allowed = item.type === "citizen_help" || item.type === "citizen_complaint"
+    ? ["ЗГКА", "ГКА"].includes(role)
+    : item.type === "employment"
+    ? role === "ГКА"
+    : item.type === "promotion"
+    ? (item.requested_role === "Ст.Адвокат" || item.requested_role === "ЗГКА"
+      ? role === "ГКА" : ["ГКА", "ЗГКА"].includes(role))
+    : item.type === "exam" || item.type === "admin"
+      ? ["ГКА", "ЗГКА"].includes(role)
+      : item.type === "practice"
+        ? ["Адвокат", "Ст.Адвокат", "ЗГКА", "ГКА"].includes(role)
+        : item.type === "training"
+          ? ["Ст.Адвокат", "ЗГКА", "ГКА"].includes(role)
+          : false;
+  if (!allowed) throw new HttpError(403, "У вашей роли нет полномочий рассматривать эту заявку.");
+}
+
+const staticContentTypes = {
+  ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".ico": "image/x-icon",
+  ".woff2": "font/woff2",
+  ".map": "application/json; charset=utf-8"
+};
+
+const webhookChannelLabels = {
+  applications: "Заявки и приём в Коллегию",
+  exams: "Экзамены и повышения",
+  logs: "Журнал руководства"
+};
+
+/**
+ * Отдача файлов фронтенда из каталога web/.
+ * Возвращает false, если путь не относится к статике, чтобы маршрутизация
+ * продолжилась обычным образом.
+ */
+async function serveFrontendAsset(res, pathname, { cacheControl = "no-cache" } = {}) {
+  if (!pathname.startsWith("/web/")) return false;
+  let decoded;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    return false;
+  }
+  // Защита от выхода за пределы каталога web/.
+  const normalized = path.posix.normalize(decoded);
+  if (!normalized.startsWith("/web/") || normalized.includes("\0")) return false;
+  const relative = normalized.slice("/web/".length);
+  if (!relative) return false;
+  // Служебные файлы каталога web/ (манифест модулей, точечные файлы) не отдаём.
+  if (relative.split("/").some((part) => part === ".." || part.startsWith(".") || part === "package.json")) return false;
+  const filePath = path.join(root, "web", relative);
+  const type = staticContentTypes[path.extname(filePath).toLowerCase()];
+  if (!type) return false;
+  let body;
+  try {
+    body = await readFile(filePath);
+  } catch {
+    return false;
+  }
+  res.writeHead(200, {
+    "content-type": type,
+    "content-length": body.length,
+    "cache-control": cacheControl,
+    "x-content-type-options": "nosniff"
+  });
+  res.end(body);
+  return true;
+}
+
+/* Уведомления в Discord обслуживает модуль webhooks.mjs (очередь, повторы, 429). */
+
+async function createInitialAdmin(db, credentials = null) {
+  const count = db.prepare("SELECT COUNT(*) AS count FROM users WHERE role = 'ГКА'").get().count;
+  if (count) throw new Error("ГКА уже создан. Команду первичной настройки повторно выполнить нельзя.");
+  let username;
+  let displayName;
+  let password;
+  if (credentials) {
+    username = String(credentials.username || "").trim().toLowerCase();
+    displayName = String(credentials.displayName || "").trim();
+    password = String(credentials.password || "");
+  } else {
+    if (!process.stdin.isTTY) throw new Error("Запустите `npm run create-admin` из интерактивного терминала.");
+    const readline = createInterface({ input: process.stdin, output: process.stdout });
+    username = (await readline.question("Логин первого ГКА: ")).trim().toLowerCase();
+    displayName = (await readline.question("Игровое имя первого ГКА: ")).trim();
+    readline.close();
+  }
+  if (!/^[a-z0-9._-]{3,32}$/.test(username)) throw new Error("Логин должен содержать 3–32 символа: латиница, цифры, точка, дефис или подчёркивание.");
+  if (displayName.length < 2 || displayName.length > 80) throw new Error("Игровое имя должно содержать 2–80 символов.");
+  if (!credentials) password = await readHiddenPassword();
+  if (password.length < 12 || password.length > 128) throw new Error("Пароль должен содержать от 12 до 128 символов.");
+  const salt = randomBytes(16);
+  const key = await scrypt(password, salt, 64, { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
+  db.prepare("INSERT INTO users (username,password_hash,display_name,role,status) VALUES (?,?,?,?, 'active')")
+    .run(username, `scrypt$${salt.toString("base64")}$${Buffer.from(key).toString("base64")}`, displayName, "ГКА");
+  console.log("Первый аккаунт ГКА создан.");
+}
+
+export function initialAdminExists(dbPath) {
+  if (dbPath !== ":memory:" && !existsSync(dbPath)) return false;
+  const db = createDatabase(dbPath);
+  try {
+    return db.prepare("SELECT 1 FROM users WHERE role = 'ГКА' LIMIT 1").get() !== undefined;
+  } finally {
+    db.close();
+  }
+}
+
+export async function createInitialAdminAccount(dbPath, credentials) {
+  await mkdir(path.dirname(dbPath), { recursive: true });
+  const db = createDatabase(dbPath);
+  try {
+    await createInitialAdmin(db, credentials);
+  } finally {
+    db.close();
+  }
+}
+
+function readHiddenPassword() {
+  return new Promise((resolve, reject) => {
+    const input = process.stdin;
+    if (!input.isTTY || typeof input.setRawMode !== "function") return reject(new Error("Не удалось включить скрытый ввод пароля в этом терминале."));
+    process.stdout.write("Пароль (12–128 символов): ");
+    let value = "";
+    const finish = (error) => {
+      input.setRawMode(false);
+      input.pause();
+      input.removeListener("data", onData);
+      process.stdout.write("\n");
+      if (error) reject(error); else resolve(value);
+    };
+    const onData = (chunk) => {
+      for (const char of chunk.toString("utf8")) {
+        if (char === "\u0003") return finish(new Error("Настройка отменена."));
+        if (char === "\r" || char === "\n") return finish();
+        if (char === "\u007f" || char === "\b") value = value.slice(0, -1);
+        else if (char >= " ") value += char;
+      }
+    };
+    input.setRawMode(true);
+    input.resume();
+    input.on("data", onData);
+  });
+}
+
+export async function createDiscordCitizenRequest({
+  db,
+  discordId,
+  discordUsername,
+  displayName,
+  details,
+  webhookUrl = ""
+}) {
+  const discordUserId = String(discordId || "");
+  if (!/^\d{15,22}$/.test(discordUserId)) throw new Error("Discord вернул некорректный ID пользователя.");
+  const name = String(displayName || "").trim();
+  const description = String(details || "").trim();
+  if (name.length < 2 || name.length > 80) throw new Error("Введите имя персонажа от 2 до 80 символов.");
+  if (description.length < 10 || description.length > 2000) throw new Error("Опишите ситуацию от 10 до 2000 символов.");
+
+  let citizen = db.prepare("SELECT id, role, status FROM users WHERE discord_id = ?").get(discordUserId);
+  if (citizen && citizen.role !== citizenRole) throw new Error("Этот Discord-аккаунт привязан к сотруднику Коллегии.");
+  if (!citizen) {
+    const existingUsername = db.prepare("SELECT id FROM users WHERE username = ?").get(`discord-${discordUserId}`);
+    if (existingUsername) throw new Error("Не удалось связать обращение с аккаунтом Discord.");
+    const salt = randomBytes(16);
+    const key = await scrypt(randomBytes(32).toString("base64"), salt, 64, { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
+    const created = db.prepare(`INSERT INTO users
+      (username,password_hash,display_name,email,role,status,discord_id,discord_username)
+      VALUES (?, ?, ?, '', 'Гражданин', 'active', ?, ?)`)
+      .run(`discord-${discordUserId}`, `scrypt$${salt.toString("base64")}$${Buffer.from(key).toString("base64")}`,
+        name, discordUserId, String(discordUsername || "").trim());
+    citizen = { id: Number(created.lastInsertRowid), role: citizenRole, status: "active" };
+  } else {
+    db.prepare("UPDATE users SET display_name = ?, discord_username = ? WHERE id = ?")
+      .run(name, String(discordUsername || "").trim(), citizen.id);
+  }
+
+  const pending = db.prepare(`SELECT id FROM applications
+    WHERE user_id = ? AND type = 'citizen_help' AND status = 'pending' LIMIT 1`).get(citizen.id);
+  if (pending) throw new Error(`У вас уже есть активное обращение №${pending.id}. Дождитесь ответа адвоката.`);
+
+  const created = db.prepare(`INSERT INTO applications
+    (user_id,type,details,status,passport_id,promotion_data_json)
+    VALUES (?, 'citizen_help', ?, 'pending', '', ?)`)
+    .run(citizen.id, `Discord-обращение:\n${description}`, JSON.stringify({ source: "discord", discordId: discordUserId }));
+  const applicationId = Number(created.lastInsertRowid);
+  db.prepare(`INSERT INTO application_history (application_id, actor_id, event_type, details)
+    VALUES (?, ?, 'created', 'Обращение создано гражданином через Discord.')`)
+    .run(applicationId, citizen.id);
+
+  await sendWebhook(
+    webhookUrl,
+    "Новое обращение гражданина из Discord",
+    `${name} запросил помощь адвоката.`,
+    [
+      { name: "Обращение", value: `#${applicationId}`, inline: true },
+      { name: "Гражданин", value: name, inline: true },
+      { name: "Discord", value: discordUsername ? `@${discordUsername}` : "не указан", inline: true },
+      { name: "Ситуация", value: description.slice(0, 1000), inline: false }
+    ]
+  );
+  return { applicationId };
+}
+
+export async function issueDiscordInvite(db, discordUserId, sendCode, webhookUrl = process.env.DISCORD_WEBHOOK_APPLICATIONS || "") {
+  const requesterId = String(discordUserId || "");
+  if (!/^\d{15,22}$/.test(requesterId)) throw new Error("Discord вернул некорректный ID пользователя.");
+  if (typeof sendCode !== "function") throw new Error("Не настроена отправка кода в личные сообщения.");
+
+  const now = Date.now();
+  const cooldown = 24 * 60 * 60 * 1000;
+  const code = randomBytes(18).toString("base64url");
+  const codeHash = hashToken(code);
+  const expiresAt = now + 7 * 24 * 60 * 60 * 1000;
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const previous = db.prepare("SELECT issued_at FROM discord_invite_issuance WHERE discord_user_id = ?").get(requesterId);
+    if (previous && now - previous.issued_at < cooldown) {
+      const hours = Math.max(1, Math.ceil((cooldown - (now - previous.issued_at)) / (60 * 60 * 1000)));
+      throw new Error(`Повторный код можно запросить через ${hours} ч.`);
+    }
+    const issuer = db.prepare("SELECT id FROM users WHERE role = 'ГКА' AND status = 'active' ORDER BY id LIMIT 1").get();
+    if (!issuer) throw new Error("В портале ещё не настроен активный аккаунт ГКА.");
+    db.prepare("INSERT INTO invites (code_hash, created_by, expires_at) VALUES (?, ?, ?)")
+      .run(codeHash, issuer.id, expiresAt);
+    db.prepare(`INSERT INTO discord_invite_issuance (discord_user_id, invite_hash, issued_at)
+      VALUES (?, ?, ?) ON CONFLICT(discord_user_id) DO UPDATE SET invite_hash = excluded.invite_hash, issued_at = excluded.issued_at`)
+      .run(requesterId, codeHash, now);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+
+  try {
+    await sendCode(code);
+  } catch (error) {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.prepare("DELETE FROM invites WHERE code_hash = ? AND used_at IS NULL").run(codeHash);
+      db.prepare("DELETE FROM discord_invite_issuance WHERE discord_user_id = ? AND invite_hash = ?")
+        .run(requesterId, codeHash);
+      db.exec("COMMIT");
+    } catch (cleanupError) {
+      db.exec("ROLLBACK");
+      throw new Error(`Не удалось отправить код в Discord и очистить незавершённое приглашение: ${cleanupError.message}`);
+    }
+    throw new Error(`Не удалось отправить код в личные сообщения Discord: ${error.message}`);
+  }
+
+  const webhookWarning = await sendWebhook(
+    webhookUrl,
+    "Выдано приглашение в Коллегию",
+    "Одноразовый код отправлен кандидату в личные сообщения Discord. Срок действия — 7 дней."
+  );
+  if (webhookWarning) console.warn(webhookWarning);
+  return { expiresAt };
+}
+
+export async function startPortal(options = {}) {
+  const sheetsUrl = options.googleSheetsUrl ?? process.env.GOOGLE_SHEETS_WEB_APP_URL ?? "";
+  const sheetsToken = String(options.googleSheetsToken ?? process.env.GOOGLE_SHEETS_SYNC_TOKEN ?? "");
+  const sheetsSyncIntervalMinutes = Number(process.env.GOOGLE_SHEETS_SYNC_INTERVAL_MINUTES || 60);
+  if (sheetsUrl && sheetsToken.length >= 32 &&
+      (!Number.isInteger(sheetsSyncIntervalMinutes) || sheetsSyncIntervalMinutes < 5 || sheetsSyncIntervalMinutes > 1440)) {
+    throw new Error("GOOGLE_SHEETS_SYNC_INTERVAL_MINUTES должен быть целым числом от 5 до 1440.");
+  }
+  const dbPath = options.dbPath || process.env.DB_PATH || path.join(root, "data", "portal.sqlite");
+  await mkdir(path.dirname(dbPath), { recursive: true });
+  const db = createDatabase(dbPath);
+  const roleIds = {
+    "Гражданин": process.env.DISCORD_ROLE_CITIZEN || "",
+    "Стажер КА": process.env.DISCORD_ROLE_TRAINEE || "",
+    "Юрист": process.env.DISCORD_ROLE_LAWYER || "",
+    "Адвокат": process.env.DISCORD_ROLE_ATTORNEY || "",
+    "Ст.Адвокат": process.env.DISCORD_ROLE_SENIOR_ATTORNEY || "",
+    "ЗГКА": process.env.DISCORD_ROLE_DEPUTY_HEAD || "",
+    "ГКА": process.env.DISCORD_ROLE_HEAD || ""
+  };
+  const webhooks = {
+    applications: process.env.DISCORD_WEBHOOK_APPLICATIONS || "",
+    help: process.env.DISCORD_WEBHOOK_HELP || "",
+    exams: process.env.DISCORD_WEBHOOK_EXAMS || "",
+    logs: process.env.DISCORD_WEBHOOK_LOGS || "",
+    health: process.env.DISCORD_WEBHOOK_HEALTH || ""
+  };
+  for (const roleName of Object.keys(roleIds)) {
+    if (roleIds[roleName]) continue;
+    const savedRole = db.prepare("SELECT value FROM portal_settings WHERE key = ?").get(`discord_role:${roleName}`);
+    roleIds[roleName] = savedRole?.value || "";
+  }
+  for (const name of Object.keys(webhooks)) {
+    if (webhooks[name]) continue;
+    const savedWebhook = db.prepare("SELECT value FROM portal_settings WHERE key = ?").get(`discord_webhook:${name}`);
+    webhooks[name] = savedWebhook?.value || "";
+  }
+  const discordPresenceMap = new Map();
+  let discordCreateCaseChannel = async () => null;
+  let discordCloseCaseChannel = async () => null;
+  let server;
+  try {
+    server = createPortalServer({
+      db,
+      discordClientId: options.discordClientId,
+      discordClientSecret: options.discordClientSecret,
+      discordRoleIds: roleIds,
+      discordWebhooks: webhooks,
+      discordFetch: options.discordFetch,
+      discordRedirectUri: options.discordRedirectUri,
+      discordPresenceProvider: (discordId) => discordPresenceMap.get(String(discordId)) || "offline",
+      discordCreateCaseChannel: (...args) => discordCreateCaseChannel(...args),
+      discordCloseCaseChannel: (...args) => discordCloseCaseChannel(...args),
+      googleSheetsUrl: options.googleSheetsUrl,
+      googleSheetsToken: options.googleSheetsToken,
+      googleSheetsFetch: options.googleSheetsFetch
+    });
+  } catch (error) {
+    db.close();
+    throw error;
+  }
+  const host = options.host || process.env.HOST || "127.0.0.1";
+  const port = Number(options.port ?? process.env.PORT ?? 3000);
+  if (!Number.isInteger(port) || port < 0 || port > 65535 || (port === 0 && options.port !== 0)) {
+    db.close();
+    throw new Error("PORT должен быть целым числом от 1 до 65535.");
+  }
+  const discordBot = options.startBot === false ? null : startDiscordBot({
+    token: process.env.DISCORD_BOT_TOKEN || "",
+    guildId: process.env.DISCORD_GUILD_ID || "",
+    healthUrl: options.publicUrl || process.env.DISCORD_HEALTH_URL || "",
+    roleIds,
+    onRoleResolved: (name, id) => {
+      roleIds[name] = id;
+      db.prepare("INSERT INTO portal_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+        .run(`discord_role:${name}`, id);
+    },
+    onPresence: (discordId, status) => {
+      discordPresenceMap.set(String(discordId), status);
+    },
+    onWebhookResolved: (name, url) => {
+      webhooks[name] = url;
+      db.prepare("INSERT INTO portal_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+        .run(`discord_webhook:${name}`, url);
+    },
+    onInviteRequest: (discordUserId, sendCode) => issueDiscordInvite(db, discordUserId, sendCode, webhooks.applications),
+    onDiscordCitizenRequest: (request) => createDiscordCitizenRequest({
+      db,
+      ...request,
+      webhookUrl: webhooks.applications
+    }),
+    onPortalCommand: (discordUserId, commandName, commandOptions, memberRoleIds) =>
+      runDiscordPortalCommand({
+        db, discordUserId, commandName, options: commandOptions, memberRoleIds, roleIds,
+        notifyAbsence: async (account, startDate, endDate) => {
+          if (!webhooks.logs) return "Заявка сохранена в портале; Discord-уведомление руководству не настроено.";
+          try {
+            const response = await (options.webhookFetch || globalThis.fetch)(webhooks.logs, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                content: `${account.display_name} подал(а) заявку на отсутствие с ${startDate} по ${endDate}.`,
+                allowed_mentions: { parse: [] }
+              }),
+              signal: AbortSignal.timeout(10000)
+            });
+            return response.ok ? "" : `Заявка сохранена, но Discord уведомление не доставлено (HTTP ${response.status}).`;
+          } catch (error) {
+            return `Заявка сохранена, но Discord уведомление не доставлено: ${error.message}`;
+          }
+        }
+      }),
+    onPortalAction: (discordUserId, action, memberRoleIds) =>
+      runDiscordPortalAction({ db, discordUserId, action, memberRoleIds, roleIds })
+  });
+  discordCreateCaseChannel = async (applicationId, citizenId, attorneyId) =>
+    discordBot?.createCaseChannel?.(applicationId, citizenId, attorneyId) || null;
+  discordCloseCaseChannel = async (applicationId) =>
+    discordBot?.closeCaseChannel?.(applicationId);
+  try {
+    await new Promise((resolve, reject) => {
+      const onError = (error) => reject(error);
+      server.once("error", onError);
+      server.listen(port, host, () => {
+        server.removeListener("error", onError);
+        resolve();
+      });
+    });
+  } catch (error) {
+    discordBot?.destroy();
+    db.close();
+    if (error.code === "EADDRINUSE") {
+      throw new Error(`Порт ${port} уже занят. Закройте другой сервер портала и повторите запуск.`);
+    }
+    throw error;
+  }
+  const listeningPort = server.address().port;
+  const reportSyncTimer = server.googleSheetsConfigured
+    ? setInterval(() => {
+      server.syncMonthlyReport(currentReportPeriod()).catch((error) => {
+        console.error("Google Sheets automatic sync failed:", error.message);
+      });
+    }, sheetsSyncIntervalMinutes * 60 * 1000)
+    : null;
+  reportSyncTimer?.unref();
+  const calendarReminderTimer = discordBot
+    ? setInterval(() => {
+      server.sendDueCalendarReminders().catch((error) => {
+        console.error("Calendar reminder scheduler failed:", error.message);
+      });
+    }, 5 * 60 * 1000)
+    : null;
+  calendarReminderTimer?.unref();
+  if (calendarReminderTimer) {
+    server.sendDueCalendarReminders().catch((error) => {
+      console.error("Calendar reminder scheduler failed:", error.message);
+    });
+  }
+  console.log(`Портал запущен: http://${host}:${listeningPort}`);
+  return {
+    server,
+    host,
+    port: listeningPort,
+    close: () => {
+      if (reportSyncTimer) clearInterval(reportSyncTimer);
+      if (calendarReminderTimer) clearInterval(calendarReminderTimer);
+      return new Promise((resolve, reject) => server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        discordBot?.destroy();
+        db.close();
+        resolve();
+      }));
+    }
+  };
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const dbPath = process.env.DB_PATH || path.join(root, "data", "portal.sqlite");
+  await mkdir(path.dirname(dbPath), { recursive: true });
+  if (process.argv[2] === "create-admin") {
+    const db = createDatabase(dbPath);
+    try {
+      await createInitialAdmin(db);
+    } catch (error) {
+      console.error(error.message);
+      process.exitCode = 1;
+    } finally {
+      db.close();
+    }
+  } else {
+    const portal = await startPortal({ dbPath });
+    let shuttingDown = false;
+    const shutdown = () => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      portal.webhookDispatcher?.stop();
+      void portal.close().then(() => process.exit(0)).catch((error) => {
+        console.error("Не удалось корректно остановить портал:", error.message);
+        process.exitCode = 1;
+      });
+    };
+    process.on("SIGINT", shutdown);
+    process.on("SIGTERM", shutdown);
+  }
+}

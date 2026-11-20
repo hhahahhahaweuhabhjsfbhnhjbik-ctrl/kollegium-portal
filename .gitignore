@@ -1,0 +1,11 @@
+.env
+data/portal.sqlite
+data/portal.sqlite-shm
+data/portal.sqlite-wal
+node_modules/
+release/
+
+# Рабочие артефакты проверок
+.work/
+preview/
+*.log

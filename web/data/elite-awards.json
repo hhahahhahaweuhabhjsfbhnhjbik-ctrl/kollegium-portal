@@ -1,0 +1,97 @@
+{
+  "title": "Элита коллегии: высшие награды",
+  "subtitle": "Десять высших отличий Коллегии адвокатов. Награду вручает руководство за личные заслуги — каждая отмечает отдельную грань профессии.",
+  "note": "Награды носят статусный характер и не влияют на должность, оклад или рейтинг. Вручение фиксируется в личном деле.",
+  "awards": [
+    {
+      "id": "case-advocate",
+      "title": "Адвокат дела",
+      "description": "Выиграйте 10 дел подряд",
+      "tier": "medium",
+      "tierLabel": "Средне",
+      "icon": "scale",
+      "legendary": false
+    },
+    {
+      "id": "people-defender",
+      "title": "Защитник народа",
+      "description": "100 дел безвозмездно (pro bono)",
+      "tier": "hard",
+      "tierLabel": "Сложно",
+      "icon": "shield",
+      "legendary": false
+    },
+    {
+      "id": "interrogation-master",
+      "title": "Мастер допроса",
+      "description": "50 успешных перекрёстных допросов",
+      "tier": "hard",
+      "tierLabel": "Сложно",
+      "icon": "search",
+      "legendary": false
+    },
+    {
+      "id": "legal-architect",
+      "title": "Правовой архитектор",
+      "description": "25 договоров без единого оспаривания",
+      "tier": "hard",
+      "tierLabel": "Сложно",
+      "icon": "book",
+      "legendary": false
+    },
+    {
+      "id": "iron-argument",
+      "title": "Железный аргумент",
+      "description": "Отмена решений в апелляции по 10 делам",
+      "tier": "very-hard",
+      "tierLabel": "Очень сложно",
+      "icon": "gavel",
+      "legendary": false
+    },
+    {
+      "id": "keeper-of-secrets",
+      "title": "Хранитель тайны",
+      "description": "10 лет без нарушений адвокатской тайны",
+      "tier": "medium",
+      "tierLabel": "Средне",
+      "icon": "lock",
+      "legendary": false
+    },
+    {
+      "id": "legist",
+      "title": "Законник",
+      "description": "Сдайте квалификационный экзамен на отлично",
+      "tier": "easy",
+      "tierLabel": "Легко",
+      "icon": "scroll",
+      "legendary": false
+    },
+    {
+      "id": "unshakable",
+      "title": "Несокрушимый",
+      "description": "Проведите 100 судебных заседаний",
+      "tier": "hard",
+      "tierLabel": "Сложно",
+      "icon": "bank",
+      "legendary": false
+    },
+    {
+      "id": "city-ruler",
+      "title": "Властитель города",
+      "description": "Выиграйте громкие дела городского уровня",
+      "tier": "very-hard",
+      "tierLabel": "Очень сложно",
+      "icon": "medal",
+      "legendary": false
+    },
+    {
+      "id": "collegium-legend",
+      "title": "Легенда коллегии",
+      "description": "Получите все награды коллегии",
+      "tier": "legendary",
+      "tierLabel": "Легендарно",
+      "icon": "crown",
+      "legendary": true
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+{
+  "name": "mirror-ka-portal",
+  "version": "1.0.0",
+  "private": true,
+  "author": "Коллегия адвокатов",
+  "main": "desktop/main.cjs",
+  "description": "Портал Коллегии адвокатов Mirror GTA 5 RP",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.mjs",
+    "create-admin": "node --env-file-if-exists=.env server.mjs create-admin",
+    "test": "node --test",
+    "check:ui": "node tools/audit-ui.mjs && node tools/smoke-ui.mjs",
+    "check:server": "node tools/check-server.mjs",
+    "check": "node tools/audit-ui.mjs && node tools/smoke-ui.mjs && node tools/check-server.mjs",
+    "preview": "node tools/preview.mjs",
+    "desktop": "electron .",
+    "desktop:build": "electron-builder --win nsis"
+  },
+  "dependencies": {
+    "discord.js": "^14.22.1"
+  },
+  "devDependencies": {
+    "electron": "^45.4.1",
+    "electron-builder": "^26.18.0",
+    "jsdom": "^31.0.1"
+  },
+  "build": {
+    "appId": "com.mirror.ka-portal",
+    "productName": "Коллегия адвокатов",
+    "files": [
+      "desktop/**/*",
+      "assets/**/*",
+      "web/**/*",
+      "data/laws/**/*",
+      "integrations/google-sheets/**/*",
+      "advokate.html",
+      "server.mjs",
+      "webhooks.mjs",
+      "discord-bot.mjs",
+      "package.json",
+      "!data/**/*.sqlite*",
+      "!.env"
+    ],
+    "extraResources": [
+      {
+        "from": "integrations/google-sheets/Code.gs",
+        "to": "integrations/google-sheets/Code.gs"
+      }
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "icon": "assets/portal.ico",
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "installerIcon": "assets/portal.ico",
+      "uninstallerIcon": "assets/portal.ico"
+    }
+  }
+}

@@ -1,0 +1,1087 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111a24">
+  <title>Коллегия адвокатов — Mirror GTA 5 RP</title>
+  <!-- Стили: базовая раскладка, тема и витрина наград -->
+  <link rel="stylesheet" href="/web/css/base.css">
+  <link rel="stylesheet" href="/web/css/theme.css">
+  <link rel="stylesheet" href="/web/css/awards.css">
+</head>
+<body>
+  <div id="winter-snow" class="winter-snow" aria-hidden="true"></div>
+  <svg class="icon-sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7"/><path d="M5 9v12h14V9M9 21v-7h6v7"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+    <symbol id="i-briefcase" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18M10 12v2h4v-2"/></symbol>
+    <symbol id="i-award" viewBox="0 0 24 24"><circle cx="12" cy="9" r="6"/><path d="m8 14-1 8 5-3 5 3-1-8M9.5 9l1.5 1.5L14.5 7"/></symbol>
+    <symbol id="i-list-check" viewBox="0 0 24 24"><path d="M9 6h12M9 12h12M9 18h12M3 6l1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2"/></symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></symbol>
+    <symbol id="i-calendar-clock" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h11"/><circle cx="16.5" cy="16.5" r="3.5"/><path d="M16.5 14.5v2l1.2.8"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 5a3.5 3.5 0 0 1 0 6.8M18 14a5.5 5.5 0 0 1 3.5 5.2"/></symbol>
+    <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4ZM7 6H4v2a4 4 0 0 0 4 4M17 6h3v2a4 4 0 0 1-4 4"/></symbol>
+    <symbol id="i-scale" viewBox="0 0 24 24"><path d="M12 3v18M6 6h12M5 6l-3 7h6L5 6ZM19 6l-3 7h6l-3-7ZM8 21h8"/></symbol>
+    <symbol id="i-message" viewBox="0 0 24 24"><path d="M20 11.5a7.5 7.5 0 0 1-8 7.5 8.5 8.5 0 0 1-4-.9L3 20l1.5-4A7.2 7.2 0 0 1 4 12c0-4.1 3.6-7.5 8-7.5s8 3.1 8 7Z"/><path d="M8 12h.01M12 12h.01M16 12h.01"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3h8l5 5v13H6zM14 3v5h5M9 13h7M9 17h7"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 9h18"/></symbol>
+    <symbol id="i-user-plus" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M19 8v6M16 11h6"/></symbol>
+    <symbol id="i-clipboard" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="17" rx="2"/><path d="M9 5V3h6v2M8 12h8M8 16h5"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M3 5a2 2 0 0 1 2-2h6v17H5a2 2 0 0 0-2 2zM21 5a2 2 0 0 0-2-2h-6v17h6a2 2 0 0 1 2 2zM6 7h2M16 7h2"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6" rx=".5"/><rect x="13" y="8" width="3" height="10" rx=".5"/><rect x="19" y="5" width="2" height="13" rx=".5"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><path d="M7 3H4a1 1 0 0 0-1 1c0 9.4 7.6 17 17 17a1 1 0 0 0 1-1v-3l-5-2-2 3a14 14 0 0 1-8-8l3-2z"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9z"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.5 9A7 7 0 0 1 18 6l2 6M4 12l2 6a7 7 0 0 0 12.5-3"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+    <symbol id="i-discord" viewBox="0 0 24 24"><path d="M7 5.5A16 16 0 0 1 12 5a16 16 0 0 1 5 .5l2.2 11.2A13 13 0 0 1 15 19l-1-1.6M9 17.4 8 19a13 13 0 0 1-4.2-2.3L6 5.5"/><path d="M9 13h.01M15 13h.01M8.5 15.5a6 6 0 0 0 7 0"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+  <symbol id="i-laurel" viewBox="0 0 100 100" fill="currentColor" stroke="none">
+    <g class="laurel-leaves">
+      <ellipse cx="46.2" cy="86.3" rx="3.50" ry="7.60" transform="rotate(120.0 46.2 86.3)"/>
+      <ellipse cx="35.8" cy="84.2" rx="3.36" ry="7.30" transform="rotate(136.6 35.8 84.2)"/>
+      <ellipse cx="26.4" cy="79.0" rx="3.22" ry="6.99" transform="rotate(153.1 26.4 79.0)"/>
+      <ellipse cx="18.9" cy="71.2" rx="3.08" ry="6.69" transform="rotate(169.7 18.9 71.2)"/>
+      <ellipse cx="14.1" cy="61.5" rx="2.94" ry="6.38" transform="rotate(186.3 14.1 61.5)"/>
+      <ellipse cx="12.6" cy="50.7" rx="2.80" ry="6.08" transform="rotate(202.9 12.6 50.7)"/>
+      <ellipse cx="14.3" cy="40.2" rx="2.66" ry="5.78" transform="rotate(219.4 14.3 40.2)"/>
+      <ellipse cx="19.0" cy="30.7" rx="2.52" ry="5.47" transform="rotate(236.0 19.0 30.7)"/>
+      <ellipse cx="53.8" cy="86.3" rx="3.50" ry="7.60" transform="rotate(60.0 53.8 86.3)"/>
+      <ellipse cx="64.2" cy="84.2" rx="3.36" ry="7.30" transform="rotate(43.4 64.2 84.2)"/>
+      <ellipse cx="73.6" cy="79.0" rx="3.22" ry="6.99" transform="rotate(26.9 73.6 79.0)"/>
+      <ellipse cx="81.1" cy="71.2" rx="3.08" ry="6.69" transform="rotate(10.3 81.1 71.2)"/>
+      <ellipse cx="85.9" cy="61.5" rx="2.94" ry="6.38" transform="rotate(-6.3 85.9 61.5)"/>
+      <ellipse cx="87.4" cy="50.7" rx="2.80" ry="6.08" transform="rotate(-22.9 87.4 50.7)"/>
+      <ellipse cx="85.7" cy="40.2" rx="2.66" ry="5.78" transform="rotate(-39.4 85.7 40.2)"/>
+      <ellipse cx="81.0" cy="30.7" rx="2.52" ry="5.47" transform="rotate(-56.0 81.0 30.7)"/>
+    </g>
+    <path d="M50 88c-11-2-21-8-27-18M50 88c11-2 21-8 27-18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity=".45"/>
+  </symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 5 5.6v6.1c0 4.1 2.8 7.2 7 9.3 4.2-2.1 7-5.2 7-9.3V5.6L12 3Z"/><path d="M12 8v6M9.5 10.5h5"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 4.5 4.5"/><path d="M10.5 7.8c.6-.7 1.5-.8 2.2-.3"/></symbol>
+  <symbol id="i-gavel" viewBox="0 0 24 24"><path d="m4 20 6-6"/><path d="m13.5 3.5 7 7"/><path d="m10 7 7 7"/><path d="m8.5 5.5 3 3"/><path d="m15.5 12.5 3 3"/><path d="M3 20h6"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4.5" y="10" width="15" height="10" rx="2.2"/><path d="M8.5 10V7.5a3.5 3.5 0 0 1 7 0V10"/><path d="M12 14v2.5"/></symbol>
+  <symbol id="i-scroll" viewBox="0 0 24 24"><path d="M6 3h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M8 7h8M8 11h8M8 15h5"/><circle cx="16" cy="17" r="2.6"/></symbol>
+  <symbol id="i-bank" viewBox="0 0 24 24"><path d="m3 9 9-5 9 5"/><path d="M5 9v9M9 9v9M15 9v9M19 9v9"/><path d="M3 21h18M3 18h18"/></symbol>
+  <symbol id="i-crown" viewBox="0 0 24 24"><path d="m3 8 4 3 5-6 5 6 4-3-2 11H5L3 8Z"/><path d="M7 19h10"/></symbol>
+  <symbol id="i-medal" viewBox="0 0 24 24"><circle cx="12" cy="14" r="5.5"/><path d="m8 3 2.5 5M16 3l-2.5 5"/><path d="m12 11.5 1 2 2 .3-1.5 1.5.4 2-1.9-1-1.9 1 .4-2L9 13.8l2-.3 1-2Z"/></symbol>
+</svg>
+  <header>
+    <div class="shell topbar">
+      <div class="brand">
+        <img class="brand-mark" src="/assets/collegium-seal.png" alt="">
+        <div>
+          <h1>КОЛЛЕГИЯ АДВОКАТОВ</h1>
+          <p>Mirror GTA 5 RP — официальный рабочий портал</p>
+        </div>
+      </div>
+      <button class="header-icon" id="nav-toggle" type="button" aria-label="Свернуть меню" title="Свернуть меню"><svg class="svg-icon"><use href="#i-menu"></use></svg></button>
+      <div class="global-search">
+        <input id="portal-search" type="search" autocomplete="off" placeholder="Поиск по порталу..." aria-label="Поиск по порталу">
+        <div id="portal-search-results" class="search-results hidden" role="listbox"></div>
+      </div>
+      <div class="topbar-actions">
+        <a class="header-icon" id="forum-open" href="https://forum.gta5rp.com/" target="_blank" rel="noopener noreferrer"
+          aria-label="Открыть форум GTA5RP" title="Открыть форум GTA5RP"><svg class="svg-icon"><use href="#i-external"></use></svg></a>
+        <div class="discord-tools">
+          <button class="header-icon hidden" id="discord-link" type="button" aria-label="Привязать Discord" title="Привязать Discord"><svg class="svg-icon"><use href="#i-discord"></use></svg></button>
+          <button class="header-icon subtle hidden" id="discord-sync" type="button" aria-label="Синхронизировать Discord" title="Синхронизировать Discord"><svg class="svg-icon"><use href="#i-refresh"></use></svg></button>
+          <span id="discord-status" class="help hidden"></span>
+          <span id="discord-nickname-status" class="help hidden"></span>
+        </div>
+        <button class="header-icon notification-button" id="notification-open" type="button" aria-label="Последние уведомления" title="Последние уведомления">
+          <svg class="svg-icon"><use href="#i-bell"></use></svg><span id="notification-count" class="notification-count hidden"></span>
+        </button>
+        <div id="notification-center" class="notification-center hidden" role="dialog" aria-label="Уведомления">
+          <div class="notification-center-head">
+            <div><span class="eyebrow">Центр уведомлений</span><h3>Последние события</h3></div>
+            <button class="btn small subtle" id="notification-close" type="button">Закрыть</button>
+          </div>
+          <div id="notification-center-list" class="notification-center-list"></div>
+        </div>
+      <div class="profile">
+        <button id="profile-open" class="profile-open hidden" type="button" aria-label="Открыть профиль">
+          <img id="discord-avatar" class="discord-avatar hidden" alt="Аватар Discord">
+          <span class="profile-copy">
+            <strong id="profile-name">Вход не выполнен</strong>
+            <span id="profile-role">—</span>
+            <span id="profile-presence" class="presence-badge presence-offline hidden"><i></i><b>Не в сети</b></span>
+          </span>
+        </button>
+        <button class="btn small" id="login-open" type="button">Войти / регистрация</button>
+        <button class="btn small hidden" id="logout-button" type="button">Выйти</button>
+      </div>
+      </div>
+    </div>
+  </header>
+  <nav id="sidebar" aria-label="Разделы портала">
+    <div class="nav-scroll">
+      <div class="nav-section-label">ПРОФИЛЬ</div>
+      <button class="nav-btn active" id="nav-home" data-tab="home" aria-label="Главная панель"><span class="nav-icon"><svg class="svg-icon"><use href="#i-home"></use></svg></span><span class="nav-label">Главная панель</span></button>
+      <button class="nav-btn" id="nav-profile" data-tab="profile" aria-label="Мой профиль"><span class="nav-icon"><svg class="svg-icon"><use href="#i-user"></use></svg></span><span class="nav-label">Мой профиль</span></button>
+      <button class="nav-btn" id="nav-colleagues" data-tab="colleagues" aria-label="Коллеги"><span class="nav-icon"><svg class="svg-icon"><use href="#i-users"></use></svg></span><span class="nav-label">Коллеги</span></button>
+      <button class="nav-btn" id="nav-career" data-tab="career" aria-label="Моя карьера"><span class="nav-icon"><svg class="svg-icon"><use href="#i-briefcase"></use></svg></span><span class="nav-label">Моя карьера</span></button>
+      <button class="nav-btn hidden" id="nav-achievements" data-tab="achievements" aria-label="Достижения и награды"><span class="nav-icon"><svg class="svg-icon"><use href="#i-award"></use></svg></span><span class="nav-label">Достижения и награды</span></button>
+      <div class="nav-section-label">РАБОЧИЕ ПРОЦЕССЫ</div>
+      <button class="nav-btn hidden" id="nav-tasks" data-tab="tasks" aria-label="Поручения и задачи"><span class="nav-icon"><svg class="svg-icon"><use href="#i-list-check"></use></svg></span><span class="nav-label">Поручения и задачи</span></button>
+      <button class="nav-btn hidden" id="nav-calendar" data-tab="calendar" aria-label="Календарь"><span class="nav-icon"><svg class="svg-icon"><use href="#i-calendar"></use></svg></span><span class="nav-label">Календарь</span></button>
+      <button class="nav-btn hidden" id="nav-absence" data-tab="absence" aria-label="Отпуск и отсутствие"><span class="nav-icon"><svg class="svg-icon"><use href="#i-calendar-clock"></use></svg></span><span class="nav-label">Отпуск и отсутствие</span></button>
+      <button class="nav-btn" id="nav-practice" data-tab="practice" aria-label="Практика"><span class="nav-icon"><svg class="svg-icon"><use href="#i-users"></use></svg></span><span class="nav-label">Практика</span></button>
+      <button class="nav-btn hidden" id="nav-ranking" data-tab="ranking" aria-label="Рейтинг адвокатов"><span class="nav-icon"><svg class="svg-icon"><use href="#i-trophy"></use></svg></span><span class="nav-label">Рейтинг адвокатов</span></button>
+      <button class="nav-btn" id="nav-lawsuits" data-tab="lawsuits" aria-label="Судебные дела"><span class="nav-icon"><svg class="svg-icon"><use href="#i-scale"></use></svg></span><span class="nav-label">Судебные дела</span></button>
+      <button class="nav-btn" id="nav-applications" data-tab="applications" aria-label="Обращения"><span class="nav-icon"><svg class="svg-icon"><use href="#i-message"></use></svg></span><span class="nav-label">Обращения</span></button>
+      <button class="nav-btn" id="nav-documents" data-tab="documents" aria-label="Документы"><span class="nav-icon"><svg class="svg-icon"><use href="#i-file"></use></svg></span><span class="nav-label">Документы</span></button>
+      <div class="nav-section-label">СОСТАВ И КАДРЫ</div>
+      <button class="nav-btn hidden" id="discipline-nav" data-tab="discipline" aria-label="Личное дело"><span class="nav-icon"><svg class="svg-icon"><use href="#i-folder"></use></svg></span><span class="nav-label">Личное дело</span></button>
+      <button class="nav-btn hidden" id="nav-reserve" data-tab="reserve" aria-label="Кадровый резерв"><span class="nav-icon"><svg class="svg-icon"><use href="#i-user-plus"></use></svg></span><span class="nav-label">Кадровый резерв</span></button>
+      <button class="nav-btn hidden" id="recruitment-nav" data-tab="recruitment" aria-label="Заявка на вступление"><span class="nav-icon"><svg class="svg-icon"><use href="#i-user-plus"></use></svg></span><span class="nav-label">Заявка на вступление</span></button>
+      <button class="nav-btn hidden" id="management-nav" data-tab="management" aria-label="Сотрудники"><span class="nav-icon"><svg class="svg-icon"><use href="#i-users"></use></svg></span><span class="nav-label">Сотрудники</span></button>
+      <button class="nav-btn hidden" id="nav-characteristics" data-tab="characteristics" aria-label="Характеристики"><span class="nav-icon"><svg class="svg-icon"><use href="#i-clipboard"></use></svg></span><span class="nav-label">Характеристики</span></button>
+      <div class="nav-section-label">ОБУЧЕНИЕ И АНАЛИТИКА</div>
+      <button class="nav-btn" id="nav-academy" data-tab="academy" aria-label="Академия адвокатуры"><span class="nav-icon"><svg class="svg-icon"><use href="#i-book"></use></svg></span><span class="nav-label">Академия адвокатуры</span></button>
+      <button class="nav-btn" id="nav-laws" data-tab="laws" aria-label="База законов"><span class="nav-icon"><svg class="svg-icon"><use href="#i-book"></use></svg></span><span class="nav-label">База законов</span></button>
+      <button class="nav-btn hidden" id="reports-nav" data-tab="reports" aria-label="Отчётность"><span class="nav-icon"><svg class="svg-icon"><use href="#i-chart"></use></svg></span><span class="nav-label">Отчётность</span></button>
+      <button class="nav-btn hidden" id="attorneys-nav" data-tab="attorneys" aria-label="Помощь адвоката"><span class="nav-icon"><svg class="svg-icon"><use href="#i-scale"></use></svg></span><span class="nav-label">Помощь адвоката</span></button>
+    </div>
+  </nav>
+
+  <main class="shell">
+    <section class="page active" id="page-home">
+      <div class="dashboard-grid" id="staff-dashboard-widgets">
+        <div class="dashboard-main">
+          <section class="dashboard-hero">
+            <div class="dashboard-avatar-wrap"><img id="dashboard-avatar" class="dashboard-avatar hidden" alt=""><span id="dashboard-initials"></span></div>
+            <div class="dashboard-identity">
+              <span class="eyebrow">ЛИЧНЫЙ КАБИНЕТ СОТРУДНИКА</span>
+              <h2 id="welcome-title">Добро пожаловать</h2>
+              <div class="dashboard-role"><span id="dashboard-role">Сотрудник</span><span id="dashboard-role-label">Коллегия адвокатов</span></div>
+              <div class="dashboard-facts">
+                <div><span>Дата регистрации</span><strong id="dashboard-joined-date">—</strong></div>
+                <div><span>В портале</span><strong id="dashboard-tenure">—</strong></div>
+                <div><span>Карьерная ступень</span><strong id="dashboard-career-level">—</strong></div>
+              </div>
+              <p id="welcome-description" class="dashboard-subtitle"></p>
+            </div>
+            <div class="dashboard-hero-progress">
+              <img src="/assets/collegium-seal.png" alt="" class="dashboard-watermark">
+              <div class="progress-label"><span id="dashboard-progress-label">До следующей ступени</span><strong id="dashboard-progress-percent">—</strong></div>
+              <div class="progress-track"><span id="dashboard-progress-bar"></span></div>
+              <strong id="dashboard-next-role">Текущая должность</strong>
+            </div>
+            <button class="btn primary" id="home-primary-action" data-go="career">Продолжить карьеру</button>
+          </section>
+          <div class="grid stats dashboard-kpis">
+            <div class="stat"><div class="metric-head"><span class="metric-icon green"><svg class="svg-icon"><use href="#i-phone"></use></svg></span><span class="stat-label">Вызовы</span></div><strong class="stat-value" id="call-count">0</strong><small>В работе</small></div>
+            <div class="stat" id="document-stat"><div class="metric-head"><span class="metric-icon blue"><svg class="svg-icon"><use href="#i-file"></use></svg></span><span class="stat-label">Документы</span></div><strong class="stat-value" id="document-count">0</strong><small>Ожидают проверки</small></div>
+            <div class="stat" id="lawsuit-stat"><div class="metric-head"><span class="metric-icon orange"><svg class="svg-icon"><use href="#i-scale"></use></svg></span><span class="stat-label">Судебные дела</span></div><strong class="stat-value" id="lawsuit-count">0</strong><small id="lawsuit-metric-note">В процессе</small></div>
+            <div class="stat"><div class="metric-head"><span class="metric-icon violet"><svg class="svg-icon"><use href="#i-message"></use></svg></span><span class="stat-label">Обращения</span></div><strong class="stat-value" id="my-request-count">0</strong><small id="request-metric-note">Новые</small></div>
+            <div class="stat" id="rating-stat"><div class="metric-head"><span class="metric-icon gold"><svg class="svg-icon"><use href="#i-star"></use></svg></span><span class="stat-label">Средняя оценка</span></div><strong class="stat-value" id="average-rating">—</strong><small id="rating-review-count">Отзывы отсутствуют</small></div>
+          </div>
+          <div class="dashboard-triple">
+            <article class="dashboard-panel">
+              <div class="dashboard-panel-head"><h3 id="home-task-heading">Активные поручения</h3><button class="panel-link" type="button" data-go="tasks" aria-label="Все поручения">Все задачи <span>→</span></button></div>
+              <div class="dashboard-list" id="home-task-list"></div>
+            </article>
+            <article class="dashboard-panel">
+              <div class="dashboard-panel-head"><h3>Предстоящие мероприятия</h3><button class="panel-link" type="button" data-go="calendar" aria-label="Календарь">Календарь <span>→</span></button></div>
+              <div class="dashboard-list" id="home-event-list"></div>
+            </article>
+            <article class="dashboard-panel" id="home-notifications-panel">
+              <div class="dashboard-panel-head"><h3>Последние уведомления</h3><span class="badge pending" id="pending-stat">Ожидают <strong id="pending-count">0</strong></span></div>
+              <div class="dashboard-list" id="home-notification-list"></div>
+            </article>
+          </div>
+          <article class="dashboard-panel activity-panel">
+            <div class="dashboard-panel-head"><div><h3>Ваша активность</h3><span class="dashboard-caption">Реальные записи портала за последние 30 дней</span></div>
+              <span class="activity-range">30 дней⌄</span></div>
+            <div class="activity-metrics" id="dashboard-activity"></div>
+          </article>
+          <div class="dashboard-bottom">
+            <article class="dashboard-panel" id="career-overview">
+              <div class="dashboard-panel-head"><div><h3 id="career-overview-title">Мой прогресс</h3><span id="career-overview-copy" class="dashboard-caption"></span></div></div>
+              <div id="dashboard-progress-items" class="compact-list"></div>
+              <button class="panel-link" type="button" data-go="career">Моя карьера <span>→</span></button>
+            </article>
+            <article class="dashboard-panel">
+              <div class="dashboard-panel-head"><div><h3>Рейтинг адвокатов</h3><span class="dashboard-caption">По подтверждённым действиям</span></div></div>
+              <div id="dashboard-ranking" class="compact-list"></div>
+              <button class="panel-link" type="button" data-go="practice">Вся практика <span>→</span></button>
+            </article>
+            <article class="dashboard-panel">
+              <div class="dashboard-panel-head"><div><h3>Достижения</h3><span class="dashboard-caption">Основаны на подтверждённых данных</span></div></div>
+              <div id="dashboard-achievements" class="compact-list"></div>
+              <button class="panel-link" type="button" data-go="career">Мой путь <span>→</span></button>
+            </article>
+          </div>
+        </div>
+        <aside class="dashboard-rail">
+          <article class="dashboard-panel my-tasks-panel">
+            <div class="dashboard-panel-head"><h3>Мои задачи <span class="dashboard-caption" id="task-count">0 активных</span></h3><button class="panel-link" type="button" data-go="tasks" aria-label="Все задачи">→</button></div>
+            <div id="dashboard-task-breakdown" class="task-breakdown"></div>
+            <button class="panel-link" type="button" data-go="tasks">Все задачи <span>→</span></button>
+          </article>
+          <article class="dashboard-panel calendar-widget">
+            <div class="dashboard-panel-head"><h3>Календарь</h3><div class="calendar-arrows">
+              <button type="button" data-calendar-month="-1" aria-label="Предыдущий месяц">‹</button>
+              <button type="button" data-calendar-month="1" aria-label="Следующий месяц">›</button>
+            </div></div>
+            <strong id="dashboard-calendar-title" class="calendar-month-title"></strong>
+            <div class="mini-calendar" id="dashboard-calendar"></div>
+            <div class="calendar-today"><strong id="dashboard-selected-date">Сегодня</strong><div id="dashboard-calendar-events"></div></div>
+            <button class="panel-link" type="button" data-go="calendar">Весь календарь <span>→</span></button>
+          </article>
+          <article class="dashboard-panel collegium-stats-panel" id="dashboard-collegium-stats">
+            <div class="dashboard-panel-head"><h3>Статистика коллегии</h3><span class="dashboard-caption">30 дней</span></div>
+            <div id="dashboard-team-stats" class="compact-list"></div>
+            <button class="panel-link" type="button" data-tab="reports">Аналитика <span>→</span></button>
+          </article>
+          <article class="dashboard-panel quick-actions-panel">
+            <div class="dashboard-panel-head"><h3>Быстрые действия</h3></div>
+            <div class="quick-action-grid">
+              <button class="quick-action hidden" data-dashboard-action="profile" data-go="profile" type="button"><svg class="svg-icon"><use href="#i-user"></use></svg>Мой профиль</button>
+              <button class="quick-action hidden" data-dashboard-action="tasks" data-go="tasks" type="button"><svg class="svg-icon"><use href="#i-list-check"></use></svg>Поручения</button>
+              <button class="quick-action hidden" data-dashboard-action="applications" data-go="applications" type="button"><svg class="svg-icon"><use href="#i-message"></use></svg>Обращения</button>
+              <button class="quick-action hidden" data-dashboard-action="documents" data-go="documents" type="button"><svg class="svg-icon"><use href="#i-file"></use></svg>Документы</button>
+              <button class="quick-action hidden" id="dashboard-weekly-reset" data-weekly-reset-start type="button"><svg class="svg-icon"><use href="#i-calendar-clock"></use></svg>Новая неделя</button>
+            </div>
+          </article>
+        </aside>
+      </div>
+      <article class="card hidden" id="citizen-overview">
+        <div class="section-head"><div><div class="eyebrow">Гражданская приёмная</div>
+          <h2>Добро пожаловать в приёмную коллегии</h2>
+          <p>Получите помощь адвоката, проверьте свои обращения или подайте заявку на вступление.</p></div></div>
+        <button class="btn subtle hidden" id="home-help-action" data-go="attorneys" type="button">Получить помощь адвоката</button>
+        <div class="citizen-quick-links">
+          <button class="quick-link" data-go="attorneys" type="button"><span>⚖</span><strong>Помощь адвоката</strong><p>Выбрать специалиста и открыть приватный чат по делу.</p></button>
+          <button class="quick-link" data-go="applications" type="button"><span>✉</span><strong>Мои обращения</strong><p>Следить за ответом, перепиской и результатом.</p></button>
+          <button class="quick-link" data-go="recruitment" type="button"><span>＋</span><strong>Вступить в коллегию</strong><p>Подать отдельную заявку на трудоустройство.</p></button>
+        </div>
+      </article>
+    </section>
+
+    <section class="page" id="page-colleagues">
+      <div class="section-head">
+        <div><div class="eyebrow">Состав Коллегии</div><h2>Коллеги</h2><p>Карточки сотрудников, их должности, закреплённые дела и связь через Discord.</p></div>
+      </div>
+      <div class="colleagues-toolbar">
+        <input id="colleagues-search" type="search" placeholder="Поиск по имени, должности или делу">
+        <select id="colleagues-role-filter" aria-label="Фильтр по должности">
+          <option value="all">Все должности</option>
+          <option value="ГКА">ГКА</option><option value="ЗГКА">ЗГКА</option>
+          <option value="Ст.Адвокат">Старшие адвокаты</option><option value="Адвокат">Адвокаты</option>
+          <option value="Юрист">Юристы</option><option value="Стажер КА">Стажёры</option>
+        </select>
+      </div>
+      <div id="colleagues-grid" class="colleagues-grid"></div>
+    </section>
+
+    <section class="page" id="page-profile">
+      <div class="section-head">
+        <div><div class="eyebrow">Личный кабинет</div><h2>Мой профиль и личное дело</h2>
+          <p>Ваши подтверждённые показатели, карьерная история, достижения и ссылки на аккаунты.</p></div>
+      </div>
+      <article class="card" id="profile-identity"></article>
+      <div class="grid columns mt-16">
+        <article class="card">
+          <h3>Мои показатели</h3>
+          <div class="grid stats" id="profile-metrics"></div>
+        </article>
+        <article class="card stack">
+          <div><h3>Форум GTA5RP</h3>
+            <p class="help">Укажите ссылку на свой публичный профиль форума. Портал не запрашивает пароль и не выдаёт эту ссылку за OAuth-авторизацию.</p></div>
+          <form id="forum-profile-form" class="stack">
+            <div class="field"><label for="forum-profile-url">Ссылка на профиль форума</label>
+              <input id="forum-profile-url" type="url" maxlength="500" placeholder="https://forum.gta5rp.com/members/..." autocomplete="url">
+            </div>
+            <div id="forum-profile-status" class="help" role="status"></div>
+            <div class="actions">
+              <button class="btn primary" type="submit">Сохранить привязку</button>
+              <a class="btn subtle hidden" id="forum-profile-link" target="_blank" rel="noopener noreferrer">Открыть мой профиль на форуме</a>
+            </div>
+          </form>
+          <div id="profile-discord-status" class="note"></div>
+        </article>
+      </div>
+      <div class="grid columns mt-16">
+        <article class="card"><h3>История повышений</h3><div id="profile-promotions" class="item-list"></div></article>
+        <article class="card"><h3>Последние действия в личном деле</h3><div id="profile-activity" class="item-list"></div></article>
+      </div>
+      <article class="card stack mt-16 profile-customize-card">
+        <div class="section-head">
+          <div><div class="eyebrow">Внешний вид профиля</div><h3>О себе и закрепленные дела</h3></div>
+        </div>
+        <form id="profile-customize-form" class="stack">
+          <div class="field"><label for="profile-bio">Короткое био</label><textarea id="profile-bio" maxlength="700" placeholder="Напишите о практике, специализации и профессиональных интересах."></textarea></div>
+          <div class="field"><label for="profile-quote">Сильная фраза профиля</label><input id="profile-quote" maxlength="220" placeholder="Например: «Сила в законе»."></div>
+          <div class="pinned-cases-grid">
+            <div class="field"><label for="pinned-case-1">Закреплённое дело №1</label><input id="pinned-case-1" maxlength="100" placeholder="Название дела или номер"><input id="pinned-case-status-1" maxlength="60" placeholder="Статус дела"></div>
+            <div class="field"><label for="pinned-case-2">Закреплённое дело №2</label><input id="pinned-case-2" maxlength="100" placeholder="Название дела или номер"><input id="pinned-case-status-2" maxlength="60" placeholder="Статус дела"></div>
+            <div class="field"><label for="pinned-case-3">Закреплённое дело №3</label><input id="pinned-case-3" maxlength="100" placeholder="Название дела или номер"><input id="pinned-case-status-3" maxlength="60" placeholder="Статус дела"></div>
+          </div>
+          <div class="field"><label for="profile-effect">Новогодний эффект профиля</label><select id="profile-effect">
+            <option value="none">Без эффекта</option>
+            <option value="snow">Спокойный снег</option>
+            <option value="confetti">Конфетти</option>
+            <option value="snowman">Анимированный снеговик</option>
+          </select></div>
+          <div class="actions"><button class="btn primary" type="submit">Сохранить оформление профиля</button></div>
+        </form>
+      </article>
+      <article class="card mt-16">
+        <div class="section-head"><div><h3>Достижения и награды</h3><p class="muted">Условия достижений проверяются по подтверждённым данным портала.</p></div>
+          <button class="btn small" type="button" data-go="achievements">Все достижения и награды</button></div>
+        <div class="grid columns">
+          <div><h4>Достижения</h4><div id="profile-earned-achievements" class="item-list"></div></div>
+          <div><h4>Награды коллегии</h4><div id="profile-earned-awards" class="item-list"></div></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="page" id="page-achievements">
+      <div class="section-head">
+        <div><div class="eyebrow">Личное дело</div><h2>Достижения и награды</h2>
+          <p>Автоматические достижения выдаются за проверяемые действия, высшие награды Коллегии вручает руководство.</p></div>
+      </div>
+      <div id="elite-awards"></div>
+      <div class="grid columns">
+        <article class="card"><h3>Мои достижения</h3><div id="achievement-list" class="item-list"></div></article>
+        <article class="card"><h3>Мои награды</h3><div id="award-list" class="item-list"></div></article>
+      </div>
+      <article class="card stack hidden mt-16" id="achievement-create-card">
+        <h3>Создать достижение · руководство</h3>
+        <form id="achievement-create-form" class="stack">
+          <div class="two-col">
+            <div class="field"><label for="achievement-title">Название</label><input id="achievement-title" maxlength="80" required></div>
+            <div class="field"><label for="achievement-icon">Иконка</label><input id="achievement-icon" maxlength="16" value="★" required></div>
+          </div>
+          <div class="field"><label for="achievement-description">Описание и условие</label><textarea id="achievement-description" maxlength="500" required></textarea></div>
+          <div class="two-col">
+            <div class="field"><label for="achievement-metric">Подтверждаемое условие</label>
+              <select id="achievement-metric">
+                <option value="approved_lawsuits">Одобренные судебные дела</option>
+                <option value="closed_requests">Закрытые обращения граждан</option>
+                <option value="approved_documents">Одобренные документы</option>
+                <option value="high_reviews">Оценки граждан 4–5</option>
+                <option value="service_days">Дни службы (дата задаётся ГКА)</option>
+                <option value="manual">Ручное вручение руководством</option>
+              </select>
+            </div>
+            <div class="field"><label for="achievement-threshold">Необходимое количество</label><input id="achievement-threshold" type="number" min="1" max="100000" value="1" required></div>
+          </div>
+          <button class="btn primary" type="submit">Создать достижение</button>
+        </form>
+      </article>
+      <div class="grid columns hidden mt-16" id="achievement-management">
+        <article class="card stack">
+          <h3>Выдать ручное достижение</h3>
+          <form id="achievement-award-form" class="stack">
+            <div class="field"><label for="achievement-award-user">Сотрудник</label><select id="achievement-award-user" required></select></div>
+            <div class="field"><label for="achievement-award-id">Достижение</label><select id="achievement-award-id" required></select></div>
+            <button class="btn primary" type="submit">Выдать достижение</button>
+          </form>
+        </article>
+        <article class="card stack">
+          <h3>Вручить награду</h3>
+          <form id="award-create-form" class="stack">
+            <div class="field"><label for="award-user">Сотрудник</label><select id="award-user" required></select></div>
+            <div class="field"><label for="award-kind">Вид награды</label><select id="award-kind">
+              <option value="thanks">Благодарность</option><option value="certificate">Почётная грамота</option>
+              <option value="special">Особая награда</option><option value="individual">Индивидуальное поощрение</option>
+            </select></div>
+            <div class="field"><label for="award-title">Название</label><input id="award-title" maxlength="100" required></div>
+            <div class="field"><label for="award-description">Основание</label><textarea id="award-description" maxlength="1000"></textarea></div>
+            <button class="btn primary" type="submit">Вручить и записать в личное дело</button>
+          </form>
+        </article>
+      </div>
+      <article class="card mt-16"><h3>Каталог достижений</h3><div id="achievement-catalog" class="item-list"></div></article>
+    </section>
+
+    <section class="page" id="page-reserve">
+      <div class="section-head">
+        <div><div class="eyebrow">Кадровое развитие</div><h2>Кадровый резерв</h2>
+          <p>Руководство отмечает готовность сотрудников к следующей должности; решение о повышении остаётся за ГКА.</p></div>
+      </div>
+      <article class="card stack hidden" id="reserve-manage-card">
+        <h3>Добавить или обновить сотрудника в резерве</h3>
+        <form id="reserve-form" class="stack">
+          <div class="two-col">
+            <div class="field"><label for="reserve-user">Сотрудник</label><select id="reserve-user" required></select></div>
+            <div class="field"><label for="reserve-status">Готовность</label><select id="reserve-status"><option value="considering">Рассматривается</option><option value="ready">Готов к следующей ступени</option></select></div>
+          </div>
+          <div class="field"><label for="reserve-note">Комментарий руководства</label><textarea id="reserve-note" maxlength="1000"></textarea></div>
+          <button class="btn primary" type="submit">Сохранить в резерве</button>
+        </form>
+      </article>
+      <article class="card mt-16"><h3>Сотрудники в резерве</h3><div id="reserve-list" class="item-list"></div></article>
+    </section>
+
+    <section class="page" id="page-absence">
+      <div class="section-head">
+        <div><div class="eyebrow">График сотрудника</div><h2>Отпуск и отсутствие</h2>
+          <p>Заявки и решения сохраняются в личном деле. Руководство видит общий список.</p></div>
+      </div>
+      <article class="card stack">
+        <h3>Подать заявление</h3>
+        <form id="absence-form" class="stack">
+          <div class="two-col">
+            <div class="field"><label for="absence-start">С</label><input id="absence-start" type="date" required></div>
+            <div class="field"><label for="absence-end">По</label><input id="absence-end" type="date" required></div>
+          </div>
+          <div class="field"><label for="absence-reason">Причина</label><textarea id="absence-reason" minlength="4" maxlength="1000" required></textarea></div>
+          <button class="btn primary" type="submit">Отправить на рассмотрение</button>
+        </form>
+      </article>
+      <article class="card mt-16"><h3>Заявки на отсутствие</h3><div id="absence-list" class="item-list"></div></article>
+    </section>
+
+    <section class="page" id="page-characteristics">
+      <div class="section-head">
+        <div><div class="eyebrow">Внутренний раздел руководства</div><h2>Характеристики сотрудников</h2>
+          <p>Содержимое доступно только ГКА и ЗГКА и не отображается в публичных профилях.</p></div>
+      </div>
+      <article class="card stack">
+        <h3>Добавить характеристику</h3>
+        <form id="characteristic-form" class="stack">
+          <div class="two-col">
+            <div class="field"><label for="characteristic-user">Сотрудник</label><select id="characteristic-user" required></select></div>
+            <div class="field"><label for="characteristic-area">Направление</label><select id="characteristic-area">
+              <option value="law">Знание законодательства</option><option value="discipline">Дисциплина</option>
+              <option value="activity">Активность</option><option value="professionalism">Профессионализм</option>
+              <option value="citizens">Работа с гражданами</option><option value="teamwork">Работа в коллективе</option>
+            </select></div>
+          </div>
+          <div class="two-col">
+            <div class="field"><label for="characteristic-score">Оценка</label><select id="characteristic-score">
+              <option value="5">5 · Отлично</option><option value="4">4 · Хорошо</option>
+              <option value="3">3 · Удовлетворительно</option><option value="2">2 · Требует внимания</option>
+              <option value="1">1 · Неудовлетворительно</option>
+            </select></div>
+            <div class="field"><label for="characteristic-note">Комментарий</label><textarea id="characteristic-note" maxlength="1000"></textarea></div>
+          </div>
+          <button class="btn primary" type="submit">Сохранить характеристику</button>
+        </form>
+      </article>
+      <article class="card mt-16"><h3>История характеристик</h3><div id="characteristic-list" class="item-list"></div></article>
+    </section>
+
+    <section class="page" id="page-academy">
+      <div class="section-head">
+        <div><div class="eyebrow">Обучение состава</div><h2>Академия адвокатуры</h2>
+          <p>Лекции, пособия и практические задания дополняют существующие экзамены и базу законов.</p></div>
+      </div>
+      <div class="law-controls">
+        <input id="academy-search" type="search" placeholder="Поиск по материалам Академии">
+        <select id="academy-category-filter" aria-label="Раздел Академии">
+          <option value="all">Все категории</option><option value="constitutional">Конституционное право</option>
+          <option value="administrative">Административное право</option><option value="criminal">Уголовное право</option>
+          <option value="labor">Трудовое право</option><option value="advocacy">Закон об адвокатуре</option>
+          <option value="court">Судебная практика</option><option value="documents">Документооборот</option>
+          <option value="internal">Внутренние нормативные документы</option>
+        </select>
+      </div>
+      <article class="card stack hidden mt-16" id="academy-manage-card">
+        <h3 id="academy-form-title">Добавить учебный материал · руководство</h3>
+        <form id="academy-form" class="stack">
+          <input id="academy-edit-id" type="hidden">
+          <div class="two-col">
+            <div class="field"><label for="academy-title">Название</label><input id="academy-title" maxlength="150" required></div>
+            <div class="field"><label for="academy-kind">Тип материала</label><select id="academy-kind">
+              <option value="lecture">Лекция</option><option value="manual">Методическое пособие</option><option value="exercise">Практическое задание</option>
+            </select></div>
+          </div>
+          <div class="field"><label for="academy-category">Категория</label><select id="academy-category">
+            <option value="constitutional">Конституционное право</option><option value="administrative">Административное право</option>
+            <option value="criminal">Уголовное право</option><option value="labor">Трудовое право</option>
+            <option value="advocacy">Закон об адвокатуре</option><option value="court">Судебная практика</option>
+            <option value="documents">Документооборот</option><option value="internal">Внутренние нормативные документы</option>
+          </select></div>
+          <div class="field"><label for="academy-body">Содержимое материала</label><textarea id="academy-body" rows="8" maxlength="20000" required></textarea></div>
+          <div class="actions"><button class="btn primary" type="submit">Сохранить материал</button>
+            <button class="btn subtle hidden" id="academy-cancel-edit" type="button">Отменить редактирование</button></div>
+        </form>
+      </article>
+      <article class="card mt-16"><div id="academy-material-list" class="item-list"></div></article>
+    </section>
+
+    <section class="page" id="page-tasks">
+      <div class="section-head">
+        <div><div class="eyebrow">Рабочее пространство</div><h2>Поручения</h2><p>Назначения, сроки, ход исполнения и проверка сохраняются на сервере.</p></div>
+      </div>
+      <article class="card stack hidden" id="task-create-card">
+        <div><div class="eyebrow">Для руководства</div><h3>Новое поручение</h3></div>
+        <form id="task-create-form" class="stack">
+          <div class="two-col">
+            <div class="field"><label for="task-title">Название</label><input id="task-title" required minlength="3" maxlength="150"></div>
+            <div class="task-manager-tools">
+              <div class="field"><label for="task-priority">Приоритет</label><select id="task-priority"><option value="normal">Обычный</option><option value="low">Низкий</option><option value="high">Высокий</option><option value="critical">Срочный</option></select></div>
+              <div class="field"><label for="task-due">Срок выполнения</label><input id="task-due" type="datetime-local"></div>
+            </div>
+          </div>
+          <div class="field"><label for="task-description">Описание и ожидаемый результат</label><textarea id="task-description" required minlength="4" maxlength="3000" rows="4"></textarea></div>
+          <div class="field"><label for="task-assignees">Исполнители (можно выбрать нескольких)</label><select id="task-assignees" class="task-multi-select" multiple required></select></div>
+          <div class="field"><label for="task-files">Файлы к поручению (JPG, PNG, WebP или PDF; до 5 файлов)</label><input id="task-files" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" multiple></div>
+          <button class="btn primary" type="submit">Создать поручение</button>
+        </form>
+      </article>
+      <article class="card stack mt-16">
+        <div class="two-col">
+          <div><h3>Список поручений</h3><p class="help">Исполнителям доступны только назначенные им поручения. Руководство видит общий список.</p></div>
+          <div class="field"><label for="task-filter">Фильтр по статусу</label><select id="task-filter"><option value="open">Активные</option><option value="all">Все</option><option value="new">Новые</option><option value="accepted">Принятые</option><option value="in_progress">В работе</option><option value="review">На проверке</option><option value="revision">На доработке</option><option value="completed">Завершённые</option><option value="cancelled">Отменённые</option></select></div>
+        </div>
+        <div id="task-list" class="item-list"></div>
+      </article>
+    </section>
+
+    <section class="page" id="page-calendar">
+      <div class="section-head">
+        <div><div class="eyebrow">Планирование Коллегии</div><h2>Календарь</h2><p>Судебные заседания, собеседования, аттестации и мероприятия.</p></div>
+      </div>
+       <article class="card calendar-view-controls">
+         <div class="field"><label for="calendar-view-mode">Период</label><select id="calendar-view-mode">
+           <option value="day">День</option><option value="week">Неделя</option><option value="month" selected>Месяц</option>
+         </select></div>
+         <div class="field"><label for="calendar-view-date">Дата</label><input id="calendar-view-date" type="date"></div>
+         <div class="actions">
+           <button class="btn small" type="button" data-calendar-shift="-1" aria-label="Предыдущий период">‹</button>
+           <button class="btn small" type="button" data-calendar-today>Сегодня</button>
+           <button class="btn small" type="button" data-calendar-shift="1" aria-label="Следующий период">›</button>
+         </div>
+         <strong id="calendar-view-range" class="calendar-view-range"></strong>
+       </article>
+      <article class="card stack hidden" id="calendar-create-card">
+        <div><div class="eyebrow">Для руководства</div><h3>Запланировать мероприятие</h3></div>
+        <form id="calendar-create-form" class="stack">
+          <div class="two-col">
+            <div class="field"><label for="event-title">Название</label><input id="event-title" required minlength="3" maxlength="150"></div>
+            <div class="field"><label for="event-type">Тип мероприятия</label><select id="event-type" required>
+              <option value="court">Судебное заседание</option><option value="interview">Собеседование</option>
+              <option value="exam">Экзамен</option><option value="attestation">Переаттестация</option>
+              <option value="meeting">Совещание</option><option value="lecture">Лекция</option>
+              <option value="training">Обучение</option><option value="other">Другое</option>
+            </select></div>
+          </div>
+          <div class="two-col">
+            <div class="field"><label for="event-starts">Дата и время</label><input id="event-starts" type="datetime-local" required></div>
+            <div class="field"><label for="event-responsible">Ответственный</label><select id="event-responsible" required></select></div>
+          </div>
+          <div class="field"><label for="event-description">Место, ссылка или подробности</label><textarea id="event-description" maxlength="2000" rows="3"></textarea></div>
+          <div class="field"><label for="event-participants">Участники (необязательно)</label><select id="event-participants" class="task-multi-select" multiple></select></div>
+          <label class="quiz-option"><input id="event-all-staff" type="checkbox"><span>Показать всем активным сотрудникам</span></label>
+          <button class="btn primary" type="submit">Добавить в календарь</button>
+        </form>
+      </article>
+      <article class="card stack mt-16"><h3>Расписание</h3><div id="calendar-list" class="item-list"></div></article>
+    </section>
+
+    <section class="page" id="page-career">
+      <div class="section-head">
+        <div><div class="eyebrow">Развитие в Коллегии</div><h2>Мой путь</h2><p>Здесь только подготовка, экзамены и этапы повышения. Обращения находятся отдельно.</p></div>
+      </div>
+      <article class="card stack" id="career-study-card">
+        <div><div class="eyebrow">Подготовка</div><h3 id="career-stage-title">Повышение в Коллегии</h3>
+          <p id="career-stage-copy" class="muted">Ваш следующий этап и обязательные действия.</p></div>
+        <div id="career-guide" class="career-guide"></div>
+      </article>
+      <article class="card stack mt-16" id="exam-card">
+          <h3>Экзамен и следующий шаг</h3>
+          <p id="exam-description" class="muted">Для выбранной роли проверка знаний не предусмотрена.</p>
+          <div id="exam-outcome" class="note hidden"></div>
+          <div id="exam-area" class="stack mt-14"></div>
+          <div id="law-exams" class="stack hidden mt-18">
+            <h4 class="m-0">Тесты по законодательству</h4>
+            <p class="help">Выберите тему. В каждом тесте 5 вопросов, ответы проверяются сервером.</p>
+            <div class="actions mt-0">
+              <button class="btn small" data-exam-subject="ak" type="button">Тест по АК</button>
+              <button class="btn small" data-exam-subject="pk" type="button">Тест по ПК</button>
+              <button class="btn small" data-exam-subject="uk" type="button">Тест по УК</button>
+              <button class="btn small" data-exam-subject="zot" type="button">Тест по ЗОТ</button>
+              <button class="btn small" data-exam-subject="advocacy" type="button">Тест по Закону об адвокатуре</button>
+              <button class="btn small" data-exam-subject="road" type="button">Тест по ДК</button>
+              <button class="btn small" data-exam-subject="labor" type="button">Тест по ТК</button>
+              <button class="btn small" data-exam-subject="ethics" type="button">Тест по ЭК</button>
+              <button class="btn small" data-exam-subject="documents" type="button">Тест по документообороту</button>
+              <button class="btn small" data-exam-subject="justice" type="button">Тест по Департаменту юстиции</button>
+            </div>
+          </div>
+      </article>
+      <article class="card mt-16">
+        <h3>Назначенные переаттестации</h3>
+        <p class="muted">Если руководитель назначил проверку знаний, пройдите тест до указанного срока.</p>
+        <div id="my-attestations" class="item-list"></div>
+      </article>
+    </section>
+
+    <section class="page" id="page-applications">
+      <div class="section-head">
+        <div><div class="eyebrow">Рабочие заявки</div><h2>Обращения</h2><p>Запросы коллегам, отчёты и история помощи гражданам — отдельно от экзаменов.</p></div>
+      </div>
+      <article class="card" id="staff-request-card">
+        <h3>Новое обращение</h3>
+        <p class="help">Показываются только действия, доступные вашей роли.</p>
+        <form id="request-form" class="stack mt-16">
+          <div class="field"><label for="applicant-name">Имя и фамилия персонажа</label><input id="applicant-name" maxlength="80" required placeholder="Например, Alex Morgan"></div>
+          <div class="field" id="passport-field"><label for="application-passport">Номер паспорта персонажа</label><input id="application-passport" maxlength="40" placeholder="Например, 12345"></div>
+          <div class="field"><label for="application-type">Тип заявки</label><select id="application-type" required></select></div>
+          <div id="promotion-fields" class="stack"></div>
+          <div class="field"><label for="application-details">Описание / отчёт</label><textarea id="application-details" maxlength="2000" required placeholder="Укажите суть заявки и нужные подробности."></textarea></div>
+          <div class="field"><label for="application-attachments">Фото и документы (до 5 файлов, каждый до 2 МБ)</label><input id="application-attachments" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" multiple><div id="attachment-preview" class="attachment-preview"></div></div>
+          <button class="btn primary" id="request-submit" type="submit">Отправить обращение</button>
+          <div id="application-hint" class="help"></div>
+        </form>
+      </article>
+      <article class="card mt-16">
+        <div class="section-head"><div><h3>Мои обращения</h3><p>История и статусы сохранены в аккаунте.</p></div></div>
+        <div id="my-applications" class="item-list"></div>
+      </article>
+    </section>
+
+    <section class="page" id="page-practice">
+      <div class="section-head">
+        <div><div class="eyebrow">Работа с составом</div><h2>Практика и обучение</h2><p>Заявки на совместные вызовы, помощь по делу и наставничество.</p></div>
+        <button class="btn primary" data-go="applications">Оставить заявку</button>
+      </div>
+      <div class="note warning mb-16">Юристы могут просить помощь и совместные вызовы; адвокаты и старший состав обрабатывают запросы. Все решения записываются на сервер.</div>
+      <div class="grid columns">
+        <article class="card"><h3>Запросы на практику</h3><p class="muted">Юрист может попросить адвоката взять его на вызов или подключить к делу.</p><div id="practice-requests" class="item-list"></div></article>
+        <article class="card"><h3>Обучение состава</h3><p class="muted">Старшие адвокаты могут принимать запросы на наставничество стажеров и юристов.</p><div id="training-requests" class="item-list"></div></article>
+        <article class="card" id="citizen-support-card"><h3>Обращения граждан</h3><p class="muted">Адвокат может взять запрос на помощь или жалобу в работу. Гражданин увидит, кто связался с ним.</p><div id="citizen-requests" class="item-list"></div></article>
+      </div>
+    </section>
+
+    <section class="page" id="page-ranking">
+      <div class="section-head">
+        <div><div class="eyebrow">Работа коллегии</div><h2>Рейтинг адвокатов</h2>
+          <p>Баллы начисляются только за подтверждённые системой документы, закрытые обращения, одобренные дела, завершённые поручения и отзывы.</p></div>
+        <label class="field" for="ranking-period">Период рейтинга
+          <select id="ranking-period">
+            <option value="week">Последние 7 дней</option><option value="month">Последние 30 дней</option>
+            <option value="all" selected>За всё время</option>
+          </select>
+        </label>
+      </div>
+      <article class="card stack hidden" id="rating-settings-card">
+        <div><h3>Формула баллов</h3><p class="meta">Изменять веса может только ГКА. Каждое подтверждённое действие учитывается один раз.</p></div>
+        <div class="two-col">
+          <label class="field">Одобренный документ<input type="number" min="0" max="100" step="1" data-rating-weight="documentsApproved"></label>
+          <label class="field">Закрытое обращение<input type="number" min="0" max="100" step="1" data-rating-weight="casesClosed"></label>
+          <label class="field">Иск с проверенной публикацией<input type="number" min="0" max="100" step="1" data-rating-weight="lawsuitsFiled"></label>
+          <label class="field">Выполненное поручение<input type="number" min="0" max="100" step="1" data-rating-weight="tasksCompleted"></label>
+          <label class="field">Баллы за звезду отзыва<input type="number" min="0" max="100" step="1" data-rating-weight="reviews"></label>
+        </div>
+        <button class="btn primary" id="rating-settings-save" type="button">Сохранить формулу</button>
+        <div id="rating-settings-history" class="item-list"></div>
+      </article>
+      <div id="ranking-list" class="item-list"></div>
+    </section>
+
+    <section class="page" id="page-attorneys">
+      <div class="section-head">
+        <div><div class="eyebrow">Для граждан</div><h2>Помощь адвоката</h2><p>Выберите адвоката по роли, статистике и отзывам. После закрытия обращения можно оставить оценку.</p></div>
+      </div>
+      <div id="attorney-list" class="grid columns"></div>
+      <article class="card mt-16">
+        <h3>Оставить обращение</h3>
+        <form id="attorney-request-form" class="stack mt-12">
+          <div class="field"><label for="attorney-choice">Адвокат</label><select id="attorney-choice"><option value="">Не выбирать — обращение увидят адвокаты</option></select></div>
+          <div class="field"><label for="attorney-request-type">Тема</label><select id="attorney-request-type"><option value="citizen_help">Нужна юридическая помощь</option><option value="citizen_complaint">Жалоба и консультация</option></select></div>
+          <div class="field"><label for="attorney-request-details">Опишите вопрос</label><textarea id="attorney-request-details" minlength="4" maxlength="1200" required placeholder="Кратко опишите ситуацию и укажите удобный способ и время связи."></textarea></div>
+          <button class="btn primary" type="submit">Отправить обращение</button>
+        </form>
+      </article>
+    </section>
+
+    <section class="page" id="page-recruitment">
+      <div class="section-head">
+        <div><div class="eyebrow">Вступление в Коллегию</div><h2>Заявка на трудоустройство</h2>
+          <p>Укажите данные персонажа и Discord. Решение руководства и статус заявки появятся в разделе «Обращения».</p></div>
+      </div>
+      <article class="card stack">
+        <div class="note">После одобрения ГКА аккаунт станет аккаунтом стажёра. Данные не публикуются в профиле.</div>
+        <form id="employment-form" class="stack">
+          <div class="field"><label for="employment-discord">Discord-ник</label><input id="employment-discord" required minlength="2" maxlength="32" pattern="[A-Za-z0-9._]{2,32}" autocomplete="off" placeholder="Например, yyte"></div>
+          <div class="field"><label for="employment-gta-name">Имя и фамилия персонажа GTA 5 RP</label><input id="employment-gta-name" required minlength="2" maxlength="80" placeholder="Например, Alex Morgan"></div>
+          <div class="field"><label for="employment-passport">Номер паспорта персонажа</label><input id="employment-passport" required maxlength="40" placeholder="Номер из игры"></div>
+          <div class="field"><label for="employment-details">Почему хотите вступить</label><textarea id="employment-details" required minlength="4" maxlength="2000" placeholder="Кратко расскажите о себе и мотивации."></textarea></div>
+          <button class="btn primary" type="submit">Отправить заявку</button>
+        </form>
+      </article>
+    </section>
+
+    <section class="page" id="page-discipline">
+      <div class="section-head">
+        <div><div class="eyebrow">Дисциплина состава</div><h2>Выговоры</h2>
+          <p>Сотрудник видит только свои взыскания. Руководство видит журнал и может выдать выговор с фотографией и основанием.</p></div>
+      </div>
+      <article class="card stack hidden" id="reprimand-form-card">
+        <h3>Оформить выговор</h3>
+        <form id="reprimand-form" class="stack">
+          <div class="field"><label for="reprimand-member">Сотрудник</label><select id="reprimand-member" required></select></div>
+          <div class="field"><label for="reprimand-reason">Нарушение и основание</label><textarea id="reprimand-reason" required minlength="4" maxlength="1000" placeholder="Опишите нарушение и при необходимости укажите пункт устава."></textarea></div>
+          <div class="field"><label for="reprimand-photo">Фото-подтверждение (JPG, PNG или WebP, до 2 МБ)</label><input id="reprimand-photo" type="file" accept="image/jpeg,image/png,image/webp" required></div>
+          <button class="btn primary" type="submit">Выдать выговор</button>
+        </form>
+      </article>
+      <article class="card mt-16">
+        <h3>История взысканий</h3>
+        <div id="reprimand-list" class="item-list"></div>
+      </article>
+    </section>
+
+    <section class="page" id="page-lawsuits">
+      <div class="section-head">
+        <div><div class="eyebrow">Судебное производство</div><h2>Исковые дела</h2><p>Подавайте иск из конструктора документов и отслеживайте его движение.</p></div>
+        <button class="btn primary" data-go="documents">Подготовить иск</button>
+      </div>
+      <div class="note warning mb-16">После подачи дело получает статус «Подан». Руководство обновляет этап и фиксирует решение; документ сохраняется в вашем архиве.</div>
+      <article class="card stack mb-16">
+        <div><h3>Иски Верховного суда на форуме</h3><p class="help">Откроется отдельное окно форума. Войдите там самостоятельно: пароль не передаётся порталу, а сессия хранится локально в профиле приложения.</p></div>
+        <div class="actions"><button class="btn" id="open-supreme-court" type="button">Открыть форум и искать иски</button></div>
+      </article>
+      <div id="lawsuit-list" class="item-list"></div>
+    </section>
+
+    <section class="page" id="page-documents">
+      <div class="section-head">
+        <div><div class="eyebrow">Конструктор</div><h2>Подготовка документов</h2><p>Заполните поля, проверьте текст и скопируйте или скачайте результат.</p></div>
+      </div>
+      <div class="note warning mb-16">Формы ниже собраны по присланным BBCode-шаблонам. Перед отправкой проверьте нумерацию, реквизиты и актуальные требования прокуратуры или суда. Жалоба в прокуратуру имеет отдельный обязательный чек-лист.</div>
+      <div class="grid columns">
+        <article class="card">
+          <h3>Заполнение формы</h3>
+          <form id="document-form" class="stack mt-14">
+            <div class="field"><label for="doc-template">Тип документа</label><select id="doc-template">
+              <option value="complaint">Жалоба в прокуратуру (№ CP)</option>
+              <option value="lawsuit-supreme">Исковое заявление · Верховный суд</option>
+              <option value="lawsuit-federal">Исковое заявление · Федеральный суд</option>
+              <option value="indictment-supreme">Обвинительное заключение · Верховный суд</option>
+              <option value="indictment-district">Обвинительное заключение · Окружной суд</option>
+              <option value="appeal">Апелляционная жалоба</option>
+              <option value="cassation">Кассационная жалоба</option>
+              <option value="constitutional">Иск · конституционное судопроизводство</option>
+              <option value="motion-citizen">Ходатайство / возражение гражданина</option>
+              <option value="motion-agency">Ходатайство / уведомление организации</option>
+              <option value="rehabilitation">Заявление на юридическую реабилитацию</option>
+            </select></div>
+            <div class="note" id="document-guidance">Выберите форму и заполните соответствующие поля.</div>
+            <div id="document-fields" class="stack document-fields"></div>
+            <button class="btn primary" type="submit">Сформировать документ</button>
+          </form>
+        </article>
+        <article class="card">
+          <div class="section-head"><div><h3>Предпросмотр</h3><p>Форумная версия и бумажный макет.</p></div></div>
+          <div class="preview-tabs">
+            <button type="button" class="preview-tab active" data-preview="forum">Как на форуме</button>
+            <button type="button" class="preview-tab" data-preview="paper">Бумажный документ</button>
+          </div>
+          <div id="forum-preview" class="forum-sheet">Заполните форму и нажмите «Сформировать документ».</div>
+          <div id="paper-preview" class="paper-sheet hidden"><div id="paper-text" class="paper-text"></div><div id="paper-signature" class="paper-signature"></div></div>
+          <label for="document-output" class="portal-block">BBCode для вставки на форум</label>
+          <textarea id="document-output" readonly placeholder="После заполнения формы здесь появится готовый BBCode."></textarea>
+          <div id="forum-publish" class="forum-publish hidden">
+            <div class="field"><label for="forum-publish-url">Ссылка на опубликованную тему форума</label>
+                <input id="forum-publish-url" type="url" maxlength="500" placeholder="https://forum.../topic/..." autocomplete="url">
+              <span class="help">Шаблон и черновик не дают баллы. Публикация попадёт в профиль только после проверки руководства.</span></div>
+            <button class="btn primary hidden" id="submit-lawsuit" type="button">Подать иск и отправить ссылку</button>
+            <button class="btn primary hidden" id="submit-forum-document" type="button">Отправить публикацию на проверку</button>
+          </div>
+          <div class="actions">
+            <button class="btn subtle" id="copy-document" type="button">Скопировать BBCode</button>
+            <button class="btn" id="download-document" type="button">Скачать .txt</button>
+            <button class="btn primary" id="save-document" type="button">Сохранить в архив</button>
+          </div>
+        </article>
+      </div>
+      <article class="card mt-16">
+        <h3>Сохраненные документы</h3>
+        <p class="muted">Черновики привязаны к аккаунту и доступны после повторного входа.</p>
+        <div id="document-archive" class="item-list"></div>
+      </article>
+    </section>
+
+    <section class="page" id="page-laws">
+      <div class="section-head">
+        <div><div class="eyebrow">Нормативная база</div><h2>База законов Mirror</h2><p>Поиск и чтение полных текстов законов и Устава.</p></div>
+      </div>
+      <div class="stat mb-14" id="law-stat"><span class="stat-label">Доступно законов</span><strong class="stat-value" id="law-count">0 / 11</strong></div>
+      <article class="card stack">
+        <div class="note">Поиск работает по АК, УК, ПК, ЗОТ, Закону об адвокатуре, Уставу, Дорожному и Трудовому кодексам, Этическому кодексу, законам о документообороте и Департаменте юстиции. Прямые ссылки между кодексами можно открыть из результата; это навигация по тексту, а не автоматическое юридическое заключение.</div>
+        <div class="law-controls">
+          <input type="search" id="law-search" placeholder="Например: статья 1.1, задержание, адвокатская тайна">
+          <select id="law-filter" aria-label="Выбрать документ">
+            <option value="all">Все документы</option><option value="ak">АК</option><option value="uk">УК</option><option value="pk">ПК</option><option value="zot">ЗОТ</option><option value="advocacy">Закон об адвокатуре</option><option value="charter">Устав</option><option value="road">Дорожный кодекс</option><option value="labor">Трудовой кодекс</option><option value="ethics">Этический кодекс</option><option value="documents">Документооборот</option><option value="justice">Департамент юстиции</option>
+          </select>
+        </div>
+        <div class="law-workbench">
+          <aside id="law-tree" class="law-tree" aria-label="Каталог нормативных документов"></aside>
+          <div id="law-results" class="law-reader"></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="page" id="page-management">
+      <div class="section-head">
+        <div><div class="eyebrow">Единое руководство ГКА и ЗГКА</div><h2>Панель управления</h2><p>Одобрения, состав, кадровые решения, переаттестации и уведомления в одном рабочем кабинете.</p></div>
+      </div>
+      <div class="management-command-grid">
+        <button class="management-command" type="button" data-go="applications"><svg class="svg-icon"><use href="#i-message"></use></svg><span><strong>Одобрения и заявки</strong><span id="management-pending-summary">Проверка решений руководства</span></span></button>
+        <button class="management-command" type="button" data-go="management"><svg class="svg-icon"><use href="#i-users"></use></svg><span><strong>Состав коллегии</strong><span>Роли, статусы и приглашения</span></span></button>
+        <button class="management-command" type="button" data-go="reserve"><svg class="svg-icon"><use href="#i-user-plus"></use></svg><span><strong>Кадры и резерв</strong><span>Повышения, отсутствие и аттестации</span></span></button>
+        <button class="management-command" type="button" data-go="reports"><svg class="svg-icon"><use href="#i-discord"></use></svg><span><strong>Discord и webhook</strong><span>Каналы и тестовые уведомления</span></span></button>
+      </div>
+      <div class="grid columns">
+        <article class="card">
+          <h3>Норма вызовов для юриста</h3>
+          <p class="help">Количество вызовов, необходимое для перехода «Юрист → Адвокат», устанавливает руководство.</p>
+          <form id="promotion-requirement-form" class="actions">
+            <div class="field"><label for="lawyer-calls-required">Минимальное число вызовов</label><input id="lawyer-calls-required" type="number" min="1" max="100" required></div>
+            <button id="save-promotion-requirement" class="btn primary" type="submit">Сохранить норму</button>
+            <div id="promotion-requirement-status" class="help"></div>
+          </form>
+        </article>
+        <article class="card stack">
+          <h3>Приглашение нового участника</h3>
+          <p class="muted">ГКА создаёт одноразовый код на 7 дней. Новый аккаунт появится как стажер и будет ждать одобрения.</p>
+          <button class="btn primary" id="create-invite" type="button">Создать приглашение</button>
+          <div id="invite-result" class="note hidden"></div>
+          <div id="pending-members" class="item-list"></div>
+        </article>
+        <article class="card">
+          <h3>Назначить переаттестацию</h3>
+          <form id="attestation-form" class="stack">
+            <div class="field"><label for="attestation-member">Участник</label><select id="attestation-member" required></select></div>
+            <div class="field"><label for="attestation-track">Программа теста</label><select id="attestation-track"><option>Стажер КА</option><option>Юрист</option></select></div>
+            <div class="field"><label for="attestation-due">Срок прохождения</label><input id="attestation-due" type="datetime-local" required></div>
+            <button class="btn primary" type="submit">Назначить</button>
+          </form>
+          <h3 class="mt-18">Назначенные проверки</h3>
+          <div id="management-attestations" class="item-list"></div>
+        </article>
+      </div>
+      <article class="card mt-16">
+        <h3>Заявки и решения</h3>
+        <div id="all-applications" class="item-list"></div>
+      </article>
+      <article class="card mt-16">
+        <h3>Состав коллегии</h3>
+        <div id="member-list" class="item-list"></div>
+      </article>
+    </section>
+    <section class="page" id="page-reports">
+      <div class="section-head">
+        <div><div class="eyebrow">Работа коллегии</div><h2>Аналитика и отчётность</h2><p>Показатели рассчитываются по записям портала; неподтверждённые результаты не засчитываются.</p></div>
+      </div>
+      <article class="card stack">
+        <div class="section-head">
+          <div><h3>Оперативная аналитика</h3><p class="meta">Выберите период для динамики судебной работы, обращений, документов и кадровых событий.</p></div>
+          <div class="actions" role="group" aria-label="Период аналитики">
+            <button class="btn small" data-analytics-period="7" type="button">7 дней</button>
+            <button class="btn small active" data-analytics-period="30" type="button">30 дней</button>
+            <button class="btn small" data-analytics-period="90" type="button">90 дней</button>
+            <button class="btn small" data-analytics-period="all" type="button">Всё время</button>
+          </div>
+        </div>
+        <div id="analytics-period-label" class="analytics-note" role="status"></div>
+        <div id="analytics-content" class="stack"><div class="empty">Выберите период, чтобы загрузить аналитику.</div></div>
+      </article>
+      <article class="card stack hidden" id="weekly-reset-card">
+        <div class="section-head">
+          <div><h3>Новая неделя</h3><p class="meta">Завершённые события, рассмотренные заявки, отсутствия и выговоры будут перенесены в архив. Ничего не удаляется.</p></div>
+          <div class="actions">
+            <button class="btn" id="weekly-reset-refresh" type="button">Проверить записи</button>
+            <button class="btn primary" id="weekly-reset-start" data-weekly-reset-start type="button">Начать новую неделю</button>
+          </div>
+        </div>
+        <div id="weekly-reset-preview" class="analytics-note" role="status">Нажмите «Проверить записи», чтобы увидеть, что попадёт в архив.</div>
+        <div><h4>История архивов</h4><div id="weekly-reset-history" class="stack"><div class="empty">История архивов пока не загружена.</div></div></div>
+      </article>
+      <article class="card stack hidden" id="discord-integration-card">
+        <div class="section-head">
+          <div><h3>Discord и уведомления</h3><p class="meta">Состояние OAuth, бота и каналов webhook. Проверка отправляет тестовое сообщение в выбранный канал.</p></div>
+          <div class="actions">
+            <button class="btn" id="discord-diagnostics-refresh" type="button">Обновить состояние</button>
+          </div>
+        </div>
+        <div id="discord-integration-summary" class="integration-summary"></div>
+        <div id="discord-webhook-list" class="webhook-list"></div>
+      </article>
+      <article class="card stack">
+        <div><h3>Месячный отчёт и экспорт</h3><p class="note">Таблица обновляется непосредственно из базы портала. Секреты и сторонние интеграции для просмотра отчёта не нужны.</p></div>
+        <div class="actions">
+          <label class="field" for="report-period">Отчётный месяц<input id="report-period" type="month"></label>
+          <button class="btn" id="report-refresh" type="button">Обновить отчёт</button>
+          <button class="btn" id="report-csv" type="button">Скачать CSV</button>
+        </div>
+        <div class="report-live-toolbar">
+          <label class="field" for="report-search">Поиск в таблице
+            <input id="report-search" type="search" placeholder="Сотрудник или роль">
+          </label>
+          <span class="live-report-status"><i></i><span id="report-live-status">Обновление каждые 30 секунд</span></span>
+        </div>
+        <div id="report-sync-status" class="help" role="status"></div>
+        <div id="report-content" class="stack"></div>
+      </article>
+    </section>
+  </main>
+  <footer class="shell footnote">Mirror GTA 5 RP · Коллегия адвокатов · серверный портал</footer>
+  <dialog id="discord-required-dialog" class="discord-required-dialog" aria-labelledby="discord-required-title">
+    <div class="stack">
+      <span class="discord-required-icon"><svg class="svg-icon"><use href="#i-discord"></use></svg></span>
+      <div class="eyebrow">ОБЯЗАТЕЛЬНЫЙ ШАГ ДЛЯ СОТРУДНИКА</div>
+      <h2 id="discord-required-title">Привяжите Discord для доступа в Коллегию</h2>
+      <p>Это подтвердит ваш Discord-аккаунт и позволит порталу выдавать роль и отправлять рабочие уведомления. Пароль Discord портал не получает.</p>
+      <div class="note">Нажмите «Привязать Discord», войдите в Discord и подтвердите доступ к имени и аватару. Гражданам это требование не предъявляется.</div>
+      <div id="discord-required-status" class="discord-required-status" role="status">Проверяем настройки подключения…</div>
+      <div class="actions">
+        <button class="btn primary" id="discord-required-link" type="button"><svg class="svg-icon"><use href="#i-discord"></use></svg>Привязать Discord</button>
+        <button class="btn subtle" id="discord-required-logout" type="button">Выйти из аккаунта</button>
+      </div>
+    </div>
+  </dialog>
+  <dialog id="profile-dialog" class="profile-dialog" aria-labelledby="profile-dialog-title">
+    <div class="profile-dialog-content">
+      <div class="section-head">
+        <div><div class="eyebrow">Профиль участника</div><h2 id="profile-dialog-title">Профиль</h2></div>
+        <button class="btn small" id="profile-close" type="button">Закрыть</button>
+      </div>
+      <div id="profile-dialog-body" class="stack"></div>
+    </div>
+  </dialog>
+
+  <dialog id="achievement-detail-dialog" class="profile-dialog achievement-detail-dialog" aria-labelledby="achievement-detail-title">
+    <div class="profile-dialog-content stack">
+      <div class="section-head">
+        <div><div class="eyebrow">История достижения</div><h2 id="achievement-detail-title">Достижение</h2></div>
+        <button class="btn small" id="achievement-detail-close" type="button">Закрыть</button>
+      </div>
+      <div id="achievement-detail-body" class="achievement-detail-body"></div>
+    </div>
+  </dialog>
+
+  <dialog id="welcome-dialog" class="profile-dialog" aria-labelledby="welcome-dialog-title">
+    <div class="profile-dialog-content stack">
+      <div class="section-head"><div><div class="eyebrow">Первый вход</div><h2 id="welcome-dialog-title">Начнём с главного</h2></div></div>
+      <p class="muted">Откройте свой путь, изучите материалы и пройдите тест. Для доступа сотрудника сначала привяжите Discord.</p>
+      <div class="career-steps">
+        <div class="career-step"><span class="step-number">1</span><strong>Материалы</strong><p>Изучите основу по своей ступени.</p></div>
+        <div class="career-step"><span class="step-number">2</span><strong>Тест</strong><p>На следующих ролях после теста появится ожидание обзвона.</p></div>
+        <div class="career-step"><span class="step-number">3</span><strong>Обращения</strong><p>После теста можно перейти к рабочим задачам.</p></div>
+      </div>
+      <div class="actions">
+        <button class="btn primary" id="welcome-continue" type="button">Перейти к моему пути</button>
+        <button class="btn" id="welcome-later" type="button">Позже</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="interview-dialog" class="profile-dialog" aria-labelledby="interview-dialog-title">
+    <div class="profile-dialog-content stack">
+      <div class="section-head"><div><div class="eyebrow">Следующий шаг</div><h2 id="interview-dialog-title">Тест пройден — нужен обзвон</h2></div></div>
+      <p class="muted">Отметьте, готовы ли вы сейчас поговорить с руководством. Если сейчас неудобно, позже вернитесь к заявке и нажмите «Готов к обзвону».</p>
+      <div class="actions">
+        <button class="btn primary" id="interview-ready" type="button">Готов сейчас</button>
+        <button class="btn" id="interview-waiting" type="button">Сейчас не могу</button>
+      </div>
+      <button class="btn small subtle" id="interview-close" type="button">Закрыть окно</button>
+    </div>
+  </dialog>
+
+  <dialog id="quiz-dialog" class="quiz-dialog" aria-labelledby="quiz-dialog-title">
+    <div class="quiz-frame">
+      <header class="quiz-frame-head">
+        <div><div class="eyebrow">Проверка знаний</div><h2 id="quiz-dialog-title">Экзамен</h2></div>
+        <button class="btn small" id="quiz-close" type="button">Закрыть тест</button>
+      </header>
+      <div id="quiz-dialog-content" aria-live="polite"></div>
+    </div>
+  </dialog>
+
+  <dialog id="case-chat-dialog" class="profile-dialog chat-dialog" aria-labelledby="chat-title">
+    <div class="profile-dialog-content stack">
+      <div class="section-head">
+        <div><div class="eyebrow">Личный чат обращения</div><h2 id="chat-title">Связь по делу</h2><p id="chat-case-meta" class="muted"></p></div>
+        <button class="btn small" id="chat-close-dialog" type="button">Закрыть</button>
+      </div>
+      <div id="chat-messages" class="chat-messages" aria-live="polite"></div>
+      <div class="chat-tools">
+        <button class="btn small subtle" id="chat-share-contact" type="button">Передать контакт: Discord и адрес @sa.com</button>
+        <button class="btn small danger hidden" id="chat-close-case" type="button">Завершить обращение</button>
+      </div>
+      <form id="chat-form" class="stack">
+        <label for="chat-message-input">Сообщение</label>
+        <textarea id="chat-message-input" maxlength="2000" rows="3" required placeholder="Напишите участнику по обращению…"></textarea>
+        <button class="btn primary" type="submit">Отправить</button>
+      </form>
+    </div>
+  </dialog>
+
+  <dialog id="case-history-dialog" class="profile-dialog" aria-labelledby="case-history-title">
+    <div class="profile-dialog-content stack">
+      <div class="section-head">
+        <div><div class="eyebrow">История событий</div><h2 id="case-history-title">История дела</h2></div>
+        <button class="btn small" id="case-history-close" type="button">Закрыть</button>
+      </div>
+      <div id="case-history-list" class="item-list" aria-live="polite"></div>
+    </div>
+  </dialog>
+
+  <div id="toast" role="status" aria-live="polite" hidden></div>
+
+  <div id="auth-screen" class="auth-screen">
+    <section class="card auth-card">
+      <div class="auth-brand">
+        <img src="/assets/collegium-seal.png" alt="Герб Коллегии адвокатов">
+        <span>КОЛЛЕГИЯ АДВОКАТОВ</span>
+        <small>Официальный портал</small>
+      </div>
+      <div class="auth-content">
+        <div class="eyebrow">Защищённый кабинет</div>
+        <h2>Вход в систему</h2>
+        <p class="muted">Используйте учетную запись, выданную руководством Коллегии.</p>
+        <div class="auth-tabs">
+          <button class="btn auth-tab active" id="show-login" type="button">Вход</button>
+          <button class="btn auth-tab" id="show-register" type="button">Регистрация</button>
+          <button class="btn auth-tab" id="show-reset" type="button">Восстановление</button>
+        </div>
+        <form id="login-form" class="stack">
+          <div class="field"><label for="login-username">Логин</label><input id="login-username" autocomplete="username" required minlength="3" maxlength="32"></div>
+          <div class="field"><label for="login-password">Пароль</label><input id="login-password" type="password" autocomplete="current-password" required minlength="12" maxlength="128"></div>
+          <button class="btn primary auth-submit" type="submit">Войти в портал</button>
+        </form>
+        <form id="register-form" class="stack hidden">
+          <div class="field"><label for="registration-kind">Тип аккаунта</label><select id="registration-kind"><option value="staff">Сотрудник коллегии · по приглашению</option><option value="citizen">Гражданин · свободная регистрация</option></select></div>
+          <div class="field" id="invite-field"><label for="register-invite">Одноразовый код приглашения ГКА</label><input id="register-invite" autocomplete="off" required></div>
+          <p id="registration-guidance" class="help">Код создаёт одну заявку стажёра. После одобрения ГКА аккаунт активируется.</p>
+          <div class="field"><label for="register-username">Логин</label><input id="register-username" autocomplete="username" pattern="[a-zA-Z0-9._\x2d]{3,32}" required minlength="3" maxlength="32"></div>
+          <div class="field"><label for="register-display-name">Имя персонажа</label><input id="register-display-name" required minlength="2" maxlength="80"></div>
+          <div class="field"><label for="register-email">Электронная почта (необязательно)</label><input id="register-email" type="email" autocomplete="email" maxlength="160"></div>
+          <div class="field"><label for="register-password">Пароль (не менее 12 символов)</label><input id="register-password" type="password" autocomplete="new-password" required minlength="12" maxlength="128"></div>
+          <button class="btn primary auth-submit" type="submit">Зарегистрироваться</button>
+        </form>
+        <form id="password-reset-form" class="stack hidden">
+          <p class="note">Если вы забыли пароль, попросите ГКА выдать одноразовый код восстановления. Он действует 30 минут и используется один раз.</p>
+          <div class="field"><label for="reset-username">Логин аккаунта</label><input id="reset-username" autocomplete="username" required minlength="3" maxlength="32"></div>
+          <div class="field"><label for="reset-code">Код восстановления от ГКА</label><input id="reset-code" autocomplete="one-time-code" required minlength="20" maxlength="100"></div>
+          <div class="field"><label for="reset-password">Новый пароль (не менее 12 символов)</label><input id="reset-password" type="password" autocomplete="new-password" required minlength="12" maxlength="128"></div>
+          <button class="btn primary auth-submit" type="submit">Установить новый пароль</button>
+        </form>
+        <div id="auth-error" class="auth-error" role="alert"></div>
+        <p class="auth-security">Доступ защищён · пароль хранится в виде криптографического хеша</p>
+      </div>
+    </section>
+  </div>
+  <div id="pending-screen" class="pending-screen hidden">
+    <section class="card auth-card">
+      <div class="eyebrow">Заявка на вступление</div>
+      <h2>Ожидайте одобрения ГКА</h2>
+      <p id="pending-message" class="muted">Аккаунт создан. Руководитель Коллегии рассмотрит заявку.</p>
+      <button class="btn" id="pending-logout" type="button">Выйти</button>
+    </section>
+  </div>
+
+  <!-- Логика вынесена из HTML: см. web/js/app.js -->
+  <script type="module" src="/web/js/app.js"></script>
+</body>
+</html>

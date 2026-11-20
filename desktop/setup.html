@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; base-uri 'none'; form-action 'none'">
+  <title>Настройка портала</title>
+  <link rel="stylesheet" href="setup.css">
+  <script src="setup.js" defer></script>
+</head>
+<body>
+  <main class="panel">
+    <div class="brand"><span class="seal">КА</span><span>Mirror GTA 5 RP<small>ПОРТАЛ КОЛЛЕГИИ АДВОКАТОВ</small></span></div>
+    <p class="eyebrow">ПЕРВЫЙ ЗАПУСК</p>
+    <h1>Подключим рабочее место</h1>
+    <p class="intro">Участники используют свои EXE, а обращения, тесты и профили хранятся на одном общем сервере.</p>
+
+    <form id="setup-form">
+      <fieldset class="mode-picker">
+        <legend>Как использовать это приложение?</legend>
+        <label class="mode-card">
+          <input type="radio" name="mode" value="host">
+          <span><strong>Сервер ГКА</strong><small>Запускает общую базу и Discord-бота. Этот ПК должен быть включён, пока сотрудники работают.</small></span>
+        </label>
+        <label class="mode-card">
+          <input type="radio" name="mode" value="client">
+          <span><strong>Рабочее место сотрудника</strong><small>Подключается к серверу ГКА и показывает общие данные.</small></span>
+        </label>
+      </fieldset>
+
+      <section id="client-fields" class="fields hidden">
+        <label for="server-url">HTTPS-адрес сервера ГКА</label>
+        <input id="server-url" name="serverUrl" type="url" placeholder="https://portal.example.com" autocomplete="url">
+        <p class="hint">Для сотрудников из интернета нужен защищённый HTTPS-адрес. Адрес 127.0.0.1 доступен только на этом ПК.</p>
+      </section>
+
+      <section id="host-fields" class="fields hidden">
+        <label for="public-url">Внешний HTTPS-адрес (если уже настроен)</label>
+        <input id="public-url" name="publicUrl" type="url" placeholder="https://portal.example.com" autocomplete="url">
+        <p class="hint">Настройте HTTPS reverse proxy или туннель к 127.0.0.1:3000. Закройте другой сервер портала перед запуском этого режима.</p>
+        <p id="discord-callback-hint" class="hint hidden"></p>
+        <p id="admin-note" class="hint hidden">Это первая база. Создайте учётную запись ГКА — пароль будет сохранён только в виде криптографического хеша.</p>
+        <div id="admin-fields" class="admin-fields hidden">
+          <label for="admin-username">Логин ГКА</label>
+          <input id="admin-username" name="username" minlength="3" maxlength="32" pattern="[a-zA-Z0-9._-]+" autocomplete="username">
+          <label for="admin-display-name">Игровое имя</label>
+          <input id="admin-display-name" name="displayName" minlength="2" maxlength="80" autocomplete="name">
+          <label for="admin-password">Пароль (12–128 символов)</label>
+          <input id="admin-password" name="password" type="password" minlength="12" maxlength="128" autocomplete="new-password">
+        </div>
+        <p class="hint">Папка данных: <code id="data-directory"></code></p>
+        <p class="hint">Discord Client ID, Client Secret, токен бота и webhook добавляются в локальный файл <code id="env-path"></code>. Можно задать названия категорий и webhook статуса. Callback выше добавьте в Discord Developer Portal → OAuth2 → Redirects. Не отправляйте файл никому; после изменения перезапустите EXE.</p>
+      </section>
+
+      <div id="setup-error" class="error hidden" role="alert"></div>
+      <button id="submit" class="submit" type="submit">Сохранить и открыть портал</button>
+    </form>
+
+    <footer>Данные сервера и база SQLite сохраняются локально на ПК ГКА.</footer>
+  </main>
+</body>
+</html>
