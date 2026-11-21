@@ -932,27 +932,29 @@ header, nav, main, footer, dialog, #toast { position: relative; z-index: 1; }
 
 /* Графитово-бронзовая профессиональная тема */
 :root {
-  --ink-950: #090c0d;
-  --ink-900: #0d1112;
-  --ink-850: #111617;
-  --ink-800: #151b1c;
-  --ink-750: #1a2221;
-  --ink-700: #202827;
-  --ink-650: #2a3431;
-  --hairline: rgba(202, 194, 171, .11);
-  --hairline-strong: rgba(202, 194, 171, .18);
-  --gold: #a99a68;
-  --gold-bright: #c4b783;
-  --gold-deep: #776d45;
-  --gold-line: rgba(166, 149, 94, .34);
-  --gold-line-soft: rgba(166, 149, 94, .20);
+  --ink-950: #05090f;
+  --ink-900: #070d17;
+  --ink-850: #0a1320;
+  --ink-800: #0d1826;
+  --ink-750: #101f31;
+  --ink-700: #142639;
+  --ink-650: #182d44;
+  --hairline: rgba(140, 176, 219, .12);
+  --hairline-strong: rgba(140, 176, 219, .22);
+  --gold: #e6b64c;
+  --gold-bright: #f7d283;
+  --gold-deep: #a87b25;
+  --gold-line: rgba(224, 176, 74, .28);
+  --gold-line-soft: rgba(224, 176, 74, .14);
 }
 body {
   background:
-    radial-gradient(780px 380px at 15% -10%, rgba(160, 150, 112, .10), transparent 68%),
-    linear-gradient(180deg, #0b0f10 0%, #090c0d 58%, #080a0b 100%);
+    radial-gradient(900px 420px at 12% -8%, rgba(38, 79, 132, .38), transparent 70%),
+    radial-gradient(780px 380px at 96% -4%, rgba(180, 134, 44, .16), transparent 68%),
+    radial-gradient(1100px 700px at 50% 110%, rgba(18, 42, 72, .5), transparent 72%),
+    linear-gradient(180deg, #070d17 0%, #060b13 55%, #05090f 100%);
 }
-body::before { opacity: .12; background-size: 72px 72px; }
+body::before { opacity: .55; background-size: 64px 64px; }
 
 #sidebar, #sidebar:hover, #sidebar:focus-within {
   top: 62px;
@@ -2518,4 +2520,3622 @@ header {
   opacity: .92;
   filter: drop-shadow(0 14px 14px rgba(0,0,0,.58));
   animation: snowman-premium 3.6s ease-in-out infinite;
+}
+
+/* Референсная карточка коллеги: компактный профиль и строгая сетка */
+.colleagues-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.colleagues-toolbar {
+  min-height: 46px;
+  margin-bottom: 10px;
+  padding: 6px;
+  border: 1px solid #24405f;
+  border-radius: 8px;
+  background: rgba(8, 18, 31, .72);
+}
+
+.colleague-card {
+  min-height: 230px;
+  height: auto;
+  gap: 7px;
+  padding: 12px;
+  border: 1px solid #24405f;
+  border-radius: 9px;
+  background:
+    linear-gradient(168deg, rgba(18, 36, 58, .96), rgba(9, 20, 34, .98));
+  box-shadow: 0 10px 24px -22px rgba(0, 0, 0, .95);
+}
+
+.colleague-card[data-effect="snowman"] .colleague-effect::after,
+.colleague-card[data-effect="snow"] .colleague-effect,
+.colleague-card[data-effect="confetti"] .colleague-effect {
+  display: none;
+}
+
+.colleague-profile {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+}
+
+.colleague-profile h3 {
+  margin: 0 0 3px;
+  font-size: 11.5px;
+  line-height: 1.2;
+}
+
+.colleague-profile .meta {
+  font-size: 9px;
+  line-height: 1.3;
+}
+
+.colleague-portrait {
+  width: 48px;
+  height: 48px;
+  padding: 2px;
+  border: 1px solid #4775ab;
+  border-radius: 8px;
+  background: #112640;
+  object-fit: contain;
+}
+
+.colleague-bio {
+  min-height: 42px;
+  margin: 0;
+  padding: 7px 8px;
+  border-left: 2px solid #e6b64c;
+  border-radius: 0 6px 6px 0;
+  color: #d8e4f3;
+  background: rgba(230, 182, 76, .055);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 10.5px;
+  font-style: italic;
+  line-height: 1.45;
+}
+
+.colleague-pinned {
+  min-height: 44px;
+  gap: 4px;
+  padding-top: 2px;
+  border-top: 1px solid rgba(143, 174, 210, .08);
+}
+
+.colleague-pinned h4 {
+  margin: 4px 0 2px;
+  color: #cbd8e8;
+  font-size: 9.5px;
+}
+
+.colleague-case {
+  min-height: 28px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  padding: 5px 7px;
+  border: 1px solid rgba(143, 174, 210, .08);
+  border-radius: 6px;
+  background: rgba(7, 16, 28, .58);
+  font-size: 9px;
+}
+
+.colleague-stats {
+  gap: 5px;
+  margin-top: 1px;
+}
+
+.colleague-stats span {
+  min-height: 42px;
+  border: 1px solid rgba(143, 174, 210, .08);
+  border-radius: 7px;
+  color: #91a7c1;
+  background: rgba(7, 16, 28, .62);
+  font-size: 8.5px;
+}
+
+.colleague-stats strong {
+  color: #edf3fb;
+  font-size: 14px;
+  line-height: 1.05;
+}
+
+.colleague-card > .badge,
+.colleague-card > .colleague-discord,
+.colleague-card > .btn,
+.colleague-card > .profile-trigger {
+  font-size: 9.5px;
+}
+
+.colleague-card > .colleague-discord {
+  min-height: 30px;
+  justify-content: center;
+  margin-top: 1px;
+}
+
+.colleague-card .profile-trigger {
+  max-width: 100%;
+  overflow: hidden;
+  color: #edf3fb;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+}
+
+@media (max-width: 1180px) {
+  .colleagues-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .colleagues-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .colleagues-toolbar {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Финальная карточка сотрудника: компактная, сбалансированная и без декоративных эффектов */
+.colleague-card {
+  min-height: 0;
+  height: 360px;
+  max-height: 360px;
+  align-content: start;
+  grid-template-rows: 52px auto auto auto 1fr auto;
+  gap: 8px;
+  overflow: hidden;
+  padding: 14px;
+  border: 1px solid #294563;
+  border-radius: 12px;
+  background: linear-gradient(168deg, #10243a 0%, #0c1d31 58%, #0a192b 100%);
+  box-shadow: 0 12px 28px -20px rgba(0, 0, 0, .92);
+}
+
+.colleague-card .colleague-effect,
+.colleague-card[data-effect="snowman"] .colleague-effect::after,
+.colleague-card[data-effect="snow"] .colleague-effect,
+.colleague-card[data-effect="confetti"] .colleague-effect {
+  display: none;
+}
+
+.colleague-card .colleague-profile {
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-height: 52px;
+}
+
+.colleague-card .colleague-portrait {
+  width: 48px;
+  height: 48px;
+  padding: 2px;
+  border: 1px solid #4775ab;
+  border-radius: 8px;
+  background: #112640;
+}
+
+.colleague-card .colleague-profile h3 {
+  margin: 0 0 3px;
+  font-size: 12px;
+  line-height: 1.1;
+}
+
+.colleague-card .colleague-profile .meta {
+  margin: 0;
+  color: #91a7c1;
+  font-size: 8.5px;
+}
+
+.colleague-card > .presence-badge {
+  width: fit-content;
+  height: 18px;
+  align-items: center;
+  gap: 5px;
+  margin: -2px 0 0;
+  padding: 2px 7px;
+  font-size: 8.5px;
+}
+
+.colleague-card .colleague-bio {
+  min-height: 72px;
+  max-height: 72px;
+  margin: 0;
+  padding: 9px 10px;
+  overflow: hidden;
+  border: 1px solid rgba(230, 182, 76, .16);
+  border-left: 2px solid #e6b64c;
+  border-radius: 7px;
+  background: rgba(230, 182, 76, .055);
+  color: #dfe8f5;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 11.5px;
+  font-style: italic;
+  line-height: 1.42;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+}
+
+.colleague-card .colleague-pinned {
+  min-height: 48px;
+  max-height: 48px;
+  padding: 6px 0 0;
+  overflow: hidden;
+  border-top: 1px solid rgba(143, 174, 210, .08);
+  border-bottom: 1px solid rgba(143, 174, 210, .08);
+}
+
+.colleague-card .colleague-pinned h4 {
+  margin: 0 0 4px;
+  color: #d9e4f2;
+  font-size: 9.5px;
+}
+
+.colleague-card .colleague-case {
+  min-height: 24px;
+  padding: 4px 6px;
+  border: 1px solid rgba(143, 174, 210, .08);
+  border-radius: 6px;
+  background: rgba(7, 16, 28, .58);
+  font-size: 8.5px;
+}
+
+.colleague-card .colleague-stats {
+  align-self: end;
+  gap: 5px;
+  margin: 0;
+}
+
+.colleague-card .colleague-stats span {
+  min-height: 48px;
+  border: 1px solid rgba(143, 174, 210, .08);
+  border-radius: 7px;
+  background: rgba(7, 16, 28, .62);
+  color: #91a7c1;
+  font-size: 8.5px;
+}
+
+.colleague-card .colleague-stats strong {
+  color: #edf3fb;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.colleague-card .colleague-discord,
+.colleague-card > .btn {
+  min-height: 32px;
+  align-self: end;
+  justify-content: center;
+  margin: 0;
+  font-size: 9.5px;
+}
+
+.colleague-card > .profile-trigger,
+.colleague-card .profile-trigger {
+  justify-self: start;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: #edf3fb;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+/* Карточка коллеги: нижняя зона действий всегда видна */
+.colleague-card {
+  height: auto;
+  min-height: 390px;
+  max-height: none;
+  grid-template-rows: none;
+  overflow: visible;
+  align-content: start;
+  gap: 8px;
+}
+
+.colleague-card .colleague-quote {
+  min-height: 44px;
+  margin: 0;
+  padding: 8px 9px;
+  border-left: 2px solid #e6b64c;
+  border-radius: 0 7px 7px 0;
+  background: rgba(230, 182, 76, .055);
+  color: #e1e8f3;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 10.5px;
+  line-height: 1.42;
+}
+
+.colleague-card .colleague-achievements {
+  min-height: 26px;
+  max-height: 58px;
+  overflow: hidden;
+}
+
+.colleague-card .colleague-achievements .profile-achievement {
+  max-width: 132px;
+  min-height: 26px;
+  height: 26px;
+  padding: 3px 6px;
+  font-size: 8.5px;
+}
+
+.colleague-card .colleague-pinned {
+  min-height: 48px;
+  max-height: 76px;
+  height: auto;
+  overflow: hidden;
+}
+
+.colleague-card .request-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  align-self: end;
+  margin: auto 0 0;
+  padding-top: 2px;
+}
+
+.colleague-card .request-actions .btn,
+.colleague-card .request-actions .badge {
+  width: 100%;
+  min-height: 32px;
+  justify-content: center;
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 9.5px;
+  text-align: center;
+  white-space: normal;
+}
+
+@media (max-width: 760px) {
+  .colleague-card {
+    min-height: 0;
+  }
+
+  .colleague-card .request-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Окончательное выравнивание с референсом портала */
+header {
+  border-bottom-color: rgba(224, 176, 74, .18);
+  background: linear-gradient(180deg, rgba(10, 20, 34, .98), rgba(7, 15, 27, .96));
+}
+#sidebar,
+#sidebar:hover,
+#sidebar:focus-within {
+  border-right-color: var(--hairline);
+  background:
+    linear-gradient(180deg, rgba(10, 20, 33, .98), rgba(6, 12, 21, .99)),
+    var(--ink-900);
+}
+.card,
+.stat,
+.dashboard-panel,
+.request-card,
+.law-card,
+.quiz-card,
+.integration-row,
+.webhook-row {
+  border-color: var(--hairline);
+  background: linear-gradient(168deg, rgba(21, 37, 58, .94), rgba(10, 19, 31, .96));
+  box-shadow: var(--shadow-card);
+}
+.nav-btn.active,
+.nav-btn.active:hover {
+  color: #171710;
+  border-color: var(--gold-line);
+  background: linear-gradient(180deg, var(--gold-bright), var(--gold) 65%, #d8a63c);
+}
+.nav-btn.active .nav-icon { color: #171710; }
+
+.auth-screen,
+.pending-screen {
+  background:
+    radial-gradient(900px 520px at 14% 15%, rgba(38, 79, 132, .30), transparent 58%),
+    radial-gradient(720px 420px at 86% 88%, rgba(180, 134, 44, .10), transparent 62%),
+    #05090f;
+}
+.auth-screen .auth-card {
+  border-color: rgba(224, 176, 74, .22);
+  background: #0d1929;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, .78);
+}
+.auth-brand {
+  border-right-color: rgba(140, 176, 219, .12);
+  background:
+    radial-gradient(circle at 50% 32%, rgba(224,176,74,.12), transparent 34%),
+    linear-gradient(180deg, #14263d, #0b1727);
+}
+.auth-brand span { color: #edf3fb; }
+.auth-brand small { color: #91a7c1; }
+.auth-tabs {
+  border-color: rgba(140,176,219,.12);
+  background: rgba(5, 12, 22, .72);
+}
+.auth-tabs .auth-tab { color: #99abc1; }
+.auth-tabs .auth-tab.active,
+.auth-tabs .auth-tab.primary {
+  color: #171710;
+  background: linear-gradient(180deg, #f7d283, #e6b64c);
+}
+.auth-content > .muted { color: #aabbd0; }
+.auth-content .field label { color: #b6c5d8; }
+.auth-content input {
+  border-color: rgba(140,176,219,.18);
+  background: #091421;
+}
+.auth-content input:focus {
+  border-color: rgba(224,176,74,.48);
+  box-shadow: 0 0 0 3px rgba(224,176,74,.08);
+}
+.auth-security { color: #7f94ad; }
+
+.report-table-live,
+.report-table-live th,
+.report-table-live td {
+  border-color: rgba(140,176,219,.10);
+}
+.report-table-live th,
+.report-table-live tbody tr:last-child,
+.report-table-live tbody tr:last-child th,
+.report-table-live tbody tr:last-child td {
+  background: #101d2e;
+}
+.report-table-live tbody tr:hover td { background: rgba(230,182,76,.055); }
+
+.profile-achievement,
+.achievement-detail-inline,
+.achievement-detail-requirement {
+  border-color: var(--gold-line-soft);
+  color: #dce7f5;
+  background: rgba(230,182,76,.055);
+}
+.profile-achievement:hover {
+  border-color: var(--gold-line);
+  background: rgba(230,182,76,.12);
+}
+.achievement-detail-inline p,
+.achievement-detail-requirement span,
+.achievement-detail-requirement strong {
+  color: var(--text-soft);
+}
+
+/* Единая сетка всех разделов, как в прикрепленном референсе */
+:root {
+  --surface-1: #0f1d2f;
+  --surface-2: #12243a;
+  --surface-3: #162b46;
+  --line-blue: rgba(140, 176, 219, .12);
+  --text-main: #edf3fb;
+  --text-secondary: #aebfd4;
+  --text-dim: #8297b2;
+}
+
+body {
+  background:
+    radial-gradient(900px 520px at 12% -8%, rgba(38, 79, 132, .34), transparent 70%),
+    radial-gradient(760px 420px at 96% -4%, rgba(180, 134, 44, .10), transparent 68%),
+    linear-gradient(180deg, #070d17 0%, #060b13 58%, #05090f 100%);
+  background-attachment: fixed;
+  color: var(--text-main);
+}
+
+header {
+  height: 62px;
+  background: linear-gradient(180deg, rgba(11, 22, 38, .98), rgba(7, 15, 27, .96));
+  border-bottom: 1px solid rgba(224, 176, 74, .13);
+  backdrop-filter: blur(14px);
+}
+
+.topbar.shell {
+  height: 62px;
+  padding: 0 18px;
+  max-width: none;
+}
+
+#sidebar,
+#sidebar:hover,
+#sidebar:focus-within {
+  width: 220px;
+  background:
+    linear-gradient(180deg, rgba(11, 23, 39, .99), rgba(6, 13, 24, .99));
+  border-right: 1px solid var(--line-blue);
+  box-shadow: none;
+}
+
+#sidebar .nav-scroll {
+  padding: 11px 9px 18px;
+  gap: 2px;
+}
+
+.nav-section-label {
+  margin-top: 5px;
+  color: #7189a7;
+  font-size: 8.5px;
+  letter-spacing: .13em;
+}
+
+.nav-btn {
+  min-height: 34px;
+  border-radius: 8px;
+  color: #9fb1ca;
+  font-size: 11.5px;
+  font-weight: 500;
+  border: 1px solid transparent;
+}
+
+.nav-btn:hover {
+  color: #e5edf8;
+  border-color: var(--line-blue);
+  background: rgba(255, 255, 255, .035);
+  transform: none;
+}
+
+.nav-btn.active,
+.nav-btn.active:hover {
+  color: #151106;
+  border-color: rgba(224, 176, 74, .62);
+  background: linear-gradient(180deg, #f2ca72, #dda842);
+  box-shadow: 0 7px 18px -10px rgba(230, 182, 76, .72);
+  font-weight: 750;
+}
+
+.nav-btn.active::before {
+  left: -9px;
+  width: 2px;
+  height: 16px;
+  background: #f7d283;
+}
+
+main.shell {
+  width: calc(100% - 220px);
+  margin-left: 220px;
+  max-width: none;
+  padding: 16px 18px 28px;
+}
+
+.section-head {
+  min-height: 42px;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line-blue);
+}
+
+.section-head h2 {
+  margin: 2px 0 3px;
+  color: var(--text-main);
+  font-size: 20px;
+  letter-spacing: -.02em;
+}
+
+.section-head p {
+  color: var(--text-dim);
+  font-size: 10.5px;
+}
+
+.card,
+.dashboard-panel,
+.stat,
+.request-card,
+.lawsuit-card,
+.attorney-card,
+.event-card,
+.task-card,
+.law-card,
+.analytics-card,
+.quiz-card,
+.member-card,
+.colleague-card,
+.profile-card,
+.document-card,
+.integration-row,
+.webhook-row,
+.management-command,
+.report-summary-card {
+  border: 1px solid var(--line-blue);
+  border-radius: 10px;
+  background:
+    linear-gradient(168deg, rgba(18, 36, 58, .96), rgba(10, 22, 38, .98));
+  box-shadow: 0 10px 26px -22px rgba(0, 0, 0, .92);
+  color: var(--text-main);
+}
+
+.card:hover,
+.dashboard-panel:hover,
+.stat:hover,
+.request-card:hover,
+.lawsuit-card:hover,
+.attorney-card:hover,
+.event-card:hover,
+.task-card:hover,
+.law-card:hover,
+.member-card:hover,
+.colleague-card:hover {
+  border-color: rgba(224, 176, 74, .22);
+  box-shadow: 0 14px 30px -24px rgba(0, 0, 0, .95);
+  transform: translateY(-1px);
+}
+
+.card h3,
+.dashboard-panel h3,
+.stat h3,
+.request-card h4,
+.lawsuit-card h3,
+.law-card h4,
+.analytics-card h3 {
+  color: var(--text-main);
+}
+
+.card p,
+.dashboard-panel p,
+.request-card p,
+.lawsuit-card p,
+.law-card p,
+.analytics-card p,
+.muted,
+.help {
+  color: var(--text-secondary);
+}
+
+.eyebrow,
+.section-head .eyebrow {
+  color: var(--gold);
+  font-size: 8.5px;
+  letter-spacing: .16em;
+}
+
+input,
+select,
+textarea {
+  border: 1px solid var(--line-blue);
+  border-radius: 8px;
+  background: #091522;
+  color: var(--text-main);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #6f849d;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: rgba(224, 176, 74, .42);
+  box-shadow: 0 0 0 3px rgba(224, 176, 74, .08);
+}
+
+.btn {
+  border: 1px solid var(--line-blue);
+  border-radius: 8px;
+  background: #12243a;
+  color: var(--text-secondary);
+  box-shadow: none;
+}
+
+.btn:hover {
+  border-color: rgba(224, 176, 74, .24);
+  background: #163050;
+  filter: none;
+}
+
+.btn.primary {
+  border-color: rgba(224, 176, 74, .44);
+  background: linear-gradient(180deg, #f2ca72, #dda842);
+  color: #171710;
+  font-weight: 750;
+}
+
+.btn.subtle {
+  border-color: var(--gold-line);
+  background: transparent;
+  color: var(--gold-bright);
+}
+
+.badge,
+.status-pill {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: rgba(140, 176, 219, .10);
+  color: #c1cee0;
+  font-size: 9.5px;
+}
+
+.badge.pending,
+.status-pill.is-off {
+  border-color: rgba(224, 176, 74, .16);
+  background: rgba(224, 176, 74, .11);
+  color: #efcb75;
+}
+
+.badge.approved,
+.status-pill.is-ok {
+  border-color: rgba(99, 201, 149, .14);
+  background: rgba(99, 201, 149, .10);
+  color: #78c995;
+}
+
+.badge.rejected {
+  border-color: rgba(239, 122, 114, .14);
+  background: rgba(239, 122, 114, .10);
+  color: #ef918a;
+}
+
+.badge.info {
+  border-color: rgba(124, 178, 236, .14);
+  background: rgba(124, 178, 236, .10);
+  color: #91baf0;
+}
+
+table,
+.report-table,
+.report-table-live,
+.management-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  color: var(--text-secondary);
+}
+
+table th,
+.report-table th,
+.report-table-live th {
+  border-bottom: 1px solid var(--line-blue);
+  background: #101d2e;
+  color: #91a7c1;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+}
+
+table td,
+.report-table td,
+.report-table-live td {
+  border-bottom: 1px solid rgba(140, 176, 219, .07);
+  color: var(--text-secondary);
+}
+
+table tbody tr:hover td,
+.report-table tbody tr:hover td,
+.report-table-live tbody tr:hover td {
+  background: rgba(230, 182, 76, .045);
+  color: var(--text-main);
+}
+
+.dashboard-hero {
+  border-color: var(--gold-line-soft);
+  background:
+    radial-gradient(520px 200px at 8% 0%, rgba(230, 182, 76, .10), transparent 62%),
+    radial-gradient(460px 240px at 100% 120%, rgba(58, 108, 168, .20), transparent 66%),
+    linear-gradient(120deg, #12253d 0%, #0d1c2f 55%, #0a1727 100%);
+}
+
+.dashboard-kpis .stat {
+  background: linear-gradient(168deg, rgba(21, 37, 58, .96), rgba(10, 19, 31, .98));
+  border-color: var(--line-blue);
+}
+
+.dashboard-kpis .stat::before {
+  background: linear-gradient(90deg, transparent, var(--gold-line), transparent);
+}
+
+.dashboard-panel,
+.dashboard-hero,
+.dashboard-kpis .stat,
+.activity-panel,
+.calendar-widget,
+.quick-actions-panel {
+  border-radius: 10px;
+}
+
+.auth-screen,
+.pending-screen {
+  background:
+    radial-gradient(900px 520px at 14% 15%, rgba(38, 79, 132, .30), transparent 58%),
+    radial-gradient(720px 420px at 86% 88%, rgba(180, 134, 44, .10), transparent 62%),
+    #05090f;
+}
+
+.auth-screen .auth-card {
+  border: 1px solid rgba(224, 176, 74, .22);
+  background: #0d1929;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, .78);
+}
+
+.auth-brand {
+  border-right: 1px solid var(--line-blue);
+  background:
+    radial-gradient(circle at 50% 32%, rgba(224, 176, 74, .12), transparent 34%),
+    linear-gradient(180deg, #14263d, #0b1727);
+}
+
+@media (max-width: 760px) {
+  #sidebar,
+  #sidebar:hover,
+  #sidebar:focus-within {
+    width: 100%;
+    height: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--line-blue);
+  }
+
+  main.shell,
+  body.sidebar-collapsed main.shell {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .section-head h2 { font-size: 18px; }
+  .card { border-radius: 9px; }
+}
+
+/* Компоновка страниц по визуальному образцу референса */
+section.page {
+  max-width: 1480px;
+  margin: 0 auto;
+}
+
+.section-head {
+  min-height: 56px;
+  margin-bottom: 14px;
+  padding: 2px 0 12px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.section-head h2 {
+  margin: 3px 0 4px;
+  font-size: 21px;
+  line-height: 1.18;
+}
+
+.section-head p {
+  max-width: 920px;
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.card,
+.dashboard-panel,
+.stat,
+.request-card,
+.lawsuit-card,
+.attorney-card,
+.event-card,
+.task-card,
+.law-card,
+.analytics-card,
+.quiz-card,
+.member-card,
+.colleague-card,
+.profile-card,
+.document-card,
+.integration-row,
+.webhook-row,
+.management-command,
+.report-summary-card,
+.colleague-card,
+.law-tree,
+.law-reader {
+  border-color: var(--hairline);
+  border-radius: 10px;
+  background:
+    linear-gradient(168deg, rgba(18, 36, 58, .96), rgba(10, 22, 38, .98));
+  box-shadow: 0 10px 26px -22px rgba(0, 0, 0, .92);
+}
+
+#page-colleagues .colleagues-toolbar,
+#page-academy .law-controls,
+#page-laws .law-controls {
+  min-height: 48px;
+  align-items: center;
+  padding: 7px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: rgba(8, 18, 31, .76);
+}
+
+.colleagues-toolbar input,
+.law-controls input,
+.law-controls select {
+  height: 34px;
+}
+
+.colleagues-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.colleague-card {
+  min-height: 250px;
+  padding: 14px;
+}
+
+.colleague-profile {
+  grid-template-columns: 48px minmax(0, 1fr);
+}
+
+.colleague-portrait {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+}
+
+.colleague-card h3 {
+  font-size: 12px;
+}
+
+#page-profile > .grid.columns {
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, .85fr);
+}
+
+#profile-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+#profile-metrics .stat {
+  min-height: 74px;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(8, 18, 31, .72);
+}
+
+.profile-dialog {
+  border: 1px solid var(--gold-line-soft);
+  background: #0b1727;
+}
+
+.profile-dialog-content {
+  max-height: min(820px, calc(100dvh - 32px));
+  overflow: auto;
+}
+
+#page-practice .grid.columns {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+#page-tasks .item-list,
+#page-calendar .item-list,
+#page-lawsuits .item-list,
+#page-management #member-list,
+#page-ranking #ranking-list {
+  gap: 8px;
+}
+
+#page-tasks #task-list,
+#page-calendar #calendar-list,
+#page-lawsuits #lawsuit-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+#task-list .task-card,
+#calendar-list .request-card,
+#lawsuit-list .lawsuit-card {
+  min-height: 118px;
+}
+
+.task-card,
+.event-card,
+.lawsuit-card,
+.request-card {
+  border-radius: 9px;
+  background: linear-gradient(168deg, rgba(18, 36, 58, .94), rgba(10, 22, 38, .98));
+}
+
+.request-top strong,
+.task-card h4,
+.event-card h4,
+.lawsuit-card h3 {
+  font-size: 12px;
+}
+
+.request-card p,
+.task-card p,
+.event-card p,
+.lawsuit-card p {
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.calendar-view-controls {
+  grid-template-columns: 140px 210px auto minmax(180px, 1fr);
+  align-items: end;
+  min-height: 82px;
+  padding: 12px;
+}
+
+#page-calendar #calendar-list {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+#page-applications.page.active {
+  display: grid;
+  grid-template-columns: minmax(320px, .75fr) minmax(420px, 1.25fr);
+  column-gap: 14px;
+  align-items: start;
+}
+
+#page-applications > .section-head {
+  grid-column: 1 / -1;
+}
+
+#page-applications #staff-request-card,
+#page-applications > article.mt-16 {
+  grid-row: 2;
+}
+
+#page-applications #staff-request-card {
+  grid-column: 1;
+}
+
+#page-applications > article.mt-16 {
+  grid-column: 2;
+  margin-top: 0;
+}
+
+#page-documents > .grid.columns {
+  grid-template-columns: minmax(340px, .85fr) minmax(420px, 1.15fr);
+}
+
+.preview-tabs {
+  display: flex;
+  margin: 0 0 10px;
+}
+
+.preview-tab {
+  min-height: 32px;
+  padding: 6px 10px;
+}
+
+.forum-sheet,
+.paper-sheet {
+  min-height: 260px;
+  border: 1px solid var(--hairline);
+  border-radius: 9px;
+  background: #091522;
+}
+
+.law-workbench {
+  grid-template-columns: 230px minmax(0, 1fr);
+  gap: 10px;
+  min-height: 420px;
+}
+
+.law-tree,
+.law-reader {
+  max-height: 620px;
+  border-radius: 9px;
+  background: rgba(8, 18, 31, .86);
+}
+
+.law-controls {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 220px;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.law-controls input,
+.law-controls select {
+  border-radius: 8px;
+  background: #091522;
+}
+
+#page-management .management-command-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.management-command {
+  min-height: 76px;
+  grid-template-columns: 32px minmax(0, 1fr);
+  border-radius: 9px;
+  background: linear-gradient(168deg, rgba(18, 36, 58, .96), rgba(10, 22, 38, .98));
+}
+
+.management-command strong {
+  font-size: 11.5px;
+}
+
+.management-command span {
+  font-size: 9.5px;
+}
+
+#page-management > .grid.columns {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+#page-management #member-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+#page-reports .report-table-wrap,
+.report-table-live {
+  border-radius: 9px;
+  border-color: var(--hairline);
+  background: rgba(8, 18, 31, .82);
+}
+
+.report-table th,
+.report-table-live th {
+  height: 38px;
+  background: #101d2e;
+  color: #91a7c1;
+  font-size: 9.5px;
+}
+
+.report-table td,
+.report-table-live td {
+  height: 40px;
+  font-size: 10.5px;
+}
+
+.report-live-toolbar {
+  min-height: 48px;
+  align-items: end;
+  padding: 7px;
+  border: 1px solid var(--hairline);
+  border-radius: 9px;
+  background: rgba(8, 18, 31, .66);
+}
+
+.analytics-grid,
+.analytics-cards,
+.report-summary-grid {
+  gap: 10px;
+}
+
+.analytics-card,
+.report-summary-card {
+  min-height: 120px;
+  border-radius: 9px;
+  background: rgba(11, 24, 40, .92);
+}
+
+.rank-row,
+.attorney-card,
+.archive-row,
+.member-row,
+.forum-row,
+.compact-row {
+  border-color: rgba(140, 176, 219, .08);
+}
+
+@media (max-width: 1180px) {
+  .colleagues-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  #page-calendar #calendar-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #page-management .management-command-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #page-management > .grid.columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #page-management #member-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #page-practice .grid.columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 760px) {
+  section.page { max-width: none; }
+  .section-head { min-height: 48px; }
+  .section-head h2 { font-size: 18px; }
+  .colleagues-grid,
+  #profile-metrics,
+  #page-practice .grid.columns,
+  #page-tasks #task-list,
+  #page-calendar #calendar-list,
+  #page-lawsuits #lawsuit-list,
+  #page-management #member-list {
+    grid-template-columns: 1fr;
+  }
+  #page-profile > .grid.columns,
+  #page-applications.page.active,
+  #page-documents > .grid.columns,
+  #page-management > .grid.columns {
+    grid-template-columns: 1fr;
+  }
+  #page-applications #staff-request-card,
+  #page-applications > article.mt-16 {
+    grid-column: 1;
+    grid-row: auto;
+    margin-top: 12px;
+  }
+  .law-workbench { grid-template-columns: 1fr; }
+  .law-controls { grid-template-columns: 1fr; }
+  .calendar-view-controls { grid-template-columns: 1fr 1fr; }
+  #page-management .management-command-grid { grid-template-columns: 1fr 1fr; }
+}
+
+/* ================================================================
+   Финальная компоновка вкладок по прикреплённому референсу
+   ================================================================ */
+
+header {
+  height: 58px;
+}
+
+.topbar.shell,
+header .topbar {
+  height: 58px;
+  min-height: 58px;
+}
+
+#sidebar,
+#sidebar:hover,
+#sidebar:focus-within {
+  top: 58px !important;
+  height: calc(100dvh - 58px) !important;
+  width: 210px;
+}
+
+.topbar.shell {
+  width: calc(100% - 210px);
+  margin-left: 210px;
+  padding: 0 16px;
+  grid-template-columns: 190px 32px minmax(180px, 1fr) auto;
+}
+
+main.shell,
+.footnote.shell {
+  width: calc(100% - 210px);
+  margin-left: 210px;
+}
+
+main.shell {
+  padding: 16px 18px 30px;
+}
+
+.nav-scroll,
+#sidebar .nav-scroll {
+  padding: 10px 8px 16px;
+}
+
+.nav-section-label {
+  margin: 5px 0 2px;
+  padding: 8px 8px 3px;
+  color: #7189a7;
+  font-size: 8.5px;
+}
+
+.nav-btn {
+  min-height: 34px;
+  height: 34px;
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: 7px;
+  font-size: 11px;
+}
+
+.nav-icon {
+  width: 16px;
+  flex-basis: 16px;
+}
+
+.nav-btn.active,
+.nav-btn.active:hover {
+  background: linear-gradient(180deg, #f2ca72, #dda842);
+  border-color: rgba(247, 210, 131, .42);
+  color: #171710;
+  box-shadow: 0 6px 14px -9px rgba(230, 182, 76, .85);
+}
+
+.section-head {
+  min-height: 58px;
+  margin: 0 0 12px;
+  padding: 0 0 10px;
+  border-bottom: 1px solid rgba(140, 176, 219, .10);
+}
+
+.section-head h2 {
+  margin: 2px 0 3px;
+  font-size: 20px;
+  line-height: 1.15;
+}
+
+.section-head p {
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+
+.card,
+.dashboard-panel,
+.stat,
+.request-card,
+.task-card,
+.event-card,
+.lawsuit-card,
+.attorney-card,
+.law-card,
+.analytics-card,
+.member-card,
+.colleague-card,
+.integration-row,
+.webhook-row,
+.management-command,
+.report-summary-card {
+  border: 1px solid rgba(140, 176, 219, .12);
+  border-radius: 9px;
+  background:
+    linear-gradient(168deg, rgba(18, 36, 58, .96), rgba(9, 20, 34, .98));
+  box-shadow: 0 10px 24px -22px rgba(0, 0, 0, .94);
+}
+
+.dashboard-grid {
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 12px;
+}
+
+.dashboard-main {
+  gap: 10px;
+}
+
+.dashboard-hero {
+  min-height: 132px;
+  padding: 14px 16px;
+  border-radius: 10px;
+}
+
+.dashboard-kpis {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.dashboard-kpis .stat {
+  min-height: 74px;
+  padding: 9px 10px;
+  border-radius: 8px;
+}
+
+.dashboard-kpis .stat-value {
+  font-size: 21px;
+}
+
+.dashboard-kpis .metric-head {
+  gap: 7px;
+}
+
+.dashboard-triple {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.dashboard-triple > .dashboard-panel {
+  min-height: 166px;
+  padding: 11px;
+}
+
+.dashboard-bottom {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.dashboard-bottom > .dashboard-panel {
+  min-height: 150px;
+  padding: 11px;
+}
+
+.dashboard-rail {
+  gap: 8px;
+}
+
+.dashboard-rail .dashboard-panel {
+  padding: 11px;
+}
+
+#page-profile > .grid.columns {
+  grid-template-columns: minmax(0, 1.15fr) minmax(300px, .85fr);
+  gap: 10px;
+}
+
+#profile-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+#profile-metrics .stat {
+  min-height: 68px;
+  padding: 9px;
+  border-radius: 8px;
+}
+
+#profile-metrics .stat-value {
+  font-size: 18px;
+}
+
+#page-colleagues .colleagues-toolbar,
+#page-academy .law-controls,
+#page-laws .law-controls {
+  height: 46px;
+  align-items: center;
+  padding: 6px;
+  border: 1px solid rgba(140, 176, 219, .11);
+  border-radius: 8px;
+  background: rgba(8, 18, 31, .72);
+}
+
+.colleagues-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.colleague-card {
+  min-height: 260px;
+  padding: 12px;
+  border-radius: 9px;
+}
+
+.colleague-profile {
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.colleague-portrait {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+}
+
+#page-practice .grid.columns {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+#page-applications.page.active {
+  grid-template-columns: minmax(300px, .72fr) minmax(440px, 1.28fr);
+  column-gap: 10px;
+}
+
+#page-documents > .grid.columns {
+  grid-template-columns: minmax(320px, .82fr) minmax(440px, 1.18fr);
+  gap: 10px;
+}
+
+#page-tasks #task-list,
+#page-calendar #calendar-list,
+#page-lawsuits #lawsuit-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+#page-calendar #calendar-list {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.calendar-view-controls {
+  grid-template-columns: 130px 200px auto minmax(160px, 1fr);
+  min-height: 74px;
+  padding: 10px;
+}
+
+.law-workbench {
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 8px;
+  min-height: 420px;
+}
+
+.law-tree,
+.law-reader {
+  max-height: 620px;
+  border-radius: 8px;
+  background: rgba(8, 18, 31, .86);
+}
+
+#page-management .management-command-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.management-command {
+  min-height: 74px;
+  grid-template-columns: 30px minmax(0, 1fr);
+  padding: 10px;
+  border-radius: 8px;
+}
+
+.management-command strong {
+  font-size: 11px;
+}
+
+.management-command span {
+  font-size: 9px;
+}
+
+#page-management > .grid.columns {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+#page-management #member-list {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.report-table-wrap,
+.report-table-live {
+  border-radius: 8px;
+  background: rgba(8, 18, 31, .82);
+}
+
+.report-table th,
+.report-table-live th {
+  height: 36px;
+  background: #101d2e;
+  font-size: 9px;
+}
+
+.report-table td,
+.report-table-live td {
+  height: 38px;
+  font-size: 10.5px;
+}
+
+.analytics-grid,
+.report-summary-grid,
+.analytics-cards {
+  gap: 8px;
+}
+
+.analytics-card,
+.report-summary-card {
+  min-height: 112px;
+  border-radius: 8px;
+}
+
+@media (max-width: 1180px) {
+  .colleagues-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  #page-calendar #calendar-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #page-management .management-command-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #page-management > .grid.columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #page-management #member-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #page-practice .grid.columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 760px) {
+  #sidebar,
+  #sidebar:hover,
+  #sidebar:focus-within {
+    position: sticky;
+    top: 52px !important;
+    width: 100%;
+    height: auto !important;
+  }
+
+  .topbar.shell {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  main.shell,
+  .footnote.shell {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .dashboard-grid,
+  #page-profile > .grid.columns,
+  #page-applications.page.active,
+  #page-documents > .grid.columns,
+  #page-management > .grid.columns {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-kpis,
+  .dashboard-triple,
+  .dashboard-bottom,
+  #profile-metrics,
+  .colleagues-grid,
+  #page-practice .grid.columns,
+  #page-tasks #task-list,
+  #page-calendar #calendar-list,
+  #page-lawsuits #lawsuit-list,
+  #page-management #member-list {
+    grid-template-columns: 1fr;
+  }
+
+  #page-applications #staff-request-card,
+  #page-applications > article.mt-16 {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .law-workbench {
+    grid-template-columns: 1fr;
+  }
+
+  .calendar-view-controls,
+  #page-management .management-command-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Полная карточная компоновка разделов по референсу
+   Тёмная сине-графитовая палитра и разные рабочие макеты для разделов.
+   -------------------------------------------------------------------------- */
+:root {
+  --ink-950: #05090f;
+  --ink-900: #070d17;
+  --ink-850: #0a1320;
+  --ink-800: #0d1826;
+  --ink-750: #101f31;
+  --ink-700: #142639;
+  --ink-650: #182d44;
+  --hairline: rgba(140,176,219,.12);
+  --hairline-strong: rgba(140,176,219,.22);
+  --gold: #e6b64c;
+  --gold-bright: #f7d283;
+  --gold-deep: #a87b25;
+  --gold-line: rgba(224,176,74,.30);
+  --gold-line-soft: rgba(224,176,74,.16);
+}
+
+body {
+  background:
+    radial-gradient(900px 520px at 12% -8%, rgba(38,79,132,.34), transparent 70%),
+    linear-gradient(180deg,#070d17 0%,#060b13 58%,#05090f 100%);
+  background-attachment: fixed;
+}
+
+.section-head {
+  min-height: 62px;
+  margin: 0 0 14px;
+  padding: 0 0 12px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.section-head h2 {
+  margin: 4px 0;
+  font-size: 21px;
+  line-height: 1.15;
+}
+
+.section-head p {
+  max-width: 840px;
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.card,
+.dashboard-panel,
+.stat,
+.request-card,
+.lawsuit-card,
+.attorney-card,
+.event-card,
+.task-card,
+.law-card,
+.analytics-card,
+.member-card,
+.colleague-card,
+.management-command,
+.report-summary-card {
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: linear-gradient(168deg,rgba(18,36,58,.96),rgba(9,20,34,.98));
+  box-shadow: 0 10px 26px -22px rgba(0,0,0,.94);
+}
+
+/* Отпуск, характеристики, выговоры, резерв и заявки: форма слева, журнал справа */
+#page-absence.page.active,
+#page-characteristics.page.active,
+#page-discipline.page.active,
+#page-reserve.page.active,
+#page-recruitment.page.active {
+  display: grid;
+  grid-template-columns:minmax(280px,.72fr) minmax(420px,1.28fr);
+  column-gap:12px;
+  align-items:start;
+}
+#page-absence.page.active > .section-head,
+#page-characteristics.page.active > .section-head,
+#page-discipline.page.active > .section-head,
+#page-reserve.page.active > .section-head,
+#page-recruitment.page.active > .section-head {
+  grid-column:1/-1;
+}
+#page-absence.page.active > .card:not(.mt-16),
+#page-characteristics.page.active > .card:not(.mt-16),
+#page-discipline.page.active > .card:not(.mt-16),
+#page-reserve.page.active > .card:not(.mt-16),
+#page-recruitment.page.active > .card {
+  grid-column:1;
+  grid-row:2;
+}
+#page-absence.page.active > .card.mt-16,
+#page-characteristics.page.active > .card.mt-16,
+#page-discipline.page.active > .card.mt-16,
+#page-reserve.page.active > .card.mt-16 {
+  grid-column:2;
+  grid-row:2;
+  margin-top:0;
+  min-height:260px;
+}
+
+/* Поручения: три рабочие зоны с фильтром сверху */
+#page-tasks.page.active {
+  display:grid;
+  grid-template-columns:minmax(280px,.8fr) minmax(500px,1.2fr);
+  gap:12px;
+  align-items:start;
+}
+#page-tasks.page.active > .section-head { grid-column:1/-1; }
+#page-tasks.page.active > #task-create-card { grid-column:1; }
+#page-tasks.page.active > #task-create-card + .card { grid-column:2; margin-top:0; }
+#page-tasks.page.active #task-list {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:8px;
+}
+
+/* Календарь: полоса периода, затем сетка событий */
+#page-calendar.page.active {
+  display:grid;
+  grid-template-columns:minmax(250px,290px) minmax(0,1fr);
+  gap:12px;
+  align-items:start;
+}
+#page-calendar.page.active > .section-head { grid-column:1/-1; }
+#page-calendar.page.active > .calendar-view-controls { grid-column:1/-1; }
+#page-calendar.page.active > #calendar-create-card {
+  grid-column:1;
+}
+#page-calendar.page.active > #calendar-create-card + .card {
+  grid-column:2;
+  margin-top:0;
+}
+#page-calendar.page.active #calendar-list {
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:8px;
+}
+
+/* Судебные дела: компактная рабочая лента и флоу статуса */
+#page-lawsuits.page.active #lawsuit-list {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px;
+}
+#page-lawsuits.page.active .lawsuit-card {
+  position:relative;
+  min-height:180px;
+  padding:14px 14px 12px;
+}
+
+/* Документы: конструктор слева, предпросмотр справа */
+#page-documents.page.active > .grid.columns {
+  grid-template-columns:minmax(330px,.82fr) minmax(480px,1.18fr);
+  gap:12px;
+}
+#page-documents.page.active .forum-sheet,
+#page-documents.page.active .paper-sheet {
+  min-height:300px;
+  border:1px solid var(--hairline);
+  border-radius:9px;
+  background:#091522;
+}
+
+/* Обращения: форма заявки и журнал как в референсе */
+#page-applications.page.active {
+  display:grid;
+  grid-template-columns:minmax(300px,.72fr) minmax(440px,1.28fr);
+  column-gap:12px;
+  align-items:start;
+}
+#page-applications.page.active > .section-head { grid-column:1/-1; }
+#page-applications.page.active #staff-request-card { grid-column:1; }
+#page-applications.page.active > article.mt-16 {
+  grid-column:2;
+  margin-top:0;
+  min-height:430px;
+}
+
+/* Практика и обучение: три одинаковые рабочие колонки */
+#page-practice.page.active > .grid.columns {
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:10px;
+}
+#page-practice.page.active .card {
+  min-height:240px;
+}
+
+/* Профиль: основная информация слева и привязки справа */
+#page-profile.page.active > .grid.columns {
+  grid-template-columns:minmax(0,1.15fr) minmax(300px,.85fr);
+  gap:10px;
+}
+#page-profile.page.active #profile-metrics {
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:8px;
+}
+#page-profile.page.active #profile-metrics .stat {
+  min-height:72px;
+  border-radius:8px;
+}
+
+/* Коллеги: плотная карточная сетка */
+.colleagues-grid {
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:10px;
+}
+.colleagues-toolbar {
+  display:grid;
+  grid-template-columns:minmax(220px,1fr) 220px;
+  gap:8px;
+  padding:7px;
+  border:1px solid var(--hairline);
+  border-radius:9px;
+  background:rgba(8,18,31,.72);
+}
+.colleague-card {
+  min-height:250px;
+  padding:12px;
+  border-radius:9px;
+}
+
+/* Академия и база законов: файловая навигация слева */
+.law-workbench {
+  grid-template-columns:220px minmax(0,1fr);
+  gap:10px;
+  min-height:430px;
+}
+.law-tree,
+.law-reader {
+  border:1px solid var(--hairline);
+  border-radius:9px;
+  background:rgba(8,18,31,.86);
+}
+.law-controls {
+  display:grid;
+  grid-template-columns:minmax(220px,1fr) 220px;
+  gap:8px;
+  padding:7px;
+  border:1px solid var(--hairline);
+  border-radius:9px;
+  background:rgba(8,18,31,.72);
+}
+
+/* Управление: быстрые команды сверху, три рабочих блока снизу */
+#page-management.page.active .management-command-grid {
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:8px;
+  margin-bottom:10px;
+}
+#page-management.page.active > .grid.columns {
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:10px;
+}
+#page-management.page.active #member-list {
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:8px;
+}
+.management-command {
+  min-height:78px;
+  border-radius:9px;
+  background:linear-gradient(168deg,rgba(18,36,58,.96),rgba(10,22,38,.98));
+}
+
+/* Аналитика: плотная панель показателей и таблица */
+#page-reports.page.active .analytics-grid,
+#page-reports.page.active .report-summary-grid {
+  gap:8px;
+}
+.analytics-card,
+.report-summary-card {
+  min-height:112px;
+  border-radius:9px;
+}
+.report-table-wrap,
+.report-table-live {
+  border:1px solid var(--hairline);
+  border-radius:9px;
+  background:rgba(8,18,31,.82);
+}
+.report-table th,
+.report-table-live th {
+  height:36px;
+  background:#101d2e;
+  font-size:9px;
+}
+.report-table td,
+.report-table-live td {
+  height:38px;
+  font-size:10.5px;
+}
+
+/* Награды и достижений остаются тёмной галереей */
+#page-achievements.page.active #elite-awards,
+#page-achievements.page.active #achievement-catalog {
+  margin-bottom:12px;
+}
+
+@media (max-width:1180px) {
+  .colleagues-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  #page-management.page.active .management-command-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  #page-management.page.active > .grid.columns { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  #page-management.page.active #member-list { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  #page-practice.page.active > .grid.columns { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  #page-calendar.page.active #calendar-list { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+
+@media (max-width:760px) {
+  #page-absence.page.active,
+  #page-characteristics.page.active,
+  #page-discipline.page.active,
+  #page-reserve.page.active,
+  #page-recruitment.page.active,
+  #page-tasks.page.active,
+  #page-calendar.page.active,
+  #page-applications.page.active,
+  #page-profile.page.active,
+  #page-documents.page.active,
+  #page-management.page.active {
+    grid-template-columns:1fr;
+  }
+  #page-absence.page.active > .card:not(.mt-16),
+  #page-characteristics.page.active > .card:not(.mt-16),
+  #page-discipline.page.active > .card:not(.mt-16),
+  #page-reserve.page.active > .card:not(.mt-16),
+  #page-recruitment.page.active > .card,
+  #page-absence.page.active > .card.mt-16,
+  #page-characteristics.page.active > .card.mt-16,
+  #page-discipline.page.active > .card.mt-16,
+  #page-reserve.page.active > .card.mt-16,
+  #page-applications.page.active #staff-request-card,
+  #page-applications.page.active > article.mt-16 {
+    grid-column:1;
+    grid-row:auto;
+    margin-top:12px;
+  }
+  .colleagues-grid,
+  #profile-metrics,
+  #page-practice.page.active > .grid.columns,
+  #page-tasks.page.active #task-list,
+  #page-calendar.page.active #calendar-list,
+  #page-lawsuits.page.active #lawsuit-list,
+  #page-management.page.active #member-list {
+    grid-template-columns:1fr;
+  }
+  #page-profile.page.active > .grid.columns,
+  #page-documents.page.active > .grid.columns,
+  #page-management.page.active > .grid.columns {
+    grid-template-columns:1fr;
+  }
+  .law-workbench,
+  .law-controls { grid-template-columns:1fr; }
+  #page-management.page.active .management-command-grid { grid-template-columns:1fr 1fr; }
+}
+
+/* ============================================================
+   Exact reference-shell override
+   ============================================================ */
+:root {
+  --ref-bg: #080d18;
+  --ref-header: #091321;
+  --ref-sidebar: #09172a;
+  --ref-panel: #0e1f34;
+  --ref-panel-alt: #10243b;
+  --ref-line: #24405f;
+  --ref-line-soft: rgba(143, 174, 210, .12);
+  --ref-text: #edf3fb;
+  --ref-muted: #91a7c2;
+  --ref-gold: #e8ae3d;
+  --ref-gold-bright: #f1c46a;
+}
+
+body {
+  min-width: 320px;
+  background:
+    radial-gradient(900px 460px at 72% -12%, rgba(44, 83, 137, .26), transparent 68%),
+    linear-gradient(180deg, #08111f 0%, #060b13 72%, #05090f 100%) !important;
+  background-attachment: fixed;
+  color: var(--ref-text);
+  font-size: 13px;
+}
+
+body::before {
+  opacity: .10 !important;
+  background-size: 56px 56px;
+}
+
+header {
+  height: 58px !important;
+  min-height: 58px !important;
+  border-bottom: 1px solid rgba(80, 123, 173, .16) !important;
+  background: rgba(8, 18, 32, .98) !important;
+  backdrop-filter: blur(12px);
+}
+
+.topbar.shell,
+header .topbar {
+  height: 58px !important;
+  min-height: 58px !important;
+  width: calc(100% - 210px) !important;
+  max-width: none !important;
+  margin: 0 0 0 210px !important;
+  padding: 0 16px !important;
+  display: grid;
+  grid-template-columns: 190px 32px minmax(180px, 1fr) auto;
+  gap: 10px;
+}
+
+.brand-mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid rgba(220, 177, 87, .42);
+}
+
+.brand h1 {
+  font-size: 10.5px;
+  letter-spacing: .04em;
+}
+
+.brand p {
+  font-size: 8.5px;
+  color: #7f96b1;
+}
+
+.global-search {
+  width: min(100%, 360px);
+}
+
+.global-search input {
+  height: 34px;
+  border: 1px solid #294361;
+  border-radius: 8px;
+  background: #0e1e33;
+  font-size: 11px;
+}
+
+.header-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+}
+
+#sidebar,
+#sidebar:hover,
+#sidebar:focus-within {
+  top: 58px !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  width: 210px !important;
+  height: calc(100dvh - 58px) !important;
+  border: 0 !important;
+  border-right: 1px solid #203752 !important;
+  border-radius: 0 !important;
+  background: #09172a !important;
+  box-shadow: none !important;
+  overflow: hidden;
+}
+
+#sidebar .nav-scroll {
+  width: 100% !important;
+  height: 100% !important;
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  padding: 10px 8px 18px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+#sidebar .nav-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.nav-section-label {
+  margin-top: 4px;
+  padding: 9px 8px 3px;
+  color: #7189a7;
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: .13em;
+}
+
+.nav-btn {
+  min-height: 34px;
+  height: 34px;
+  gap: 9px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: #9db0c8;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 500;
+  transform: none !important;
+}
+
+.nav-btn:hover {
+  color: #edf4fc;
+  border-color: rgba(143, 174, 210, .08);
+  background: rgba(255, 255, 255, .035);
+  transform: none !important;
+}
+
+.nav-btn.active,
+.nav-btn.active:hover {
+  color: #171710;
+  border-color: #f0c267;
+  background: linear-gradient(180deg, #f4c66e 0%, #dda942 100%);
+  box-shadow: 0 7px 16px -10px rgba(232, 174, 61, .85);
+  font-weight: 800;
+}
+
+.nav-btn.active::before {
+  display: none;
+}
+
+.nav-icon {
+  width: 16px;
+  flex: 0 0 16px;
+  color: #91a5c1;
+}
+
+.nav-btn.active .nav-icon {
+  color: #171710;
+}
+
+.nav-icon .svg-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.nav-label {
+  display: inline;
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+main.shell,
+.footnote.shell {
+  width: calc(100% - 210px) !important;
+  max-width: none !important;
+  margin: 0 0 0 210px !important;
+}
+
+main.shell {
+  padding: 16px 18px 26px !important;
+}
+
+.footnote.shell {
+  padding: 0 18px 12px !important;
+  font-size: 9px;
+  text-align: center;
+}
+
+section.page {
+  max-width: 1480px;
+  margin: 0 auto;
+}
+
+.section-head {
+  min-height: 56px;
+  margin: 0 0 12px;
+  padding: 0 0 10px;
+  border-bottom: 1px solid rgba(143, 174, 210, .10);
+}
+
+.section-head h2 {
+  margin: 3px 0;
+  font-size: 20px;
+  line-height: 1.12;
+}
+
+.section-head p {
+  max-width: 840px;
+  color: #8298b4;
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+
+.eyebrow {
+  color: #95a9c3;
+  font-size: 8.5px;
+  letter-spacing: .12em;
+}
+
+.card,
+.dashboard-panel,
+.stat,
+.request-card,
+.lawsuit-card,
+.attorney-card,
+.event-card,
+.task-card,
+.law-card,
+.analytics-card,
+.member-card,
+.colleague-card,
+.management-command,
+.report-summary-card,
+.quiz-card,
+.integration-row,
+.webhook-row {
+  border: 1px solid var(--ref-line);
+  border-radius: 9px;
+  background: linear-gradient(168deg, #10243a 0%, #0c1d31 58%, #0a192b 100%);
+  box-shadow: 0 10px 24px -22px rgba(0, 0, 0, .95);
+}
+
+.card {
+  padding: 14px;
+}
+
+.card h3,
+.dashboard-panel h3 {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+}
+
+.card p,
+.dashboard-panel p,
+.request-card p,
+.task-card p,
+.lawsuit-card p,
+.muted,
+.help {
+  color: #90a5bf;
+  font-size: 11px;
+}
+
+.dashboard-grid {
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 12px;
+}
+
+.dashboard-main {
+  gap: 10px;
+}
+
+.dashboard-hero {
+  min-height: 132px;
+  padding: 14px 16px;
+  border: 1px solid #294563;
+  border-radius: 10px;
+  background: linear-gradient(105deg, #10243d 0%, #0c1d32 62%, #122a49 100%);
+}
+
+.dashboard-identity h2 {
+  margin: 3px 0 5px;
+  font-size: 18px;
+}
+
+.dashboard-role {
+  font-size: 9.5px;
+}
+
+.dashboard-role span:first-child {
+  color: #bcd4f6;
+  border-radius: 8px;
+  background: #1b3d68;
+}
+
+.dashboard-facts {
+  gap: 14px;
+  margin-top: 8px;
+}
+
+.dashboard-facts span {
+  color: #829bb7;
+  font-size: 8.5px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.dashboard-facts strong {
+  color: #e4edf9;
+  font-size: 9.5px;
+}
+
+.dashboard-kpis {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.dashboard-kpis .stat {
+  min-height: 76px;
+  padding: 10px 11px;
+  border: 1px solid #233c5b;
+  border-radius: 9px;
+  background: #0e2037;
+}
+
+.dashboard-kpis .stat-value {
+  margin-top: 4px;
+  color: #e4edf9;
+  font-size: 21px;
+}
+
+.dashboard-kpis .stat-label,
+.dashboard-kpis .stat small {
+  color: #91a5bf;
+  font-size: 9.5px;
+}
+
+.dashboard-triple {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.dashboard-triple > .dashboard-panel {
+  min-height: 178px;
+  padding: 12px;
+  border-radius: 9px;
+}
+
+.activity-panel {
+  min-height: 106px;
+}
+
+.dashboard-bottom {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.dashboard-bottom > .dashboard-panel {
+  min-height: 150px;
+  padding: 12px;
+  border-radius: 9px;
+}
+
+.dashboard-rail {
+  gap: 8px;
+}
+
+.dashboard-rail .dashboard-panel {
+  border-radius: 9px;
+  background: #0e1e33;
+}
+
+.calendar-widget {
+  min-height: 250px;
+  order: -1;
+}
+
+.quick-actions-panel {
+  min-height: 168px;
+}
+
+.quick-action {
+  min-height: 37px;
+  border: 1px solid #294361;
+  border-radius: 7px;
+  color: #d5e4f6;
+  background: #112640;
+  font-size: 9px;
+}
+
+.quick-action:hover {
+  border-color: #4775ab;
+  background: #163252;
+  transform: none;
+}
+
+.panel-link {
+  color: #8fb4e8;
+  font-size: 9.5px;
+}
+
+.dashboard-panel-head h3 {
+  font-size: 11.5px;
+}
+
+.dashboard-caption,
+.activity-range,
+.compact-row small,
+.dashboard-row .meta {
+  color: #8297b2;
+  font-size: 9px;
+}
+
+.mini-calendar-day {
+  min-height: 23px;
+  color: #aab9cd;
+  border-radius: 5px;
+  font-size: 9px;
+}
+
+.mini-calendar-day.today {
+  color: #fff;
+  background: #245391;
+  font-weight: 800;
+}
+
+.mini-calendar-day.has-event:not(.today):after {
+  background: #e5ae38;
+}
+
+input,
+select,
+textarea {
+  border: 1px solid #294361;
+  border-radius: 8px;
+  background: #0e1e33;
+  color: #dce8f8;
+  font-size: 11.5px;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: #4775ab;
+  box-shadow: 0 0 0 3px rgba(113, 161, 213, .10);
+  background: #112640;
+}
+
+.btn {
+  border: 1px solid #294361;
+  border-radius: 7px;
+  background: #112640;
+  color: #d5e4f6;
+  font-size: 10.5px;
+}
+
+.btn.primary {
+  border-color: #d6a23e;
+  background: linear-gradient(180deg, #edbd5e, #d89a31);
+  color: #171710;
+  font-weight: 800;
+}
+
+.btn.subtle {
+  border-color: #4775ab;
+  background: transparent;
+  color: #aecaeb;
+}
+
+.badge {
+  border-radius: 999px;
+  padding: 3px 7px;
+  font-size: 8.5px;
+}
+
+.badge.pending { color: #efc769; background: rgba(230, 182, 76, .11); }
+.badge.approved { color: #78c995; background: rgba(99, 201, 149, .10); }
+.badge.rejected { color: #ef918a; background: rgba(239, 122, 114, .10); }
+.badge.info { color: #91baf0; background: rgba(124, 178, 236, .10); }
+
+.report-table-wrap,
+.report-table-live {
+  border: 1px solid #233c5b;
+  border-radius: 8px;
+  background: #0d1d31;
+}
+
+.report-table th,
+.report-table-live th {
+  height: 36px;
+  background: #10243a;
+  color: #91a7c1;
+  font-size: 9px;
+}
+
+.report-table td,
+.report-table-live td {
+  height: 38px;
+  border-bottom-color: rgba(143, 174, 210, .07);
+  color: #b8c8dc;
+  font-size: 10.5px;
+}
+
+.report-table tbody tr:hover td,
+.report-table-live tbody tr:hover td {
+  background: rgba(230, 182, 76, .04);
+}
+
+@media (max-width: 1080px) {
+  .dashboard-grid {
+    grid-template-columns: minmax(0, 1fr) 240px;
+  }
+}
+
+@media (max-width: 1000px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-rail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  header {
+    height: auto !important;
+  }
+
+  .topbar.shell,
+  header .topbar {
+    width: 100% !important;
+    margin: 0 !important;
+  }
+
+  #sidebar,
+  #sidebar:hover,
+  #sidebar:focus-within {
+    position: sticky !important;
+    top: 52px !important;
+    width: 100% !important;
+    height: auto !important;
+  }
+
+  #sidebar .nav-scroll {
+    display: flex;
+    width: 100% !important;
+    height: auto;
+    overflow-x: auto;
+  }
+
+  #sidebar .nav-section-label {
+    display: none;
+  }
+
+  #sidebar .nav-btn {
+    width: 38px;
+    min-width: 38px;
+    justify-content: center;
+  }
+
+  #sidebar .nav-label {
+    display: none;
+  }
+
+  main.shell,
+  .footnote.shell {
+    width: 100% !important;
+    margin: 0 !important;
+  }
+
+  main.shell {
+    padding: 12px !important;
+  }
+
+  .dashboard-grid,
+  .dashboard-kpis,
+  .dashboard-triple,
+  .dashboard-bottom,
+  .dashboard-rail {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-hero {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+
+  .colleagues-grid,
+  #profile-metrics,
+  #page-practice.page.active > .grid.columns,
+  #page-tasks.page.active #task-list,
+  #page-calendar.page.active #calendar-list,
+  #page-lawsuits.page.active #lawsuit-list,
+  #page-management.page.active #member-list {
+    grid-template-columns: 1fr;
+  }
+
+  #page-profile.page.active > .grid.columns,
+  #page-applications.page.active,
+  #page-documents.page.active > .grid.columns,
+  #page-management.page.active > .grid.columns,
+  #page-absence.page.active,
+  #page-characteristics.page.active,
+  #page-discipline.page.active,
+  #page-reserve.page.active,
+  #page-recruitment.page.active,
+  #page-tasks.page.active,
+  #page-calendar.page.active {
+    grid-template-columns: 1fr;
+  }
+
+  .law-workbench,
+  .law-controls {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Reference montage layout: compact administrative panels */
+#page-tasks.page.active {
+  display: block;
+}
+
+#page-tasks.page.active #task-create-card {
+  margin-bottom: 12px;
+  min-height: 0;
+}
+
+#page-tasks.page.active #task-create-card form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+#page-tasks.page.active #task-create-card .field:nth-of-type(3),
+#page-tasks.page.active #task-create-card .field:nth-of-type(4),
+#page-tasks.page.active #task-create-card .field:nth-of-type(5),
+#page-tasks.page.active #task-create-card > .field {
+  grid-column: 1 / -1;
+}
+
+#page-tasks.page.active #task-list,
+#page-calendar.page.active #calendar-list,
+#page-lawsuits.page.active #lawsuit-list,
+#reprimand-list,
+#document-archive,
+#member-list,
+#reserve-list,
+#absence-list,
+#characteristic-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 7px;
+}
+
+#page-tasks.page.active .task-card,
+#page-calendar.page.active .event-card,
+#page-lawsuits.page.active .lawsuit-card,
+#reprimand-list .request-card,
+#document-archive .request-card,
+#member-list .request-card,
+#reserve-list .request-card,
+#absence-list .request-card,
+#characteristic-list .request-card {
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(180px, 1.1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  border-radius: 7px;
+  background: linear-gradient(180deg, rgba(15, 31, 49, .96), rgba(10, 24, 40, .96));
+}
+
+#page-tasks.page.active .task-card .request-top,
+#page-calendar.page.active .event-card .request-top,
+#page-lawsuits.page.active .lawsuit-card .request-top,
+#reprimand-list .request-card .request-top,
+#document-archive .request-card .request-top,
+#member-list .request-card .request-top,
+#reserve-list .request-card .request-top,
+#absence-list .request-card .request-top,
+#characteristic-list .request-card .request-top {
+  align-items: center;
+}
+
+#page-tasks.page.active .task-card p,
+#page-calendar.page.active .event-card p,
+#page-lawsuits.page.active .lawsuit-card p,
+#reprimand-list .request-card p,
+#document-archive .request-card p,
+#member-list .request-card p,
+#reserve-list .request-card p,
+#absence-list .request-card p,
+#characteristic-list .request-card p {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+#page-tasks.page.active .request-actions,
+#page-calendar.page.active .request-actions,
+#page-lawsuits.page.active .request-actions,
+#reprimand-list .request-actions,
+#document-archive .request-actions,
+#member-list .request-actions,
+#reserve-list .request-actions,
+#absence-list .request-actions,
+#characteristic-list .request-actions {
+  justify-content: flex-end;
+  margin-top: 0;
+}
+
+#page-discipline.page.active {
+  display: grid;
+  grid-template-columns: 360px minmax(420px, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+#page-discipline.page.active > .section-head {
+  grid-column: 1 / -1;
+}
+
+#page-discipline.page.active #reprimand-form-card {
+  grid-column: 1;
+  grid-row: 2;
+  margin: 0;
+  padding: 16px;
+}
+
+#page-discipline.page.active > article.mt-16 {
+  grid-column: 2;
+  grid-row: 2;
+  min-height: 360px;
+  margin: 0;
+  padding: 16px;
+}
+
+#page-discipline.page.active #reprimand-form-card form {
+  gap: 10px;
+}
+
+#page-discipline.page.active #reprimand-list {
+  min-height: 280px;
+  border-radius: 8px;
+}
+
+#page-calendar.page.active {
+  display: block;
+}
+
+#page-calendar.page.active .calendar-view-controls {
+  min-height: 68px;
+  grid-template-columns: 150px 210px auto minmax(180px, 1fr);
+  margin-bottom: 12px;
+  padding: 10px 12px;
+}
+
+#page-calendar.page.active #calendar-create-card {
+  margin-bottom: 12px;
+}
+
+#page-calendar.page.active #calendar-create-card form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+#page-calendar.page.active #calendar-list {
+  min-height: 280px;
+}
+
+#page-profile.page.active #profile-identity {
+  min-height: 104px;
+  margin-bottom: 12px;
+  background:
+    linear-gradient(105deg, rgba(18, 40, 66, .98), rgba(9, 22, 38, .98)),
+    #10243a;
+}
+
+#page-profile.page.active #profile-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+#page-profile.page.active .profile-customize-card {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 12px;
+}
+
+#page-profile.page.active .profile-customize-card > .section-head {
+  grid-column: 1 / -1;
+}
+
+#page-profile.page.active .pinned-cases-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+#page-lawsuits.page.active > .card.stack.mb-16 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 68px;
+  margin-bottom: 12px;
+}
+
+#page-lawsuits.page.active #lawsuit-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+#page-documents.page.active > .grid.columns {
+  grid-template-columns: 350px minmax(420px, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+#page-documents.page.active #forum-preview,
+#page-documents.page.active #paper-preview {
+  min-height: 260px;
+}
+
+#page-documents.page.active #document-archive {
+  max-height: 360px;
+  overflow: auto;
+}
+
+#page-management.page.active .management-command-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+#page-management.page.active .management-command {
+  min-height: 68px;
+  padding: 10px;
+}
+
+#page-management.page.active > .grid.columns {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+#page-management.page.active #member-list {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  max-height: 520px;
+  overflow: auto;
+}
+
+#page-reports.page.active .analytics-grid,
+#page-reports.page.active .report-summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+#page-reports.page.active .analytics-card,
+#page-reports.page.active .report-summary-card {
+  min-height: 118px;
+  border-radius: 8px;
+}
+
+#page-reports.page.active .report-live-toolbar {
+  min-height: 48px;
+  align-items: end;
+  padding: 7px;
+  border: 1px solid var(--ref-line);
+  border-radius: 8px;
+  background: rgba(8, 18, 31, .66);
+}
+
+#page-achievements.page.active #elite-awards,
+#page-achievements.page.active #achievement-catalog {
+  margin-bottom: 12px;
+}
+
+#page-achievements.page.active .elite-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+@media (max-width: 1180px) {
+  #page-tasks.page.active #task-list,
+  #page-lawsuits.page.active #lawsuit-list,
+  #page-management.page.active #member-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #page-reports.page.active .analytics-grid,
+  #page-reports.page.active .report-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #page-management.page.active .management-command-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #page-management.page.active > .grid.columns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  #page-discipline.page.active,
+  #page-documents.page.active > .grid.columns,
+  #page-management.page.active > .grid.columns,
+  #page-profile.page.active .profile-customize-card {
+    grid-template-columns: 1fr;
+  }
+
+  #page-discipline.page.active #reprimand-form-card,
+  #page-discipline.page.active > article.mt-16 {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  #page-tasks.page.active #task-create-card form,
+  #page-calendar.page.active #calendar-create-card form,
+  #page-profile.page.active .pinned-cases-grid,
+  #page-tasks.page.active #task-list,
+  #page-calendar.page.active #calendar-list,
+  #page-lawsuits.page.active #lawsuit-list,
+  #reprimand-list,
+  #document-archive,
+  #member-list,
+  #reserve-list,
+  #absence-list,
+  #characteristic-list,
+  #page-management.page.active #member-list,
+  #page-reports.page.active .analytics-grid,
+  #page-reports.page.active .report-summary-grid,
+  #page-achievements.page.active .elite-grid {
+    grid-template-columns: 1fr;
+  }
+
+  #page-tasks.page.active .task-card,
+  #page-calendar.page.active .event-card,
+  #page-lawsuits.page.active .lawsuit-card,
+  #reprimand-list .request-card,
+  #document-archive .request-card,
+  #member-list .request-card,
+  #reserve-list .request-card,
+  #absence-list .request-card,
+  #characteristic-list .request-card {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Точная тематическая компоновка из последних референсных скриншотов
+   -------------------------------------------------------------------------- */
+
+header {
+  height: 58px !important;
+  background: linear-gradient(180deg, #091425 0%, #09131f 100%) !important;
+  border-bottom: 1px solid rgba(91, 139, 190, .15) !important;
+}
+
+.topbar.shell,
+header .topbar {
+  height: 58px !important;
+  min-height: 58px !important;
+  width: calc(100% - 210px) !important;
+  margin-left: 210px !important;
+  margin-right: 0 !important;
+  padding: 0 16px !important;
+  max-width: none !important;
+  grid-template-columns: 190px 32px minmax(180px, 1fr) auto !important;
+}
+
+#sidebar,
+#sidebar:hover,
+#sidebar:focus-within {
+  top: 58px !important;
+  left: 0 !important;
+  bottom: 0 !important;
+  width: 210px !important;
+  height: calc(100dvh - 58px) !important;
+  border: 0 !important;
+  border-right: 1px solid #203752 !important;
+  border-radius: 0 !important;
+  background: #09172a !important;
+  box-shadow: none !important;
+}
+
+#sidebar .nav-scroll {
+  width: 100% !important;
+  height: 100% !important;
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  padding: 9px 8px 16px !important;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+#sidebar .nav-scroll::-webkit-scrollbar { display: none; }
+
+.nav-section-label {
+  margin: 3px 0 1px !important;
+  padding: 8px 8px 3px !important;
+  color: #7189a7 !important;
+  font-size: 8.5px !important;
+  letter-spacing: .12em !important;
+}
+
+.nav-btn {
+  min-height: 34px !important;
+  height: 34px !important;
+  margin: 0 !important;
+  padding: 6px 8px !important;
+  border: 1px solid transparent !important;
+  border-radius: 7px !important;
+  color: #9db0c8 !important;
+  background: transparent !important;
+  font-size: 11px !important;
+  transform: none !important;
+}
+
+.nav-btn:hover {
+  color: #edf4fc !important;
+  border-color: rgba(143, 174, 210, .08) !important;
+  background: rgba(255, 255, 255, .035) !important;
+  transform: none !important;
+}
+
+.nav-btn.active,
+.nav-btn.active:hover {
+  color: #171710 !important;
+  border-color: #f0c267 !important;
+  background: linear-gradient(180deg, #f4c66e 0%, #dda942 100%) !important;
+  box-shadow: 0 7px 16px -10px rgba(232, 174, 61, .85) !important;
+  font-weight: 800 !important;
+}
+
+.nav-btn.active::before { display: none !important; }
+.nav-icon { width: 16px !important; flex-basis: 16px !important; }
+.nav-icon .svg-icon { width: 15px !important; height: 15px !important; }
+.nav-label { opacity: 1 !important; transform: none !important; }
+
+main.shell,
+.footnote.shell {
+  width: calc(100% - 210px) !important;
+  max-width: none !important;
+  margin: 0 0 0 210px !important;
+}
+
+main.shell { padding: 16px 18px 28px !important; }
+.footnote.shell { padding: 0 18px 12px !important; text-align: center; }
+
+section.page {
+  max-width: 1480px;
+  margin: 0 auto;
+}
+
+.section-head {
+  min-height: 58px !important;
+  margin: 0 0 12px !important;
+  padding: 0 0 10px !important;
+  border-bottom: 1px solid rgba(143, 174, 210, .10) !important;
+}
+
+.section-head h2 {
+  margin: 3px 0 !important;
+  font-size: 20px !important;
+  line-height: 1.12 !important;
+}
+
+.section-head p {
+  max-width: 920px !important;
+  color: #8298b4 !important;
+  font-size: 10.5px !important;
+  line-height: 1.35 !important;
+}
+
+.eyebrow {
+  color: #95a9c3 !important;
+  font-size: 8.5px !important;
+  letter-spacing: .12em !important;
+}
+
+.card,
+.dashboard-panel,
+.stat,
+.request-card,
+.lawsuit-card,
+.attorney-card,
+.event-card,
+.task-card,
+.law-card,
+.analytics-card,
+.member-card,
+.colleague-card,
+.management-command,
+.report-summary-card,
+.quiz-card,
+.integration-row,
+.webhook-row {
+  border: 1px solid #24405f !important;
+  border-radius: 9px !important;
+  background: linear-gradient(168deg, #10243a 0%, #0c1d31 58%, #0a192b 100%) !important;
+  box-shadow: 0 10px 24px -22px rgba(0, 0, 0, .95) !important;
+}
+
+.card { padding: 14px !important; }
+.card h3, .dashboard-panel h3 { margin: 0 0 8px; font-size: 12.5px; }
+.card p, .dashboard-panel p, .request-card p, .task-card p, .lawsuit-card p,
+.muted, .help { color: #90a5bf; font-size: 11px; }
+
+/* Рейтинг: крупная формула сверху, данные списком ниже */
+#page-ranking.page.active {
+  display: block;
+}
+
+#page-ranking.page.active .section-head {
+  display: flex;
+  align-items: flex-start;
+}
+
+#page-ranking.page.active .section-head .field {
+  min-width: 180px;
+  margin-left: auto;
+}
+
+#page-ranking.page.active #rating-settings-card {
+  min-height: 270px;
+  margin: 0 0 12px;
+  padding: 14px 16px;
+}
+
+#page-ranking.page.active #rating-settings-card > .two-col {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 8px 0 10px;
+}
+
+#page-ranking.page.active #rating-settings-card .field {
+  min-height: 58px;
+  padding: 8px 10px;
+  border: 1px solid #263f5a;
+  border-radius: 8px;
+  background: rgba(9, 20, 34, .72);
+}
+
+#page-ranking.page.active #rating-settings-card #rating-settings-save {
+  width: 100%;
+  margin-top: 4px;
+}
+
+#page-ranking.page.active #ranking-list {
+  min-height: 120px;
+  border: 1px solid #24405f;
+  border-radius: 9px;
+  background: rgba(9, 20, 34, .72);
+}
+
+/* Выговоры: левая форма и широкая правая история */
+#page-discipline.page.active {
+  display: grid;
+  grid-template-columns: 360px minmax(420px, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+#page-discipline.page.active > .section-head {
+  grid-column: 1 / -1;
+}
+
+#page-discipline.page.active #reprimand-form-card {
+  grid-column: 1;
+  grid-row: 2;
+  margin: 0;
+  min-height: 310px;
+  padding: 16px;
+}
+
+#page-discipline.page.active > article.mt-16 {
+  grid-column: 2;
+  grid-row: 2;
+  min-height: 310px;
+  margin: 0;
+  padding: 16px;
+}
+
+#page-discipline.page.active #reprimand-list {
+  min-height: 240px;
+}
+
+/* Панель управления: два верхних блока и нижняя левая сетка */
+#page-management.page.active {
+  display: block;
+}
+
+#page-management.page.active .management-command-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+#page-management.page.active .management-command {
+  min-height: 68px;
+  padding: 10px 12px;
+}
+
+#page-management.page.active > .grid.columns {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 0 12px;
+}
+
+#page-management.page.active #member-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  max-height: 520px;
+  overflow: auto;
+}
+
+/* Профиль и коллеги сохраняют характер референсной сетки */
+#page-profile.page.active #profile-identity {
+  min-height: 104px;
+  margin-bottom: 12px;
+  background: linear-gradient(105deg, #10243d 0%, #0c1d32 62%, #122a49 100%);
+}
+
+#page-profile.page.active #profile-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.colleagues-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.colleagues-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 220px;
+  gap: 8px;
+  min-height: 48px;
+  margin-bottom: 12px;
+  padding: 7px;
+  border: 1px solid #24405f;
+  border-radius: 9px;
+  background: rgba(8, 18, 31, .72);
+}
+
+/* Единая плотная сетка списков всех рабочих разделов */
+#page-tasks.page.active #task-list,
+#page-calendar.page.active #calendar-list,
+#page-lawsuits.page.active #lawsuit-list,
+#reprimand-list,
+#document-archive,
+#reserve-list,
+#absence-list,
+#characteristic-list,
+#member-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 7px;
+}
+
+#page-tasks.page.active .task-card,
+#page-calendar.page.active .event-card,
+#page-lawsuits.page.active .lawsuit-card,
+#reprimand-list .request-card,
+#document-archive .request-card,
+#reserve-list .request-card,
+#absence-list .request-card,
+#characteristic-list .request-card,
+#member-list .request-card {
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(200px, 1.15fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  border-radius: 7px;
+  background: linear-gradient(180deg, rgba(15,31,49,.96), rgba(10,24,40,.96));
+}
+
+#page-tasks.page.active .task-card p,
+#page-calendar.page.active .event-card p,
+#page-lawsuits.page.active .lawsuit-card p,
+#reprimand-list .request-card p,
+#document-archive .request-card p,
+#reserve-list .request-card p,
+#absence-list .request-card p,
+#characteristic-list .request-card p,
+#member-list .request-card p {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+/* Поручения и календарь */
+#page-tasks.page.active #task-create-card {
+  margin-bottom: 12px;
+}
+
+#page-calendar.page.active .calendar-view-controls {
+  grid-template-columns: 150px 210px auto minmax(180px, 1fr);
+  min-height: 68px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+}
+
+#page-calendar.page.active #calendar-create-card {
+  margin-bottom: 12px;
+}
+
+/* Отчётность и таблицы */
+.report-table-wrap,
+.report-table-live {
+  border: 1px solid #24405f;
+  border-radius: 8px;
+  background: #0d1d31;
+}
+
+.report-table th,
+.report-table-live th {
+  height: 36px;
+  background: #10243a;
+  color: #91a7c1;
+  font-size: 9px;
+}
+
+.report-table td,
+.report-table-live td {
+  height: 38px;
+  border-bottom-color: rgba(143, 174, 210, .07);
+  color: #b8c8dc;
+  font-size: 10.5px;
+}
+
+@media (max-width: 1180px) {
+  .colleagues-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  #page-management.page.active .management-command-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #page-management.page.active > .grid.columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #page-management.page.active #member-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #page-ranking.page.active #rating-settings-card > .two-col { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 760px) {
+  .topbar.shell,
+  header .topbar { width: 100% !important; margin: 0 !important; }
+
+  #sidebar,
+  #sidebar:hover,
+  #sidebar:focus-within {
+    position: sticky !important;
+    top: 52px !important;
+    width: 100% !important;
+    height: auto !important;
+  }
+
+  #sidebar .nav-scroll {
+    display: flex !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow-x: auto;
+  }
+
+  #sidebar .nav-section-label { display: none; }
+  #sidebar .nav-btn { width: 38px; min-width: 38px; justify-content: center; }
+  #sidebar .nav-label { display: none; }
+
+  main.shell,
+  .footnote.shell { width: 100% !important; margin: 0 !important; }
+  main.shell { padding: 12px !important; }
+
+  #page-discipline.page.active,
+  #page-management.page.active > .grid.columns,
+  #page-ranking.page.active #rating-settings-card > .two-col {
+    grid-template-columns: 1fr;
+  }
+
+  #page-discipline.page.active #reprimand-form-card,
+  #page-discipline.page.active > article.mt-16 {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  #page-management.page.active .management-command-grid,
+  #page-management.page.active #member-list,
+  .colleagues-grid,
+  #profile-metrics,
+  #page-tasks.page.active #task-list,
+  #page-calendar.page.active #calendar-list,
+  #page-lawsuits.page.active #lawsuit-list,
+  #reprimand-list,
+  #document-archive,
+  #reserve-list,
+  #absence-list,
+  #characteristic-list,
+  #member-list {
+    grid-template-columns: 1fr;
+  }
+
+  #page-tasks.page.active .task-card,
+  #page-calendar.page.active .event-card,
+  #page-lawsuits.page.active .lawsuit-card,
+  #reprimand-list .request-card,
+  #document-archive .request-card,
+  #reserve-list .request-card,
+  #absence-list .request-card,
+  #characteristic-list .request-card,
+  #member-list .request-card {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Последний точный референс вкладки «Поручения» */
+#page-tasks.page.active {
+  display: block;
+}
+
+#page-tasks.page.active .section-head {
+  min-height: 58px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+}
+
+#page-tasks.page.active #task-create-card {
+  display: block;
+  min-height: 0;
+  margin: 0 0 12px;
+  padding: 14px 16px;
+}
+
+#page-tasks.page.active #task-create-card > div {
+  margin-bottom: 8px;
+}
+
+#page-tasks.page.active #task-create-card h3,
+#page-tasks.page.active #task-create-card .eyebrow {
+  display: inline;
+  margin: 0;
+  font-size: 11px;
+}
+
+#page-tasks.page.active #task-create-card h3 {
+  margin-left: 7px;
+  color: #edf3fb;
+}
+
+#page-tasks.page.active #task-create-form {
+  display: grid;
+  grid-template-columns: minmax(220px, .75fr) 230px minmax(320px, 1.25fr);
+  gap: 10px;
+  align-items: end;
+}
+
+#page-tasks.page.active #task-create-form > .two-col {
+  display: contents;
+}
+
+#page-tasks.page.active #task-title {
+  min-height: 34px;
+}
+
+#page-tasks.page.active #task-create-form > .two-col > .field:first-child {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+#page-tasks.page.active .task-manager-tools {
+  grid-column: 2;
+  grid-row: 1;
+  display: grid;
+  grid-template-columns: 86px minmax(134px, 1fr);
+  gap: 8px;
+}
+
+#page-tasks.page.active #task-description {
+  min-height: 62px;
+  grid-column: 3;
+  grid-row: 1;
+}
+
+#page-tasks.page.active #task-create-form > .field {
+  grid-column: auto;
+}
+
+#page-tasks.page.active #task-assignees,
+#page-tasks.page.active #task-files {
+  min-height: 34px;
+}
+
+#page-tasks.page.active #task-create-form > .field:nth-of-type(3) {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+#page-tasks.page.active #task-create-form > .field:nth-of-type(4) {
+  grid-column: 2 / 4;
+  grid-row: 2;
+}
+
+#page-tasks.page.active #task-create-form > .btn.primary {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  width: 100%;
+  min-height: 34px;
+  margin-top: 2px;
+}
+
+#page-tasks.page.active #task-create-card .field label {
+  color: #9fb2c9;
+  font-size: 9.5px;
+}
+
+#page-tasks.page.active #task-create-card input,
+#page-tasks.page.active #task-create-card select,
+#page-tasks.page.active #task-create-card textarea {
+  min-height: 34px;
+  border: 1px solid #294361;
+  border-radius: 7px;
+  background: #0d1d31;
+  font-size: 10.5px;
+}
+
+#page-tasks.page.active #task-create-card textarea {
+  resize: vertical;
+}
+
+#page-tasks.page.active > article.card.stack.mt-16 {
+  display: block;
+  margin: 0;
+  padding: 14px 16px;
+}
+
+#page-tasks.page.active #task-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+#page-tasks.page.active .task-card {
+  min-height: 52px;
+  display: grid;
+  grid-template-columns: minmax(170px, 1fr) minmax(220px, 1.2fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 7px;
+}
+
+#page-tasks.page.active .task-card h4 {
+  margin: 0;
+  font-size: 11px;
+}
+
+#page-tasks.page.active .task-card p {
+  margin: 0;
+  font-size: 10px;
+}
+
+#page-tasks.page.active .task-card .request-actions {
+  margin: 0;
+  justify-content: flex-end;
+}
+
+@media (max-width: 1180px) {
+  #page-tasks.page.active #task-create-form {
+    grid-template-columns: minmax(220px, 1fr) 230px;
+  }
+
+  #page-tasks.page.active #task-description {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  #page-tasks.page.active #task-create-form > .field:nth-of-type(3) {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  #page-tasks.page.active #task-create-form > .field:nth-of-type(4) {
+    grid-column: 2;
+    grid-row: 3;
+  }
+
+  #page-tasks.page.active #task-create-form > .btn.primary {
+    grid-row: 4;
+  }
+}
+
+@media (max-width: 760px) {
+  #page-tasks.page.active #task-create-form,
+  #page-tasks.page.active .task-manager-tools {
+    grid-template-columns: 1fr;
+  }
+
+  #page-tasks.page.active #task-create-form > .two-col,
+  #page-tasks.page.active #task-description,
+  #page-tasks.page.active #task-create-form > .field:nth-of-type(3),
+  #page-tasks.page.active #task-create-form > .field:nth-of-type(4),
+  #page-tasks.page.active #task-create-form > .btn.primary {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  #page-tasks.page.active .task-card {
+    grid-template-columns: 1fr;
+  }
 }

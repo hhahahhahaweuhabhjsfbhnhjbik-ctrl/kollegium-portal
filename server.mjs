@@ -23,6 +23,27 @@ const defaultRatingWeights = Object.freeze({
   tasksCompleted: 2,
   reviews: 1
 });
+const maintenancePage = `<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Технические работы — Коллегия адвокатов</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #101515; color: #eee8d5; }
+    body { min-height: 100vh; display: grid; place-items: center; margin: 0; padding: 24px; box-sizing: border-box; }
+    main { max-width: 560px; padding: 36px; border: 1px solid #756b42; border-radius: 20px; background: #171d1c; text-align: center; }
+    h1 { color: #d3bb70; }
+    p { line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Технические работы</h1>
+    <p>Портал временно недоступен. Мы устраняем неполадки и скоро вернёмся.</p>
+  </main>
+</body>
+</html>`;
 
 function recordEmploymentEvent(db, { userId, actorId, fromRole, toRole, fromStatus, toStatus, details = "" }) {
   if (fromRole === toRole && fromStatus === toStatus) return;
@@ -1822,6 +1843,15 @@ export function createPortalServer(options = {}) {
     try {
       const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
       const pathname = requestUrl.pathname;
+      const maintenanceMode = db.prepare("SELECT value FROM portal_settings WHERE key = 'maintenance_mode'").get()?.value === "on";
+      if (maintenanceMode && !(pathname === "/api/health" && req.method === "GET")) {
+        res.writeHead(503, {
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": "no-store",
+          "retry-after": "300"
+        });
+        return res.end(maintenancePage);
+      }
 
       if (pathname === "/api/discord/callback" && req.method === "GET") {
         let targetUserId = 0;
@@ -1898,7 +1928,9 @@ export function createPortalServer(options = {}) {
       }
 
       if (pathname.startsWith("/api/")) {
-        if (pathname === "/api/health" && req.method === "GET") return sendJson(res, 200, { ok: true, apiVersion: 4 });
+        if (pathname === "/api/health" && req.method === "GET") {
+          return sendJson(res, 200, { ok: true, apiVersion: 4, maintenance: maintenanceMode });
+        }
 
         if (pathname === "/api/auth/register" && req.method === "POST") {
           assertRateLimit(`register:${clientAddress(req)}`, 30, 60 * 60 * 1000,
@@ -2085,7 +2117,7 @@ export function createPortalServer(options = {}) {
               guildConfigured: Boolean(discord.guildId),
               rolesConfigured: Object.values(discordRoleIds).filter(Boolean).length
             },
-            webhooks: WEBHOOK_CHANNELS.map((kind) => ({
+            webhooks: publicWebhookChannels.map((kind) => ({
               kind,
               label: webhookChannelLabels[kind],
               url: describeWebhook(webhooks[kind] || "", kind),
@@ -2101,7 +2133,7 @@ export function createPortalServer(options = {}) {
           return sendJson(res, 200, {
             pending: state.pending,
             queued: state.queued,
-            channels: WEBHOOK_CHANNELS.map((kind) => ({
+            channels: publicWebhookChannels.map((kind) => ({
               kind,
               label: webhookChannelLabels[kind],
               url: describeWebhook(webhooks[kind] || "", kind),
@@ -2114,6 +2146,9 @@ export function createPortalServer(options = {}) {
           if (user.role !== "ГКА") throw new HttpError(403, "Проверку уведомлений может запускать только ГКА.");
           const body = await readJson(req);
           const kind = String(body.kind || "");
+          if (!publicWebhookChannels.includes(kind)) {
+            throw new HttpError(400, "Неизвестный канал.");
+          }
           let result;
           try {
             result = await webhookDispatcher.test(kind);
@@ -4556,6 +4591,7 @@ const webhookChannelLabels = {
   exams: "Экзамены и повышения",
   logs: "Журнал руководства"
 };
+const publicWebhookChannels = ["applications", "exams", "logs"];
 
 /**
  * Отдача файлов фронтенда из каталога web/.
@@ -4900,6 +4936,20 @@ export async function startPortal(options = {}) {
           }
         }
       }),
+    onServiceCommand: (action) => {
+      if (action === "restart") return "Перезапускаю портал и Discord-бота. Обычно это занимает около минуты.";
+      if (action !== "on" && action !== "off") throw new Error("Неизвестная команда управления сервисом.");
+      const value = action === "on" ? "on" : "off";
+      db.prepare(`INSERT INTO portal_settings (key, value) VALUES ('maintenance_mode', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(value);
+      return action === "on"
+        ? "Технические работы включены; команда !tech off вернёт сайт."
+        : "Технические работы выключены; сайт снова доступен.";
+    },
+    onServiceRestart: () => {
+      const timer = setTimeout(() => process.kill(process.pid, "SIGTERM"), 1000);
+      timer.unref?.();
+    },
     onPortalAction: (discordUserId, action, memberRoleIds) =>
       runDiscordPortalAction({ db, discordUserId, action, memberRoleIds, roleIds })
   });
