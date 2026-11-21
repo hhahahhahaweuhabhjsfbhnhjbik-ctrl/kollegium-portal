@@ -35,4 +35,16 @@ jobs:
           ssh -i "$HOME/.ssh/id_ed25519" \
             -o BatchMode=yes \
             "$ORACLE_USER@$ORACLE_HOST" \
-            'cd /opt/kollegium-portal && git pull --ff-only origin main && sudo docker compose -f deploy/oracle/compose.yaml up -d --build'
+            'set -eu
+             cd /opt/kollegium-portal
+             backup="/tmp/kollegium-portal-predeploy-$(date +%Y%m%d%H%M%S)"
+             mkdir -p "$backup"
+             if [ -f server.mjs ]; then
+               mv server.mjs "$backup/server.mjs"
+             fi
+             if [ -d deploy/oracle ]; then
+               mv deploy/oracle "$backup/oracle"
+             fi
+             git fetch origin main
+             git pull --ff-only origin main
+             sudo docker compose -f deploy/oracle/compose.yaml up -d --build'
