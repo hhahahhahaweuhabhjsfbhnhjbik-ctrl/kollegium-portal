@@ -1705,7 +1705,8 @@ async function openProfile(id) {
         ${discordPresenceBadge(profile.presence)}
         ${profile.profile_quote ? `<blockquote class="profile-quote">«${escapeHtml(profile.profile_quote)}»</blockquote>` : ""}
         ${profile.forum_profile_url ? `<a href="${escapeHtml(profile.forum_profile_url)}" target="_blank" rel="noopener noreferrer">Профиль на форуме${profile.forum_profile_verified_at ? " · проверен" : ""}</a>` : ""}
-        ${discordProfileLink}</div></div>
+      </div></div>
+      ${discordProfileLink ? `<div class="profile-contact-actions">${discordProfileLink}</div>` : ""}
       <article class="request-card profile-bio-card"><h4>О сотруднике</h4><p>${escapeHtml(profile.profile_bio || "Био не заполнено.")}</p></article>
       <article class="request-card"><h4>Закреплённые дела</h4>${pinnedCases.length
         ? pinnedCases.map((item) => `<div class="compact-row"><span class="compact-icon">§</span><div class="compact-copy"><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.status || "Статус не указан")}</small></div></div>`).join("")
@@ -3151,7 +3152,7 @@ function renderManagement() {
               · ${member.forum_profile_verified_at ? `проверен ${escapeHtml(profileDate(member.forum_profile_verified_at))}` : "не проверен"}`
           : "Профиль форума не привязан";
         const personnelControls = role() === "ГКА"
-          ? `<div class="request-actions"><label class="field">Дата вступления<input type="date" data-member-since="${member.id}" value="${escapeHtml(member.member_since || "")}"></label>
+          ? `<div class="request-actions member-personnel"><label class="field">Дата вступления<input type="date" data-member-since="${member.id}" value="${escapeHtml(member.member_since || "")}"></label>
               <button class="btn small subtle" type="button" data-member-since-save="${member.id}">Сохранить дату</button>
               ${member.forum_profile_url ? `<button class="btn small" type="button" data-member-forum-verify="${member.id}" data-verified="${member.forum_profile_verified_at ? "true" : "false"}">${member.forum_profile_verified_at ? "Снять подтверждение форума" : "Подтвердить форум"}</button>` : ""}</div>`
           : "";

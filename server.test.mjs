@@ -8,6 +8,7 @@ import {
   createDiscordCitizenRequest, createInitialAdminAccount, createPortalServer as createPortalServerInstance, initialAdminExists, issueDiscordInvite,
   runDiscordPortalAction, runDiscordPortalCommand, startPortal
 } from "./server.mjs";
+import { canControlService, parseTechCommand } from "./discord-bot.mjs";
 
 const createPortalServer = (options = {}) => createPortalServerInstance({
   requireDiscordLink: false,
@@ -47,6 +48,18 @@ async function createClient(baseUrl) {
   request.csrfToken = () => csrf;
   return request;
 }
+
+test("Discord tech commands accept only explicit actions and are admin-only", () => {
+  assert.equal(parseTechCommand("!tech on"), "on");
+  assert.equal(parseTechCommand("!TECH OFF"), "off");
+  assert.equal(parseTechCommand("!tech restart"), "restart");
+  assert.equal(parseTechCommand("!tech"), "help");
+  assert.equal(parseTechCommand("!tech run something"), null);
+  assert.equal(parseTechCommand("/tech restart"), null);
+  assert.equal(canControlService({ authorId: "owner", ownerId: "owner", isAdministrator: false }), true);
+  assert.equal(canControlService({ authorId: "admin", ownerId: "owner", isAdministrator: true }), true);
+  assert.equal(canControlService({ authorId: "member", ownerId: "owner", isAdministrator: false }), false);
+});
 
 test("desktop first run creates a single active GKA account", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "portal-desktop-"));
@@ -119,7 +132,18 @@ test("desktop server serves the portal and shuts down cleanly", async () => {
     assert.equal(response.status, 200);
     assert.match(await response.text(), /Коллегия адвокатов/);
     const health = await fetch(`http://127.0.0.1:${portal.port}/api/health`);
-    assert.deepEqual(await health.json(), { ok: true, apiVersion: 4 });
+    assert.deepEqual(await health.json(), { ok: true, apiVersion: 4, maintenance: false });
+
+    portal.server.portalDb.prepare(`INSERT INTO portal_settings (key, value)
+      VALUES ('maintenance_mode', 'on') ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run();
+    const maintenance = await fetch(`http://127.0.0.1:${portal.port}/`);
+    assert.equal(maintenance.status, 503);
+    assert.match(await maintenance.text(), /Технические работы/);
+    const maintenanceHealth = await fetch(`http://127.0.0.1:${portal.port}/api/health`);
+    assert.deepEqual(await maintenanceHealth.json(), { ok: true, apiVersion: 4, maintenance: true });
+
+    portal.server.portalDb.prepare("UPDATE portal_settings SET value = 'off' WHERE key = 'maintenance_mode'").run();
+    assert.equal((await fetch(`http://127.0.0.1:${portal.port}/`)).status, 200);
   } finally {
     await portal.close();
     await rm(directory, { recursive: true, force: true });

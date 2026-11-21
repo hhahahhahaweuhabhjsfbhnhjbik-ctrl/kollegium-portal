@@ -213,6 +213,8 @@
     .profile-dialog[open] .profile-dialog-content { animation: page-enter .2s ease-out both; }
     .profile-hero { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
     .profile-hero .discord-avatar { width: 58px; height: 58px; }
+    .profile-contact-actions { margin: -4px 0 18px calc(96px + 14px); }
+    @media (max-width: 480px) { .profile-contact-actions { margin-left: 0; } }
     .quiz-progress { height: 6px; overflow: hidden; border-radius: 9px; background: var(--line); }
     .quiz-progress span { display: block; height: 100%; background: var(--gold); transition: width .2s ease; }
     mark.search-hit { color: #14100a; background: #f0a83b; border-radius: 2px; padding: 0 1px; }

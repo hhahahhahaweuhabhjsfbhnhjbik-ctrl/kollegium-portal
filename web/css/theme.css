@@ -6347,3 +6347,101 @@ section.page {
     grid-template-columns: 1fr;
   }
 }
+
+/* Состав коллегии: карточки сотрудников имеют собственную вертикальную сетку.
+   Не наследуем трехколоночную разметку плотных рабочих списков. */
+#page-management.page.active #member-list {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  max-height: none;
+  overflow: visible;
+}
+
+#page-management.page.active #member-list .request-card {
+  min-height: 260px;
+  height: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  align-content: start;
+  align-items: start;
+  gap: 10px;
+  padding: 14px;
+  overflow: hidden;
+}
+
+#page-management.page.active #member-list .request-top {
+  width: 100%;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+#page-management.page.active #member-list .member-ident {
+  min-width: 0;
+  flex: 1;
+}
+
+#page-management.page.active #member-list .member-ident > div {
+  min-width: 0;
+}
+
+#page-management.page.active #member-list .member-ident h4 {
+  overflow-wrap: anywhere;
+}
+
+#page-management.page.active #member-list .meta {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+#page-management.page.active #member-list .member-personnel,
+#page-management.page.active #member-list .request-actions {
+  width: 100%;
+  min-width: 0;
+  justify-content: flex-start;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+#page-management.page.active #member-list .member-personnel .field {
+  flex: 1 1 190px;
+  min-width: 150px;
+}
+
+#page-management.page.active #member-list .request-actions .field {
+  min-width: 150px;
+}
+
+#page-management.page.active #member-list input,
+#page-management.page.active #member-list select {
+  min-width: 0;
+  width: 100%;
+}
+
+@media (max-width: 1180px) {
+  #page-management.page.active #member-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  #page-management.page.active #member-list {
+    grid-template-columns: 1fr;
+  }
+
+  #page-management.page.active #member-list .request-card,
+  #page-management.page.active #member-list .request-top,
+  #page-management.page.active #member-list .request-actions {
+    grid-template-columns: 1fr;
+  }
+
+  #page-management.page.active #member-list .request-actions {
+    display: grid;
+  }
+
+  #page-management.page.active #member-list .request-actions .field,
+  #page-management.page.active #member-list .member-personnel .field {
+    width: 100%;
+    min-width: 0;
+  }
+}

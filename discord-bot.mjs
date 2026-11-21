@@ -38,6 +38,15 @@ function interactionRoleIds(interaction) {
   return Array.isArray(roles) ? roles : [];
 }
 
+export function parseTechCommand(content) {
+  const match = /^!tech(?:\s+(on|off|restart))?$/i.exec(String(content || "").trim());
+  return match ? (match[1] || "help").toLowerCase() : null;
+}
+
+export function canControlService({ authorId, ownerId, isAdministrator }) {
+  return authorId === ownerId || isAdministrator === true;
+}
+
 async function ensureRoles(guild, member, roleIds, onRoleResolved) {
   if (!member.permissions.has(PermissionFlagsBits.ManageRoles)) {
     throw new Error("Для автоматической настройки Discord боту нужно право «Управлять ролями».");
@@ -299,6 +308,8 @@ export function startDiscordBot({
   onDiscordCitizenRequest,
   onPortalCommand,
   onPortalAction,
+  onServiceCommand,
+  onServiceRestart,
   onPresence,
   healthUrl
 }) {
@@ -313,7 +324,62 @@ export function startDiscordBot({
 
   const presenceMap = new Map();
   const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildPresences]
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMembers,
+      GatewayIntentBits.GuildPresences,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.MessageContent
+    ]
+  });
+  client.on(Events.MessageCreate, (message) => {
+    const action = parseTechCommand(message.content);
+    if (!action || message.author.bot || message.guildId !== guildId) return;
+
+    void (async () => {
+      if (!canControlService({
+        authorId: message.author.id,
+        ownerId: message.guild.ownerId,
+        isAdministrator: message.member?.permissions?.has(PermissionFlagsBits.Administrator)
+      })) {
+        await message.reply({
+          content: "Управлять порталом может только владелец или администратор сервера.",
+          allowedMentions: { parse: [], repliedUser: false }
+        });
+        return;
+      }
+
+      if (action === "help") {
+        await message.reply({
+          content: "Команды: `!tech on` — включить техработы, `!tech off` — выключить, `!tech restart` — перезапустить портал и бота.",
+          allowedMentions: { parse: [], repliedUser: false }
+        });
+        return;
+      }
+
+      if (!onServiceCommand || (action === "restart" && !onServiceRestart)) {
+        throw new Error("Управление сервисом не настроено.");
+      }
+
+      const response = await onServiceCommand(action);
+      await message.reply({
+        content: String(response).slice(0, 1900),
+        allowedMentions: { parse: [], repliedUser: false }
+      });
+
+      if (action === "restart") {
+        const timer = setTimeout(() => onServiceRestart(), 1500);
+        timer.unref?.();
+      }
+    })().catch((error) => {
+      console.error("Discord tech command failed:", error.message);
+      void message.reply({
+        content: "Не удалось выполнить команду. Проверьте журнал портала.",
+        allowedMentions: { parse: [], repliedUser: false }
+      }).catch((replyError) => {
+        console.error("Discord tech command response failed:", replyError.message);
+      });
+    });
   });
   client.discordPresenceMap = presenceMap;
   client.on("presenceUpdate", (_oldPresence, newPresence) => {
@@ -379,6 +445,7 @@ export function startDiscordBot({
 
       const publishHealth = async () => {
         let apiOk = false;
+        let maintenance = false;
         let apiPing = 0;
         try {
           let target = healthUrl || process.env.DISCORD_HEALTH_URL || `http://127.0.0.1:${process.env.PORT || "3000"}/api/health`;
@@ -387,10 +454,13 @@ export function startDiscordBot({
           const response = await globalThis.fetch(target, { signal: AbortSignal.timeout(5000) });
           apiPing = Date.now() - started;
           apiOk = response.ok;
+          if (apiOk) maintenance = (await response.json()).maintenance === true;
         } catch {
           apiOk = false;
         }
-        const statusName = apiOk
+        const statusName = maintenance
+          ? "🟡 Технические работы"
+          : apiOk
           ? `🟢 Активен · ${apiPing} мс`
           : `🔴 Недоступен · ${apiPing || "—"} мс`;
         if (healthVoice && healthVoice.name !== statusName) {
