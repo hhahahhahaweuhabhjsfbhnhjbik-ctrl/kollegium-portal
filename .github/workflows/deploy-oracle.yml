@@ -47,4 +47,5 @@ jobs:
              fi
              git fetch origin main
              git pull --ff-only origin main
+             git restore --source=origin/main -- server.mjs deploy/oracle
              sudo docker compose -f deploy/oracle/compose.yaml up -d --build'
