@@ -5943,6 +5943,214 @@ section.page {
   }
 }
 
+/* База законов: полноценный документальный интерфейс */
+#page-laws.page.active {
+  display: block;
+}
+
+#page-laws.page.active #law-stat {
+  display: none;
+}
+
+#page-laws.page.active > .card.stack {
+  display: grid;
+  grid-template-rows: auto auto minmax(520px, 1fr);
+  gap: 10px;
+  min-height: calc(100dvh - 210px);
+  padding: 10px;
+  overflow: hidden;
+  border: 1px solid #24405f;
+  border-radius: 10px;
+  background: #0b1929;
+}
+
+#page-laws.page.active > .card.stack > .note {
+  display: none;
+}
+
+#page-laws.page.active .law-controls {
+  min-height: 48px;
+  margin: 0;
+  padding: 6px;
+  border: 1px solid #24405f;
+  border-radius: 8px;
+  background: #0d1d31;
+}
+
+#page-laws.page.active .law-controls input,
+#page-laws.page.active .law-controls select {
+  height: 34px;
+  min-height: 34px;
+  font-size: 10.5px;
+  background: #091522;
+}
+
+#page-laws.page.active .law-workbench {
+  min-height: 520px;
+  height: calc(100dvh - 260px);
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 8px;
+  overflow: hidden;
+}
+
+#page-laws.page.active .law-tree {
+  height: 100%;
+  max-height: none;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid #24405f;
+  border-radius: 8px;
+  background: #091522;
+  scrollbar-width: thin;
+}
+
+#page-laws.page.active .law-tree button {
+  min-height: 34px;
+  margin: 0 0 2px;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #9fb2c9;
+  background: transparent;
+  font-size: 9.5px;
+  line-height: 1.25;
+  text-align: left;
+}
+
+#page-laws.page.active .law-tree button:hover,
+#page-laws.page.active .law-tree button.active {
+  border-color: #36577a;
+  color: #edf3fb;
+  background: #10243a;
+}
+
+#page-laws.page.active .law-reader {
+  height: 100%;
+  min-height: 520px;
+  overflow-y: auto;
+  padding: 0;
+  border: 1px solid #24405f;
+  border-radius: 8px;
+  background: #0d1d31;
+  scrollbar-width: thin;
+}
+
+#page-laws.page.active .law-reader > .law-card {
+  min-height: 100%;
+  margin: 0;
+  padding: 18px 20px 28px;
+  border: 0;
+  border-radius: 0;
+  background: linear-gradient(180deg, #10243a 0%, #0d1d31 100%);
+  box-shadow: none;
+}
+
+#page-laws.page.active .law-reader .law-title {
+  margin: 0 0 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #24405f;
+  color: #f1f5fb;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+#page-laws.page.active .law-reader .meta {
+  margin: 0 0 12px;
+  color: #91a7c1;
+  font-size: 9.5px;
+}
+
+#page-laws.page.active .law-reader .law-document {
+  max-width: 960px;
+  color: #c1cee0;
+  font-size: 12px;
+  line-height: 1.75;
+}
+
+#page-laws.page.active .law-reader .law-document ol,
+#page-laws.page.active .law-reader .law-document ul {
+  margin: 8px 0;
+  padding-left: 22px;
+}
+
+#page-laws.page.active .law-reader .law-document p {
+  margin: 0 0 7px;
+}
+
+#page-laws.page.active .law-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #24405f;
+}
+
+#page-laws.page.active .law-links strong {
+  width: 100%;
+  color: #91a7c1;
+  font-size: 9.5px;
+}
+
+#page-laws.page.active .law-links .btn {
+  min-height: 30px;
+  border: 1px solid #36577a;
+  background: #10243a;
+  color: #b9cbe2;
+  font-size: 9.5px;
+}
+
+#page-laws.page.active .law-full {
+  margin-top: 10px;
+  border-top: 1px solid #24405f;
+}
+
+#page-laws.page.active .law-full summary {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  color: #d9b45e;
+  cursor: pointer;
+  font-size: 10.5px;
+  list-style-position: inside;
+}
+
+#page-laws.page.active .law-full[open] {
+  padding-bottom: 12px;
+}
+
+#page-laws.page.active mark.search-hit {
+  border-radius: 3px;
+  background: #d89a31;
+  color: #111827;
+  padding: 1px 2px;
+}
+
+@media (max-width: 760px) {
+  #page-laws.page.active > .card.stack {
+    min-height: auto;
+  }
+
+  #page-laws.page.active .law-workbench {
+    height: auto;
+    min-height: 480px;
+    grid-template-columns: 1fr;
+  }
+
+  #page-laws.page.active .law-tree {
+    height: 180px;
+  }
+
+  #page-laws.page.active .law-reader {
+    min-height: 420px;
+  }
+
+  #page-laws.page.active .law-reader > .law-card {
+    padding: 14px;
+  }
+}
+
 /* Последний точный референс вкладки «Поручения» */
 #page-tasks.page.active {
   display: block;
