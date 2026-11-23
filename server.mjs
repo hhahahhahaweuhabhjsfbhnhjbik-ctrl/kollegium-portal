@@ -20,6 +20,12 @@ const activityReportTypes = Object.freeze({
   call: "Вызов",
   bail: "Залог"
 });
+const activityReportPhotoMaxBytes = 15 * 1024 * 1024;
+const auditTestNotificationTypes = Object.freeze({
+  role: { title: "Тест: изменение должности", body: "Проверка уведомления кадрового аудита об изменении должности." },
+  status: { title: "Тест: изменение статуса", body: "Проверка уведомления кадрового аудита об изменении статуса сотрудника." },
+  dismissal: { title: "Тест: увольнение", body: "Проверка уведомления кадрового аудита об увольнении сотрудника." }
+});
 const portalPageRoutes = new Set([
   "/page/home",
   "/page/memo",
@@ -583,7 +589,7 @@ function createDatabase(dbPath) {
     CREATE INDEX IF NOT EXISTS portal_notifications_user_idx ON portal_notifications(user_id, id DESC);
     CREATE TABLE IF NOT EXISTS notification_preferences (
       user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-      discord_dm_enabled INTEGER NOT NULL DEFAULT 0 CHECK (discord_dm_enabled IN (0,1)),
+      discord_dm_enabled INTEGER NOT NULL DEFAULT 1 CHECK (discord_dm_enabled IN (0,1)),
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     CREATE TABLE IF NOT EXISTS promotion_settings (
@@ -1601,7 +1607,7 @@ function validateGoogleSheetsWebAppUrl(value) {
   return url.toString();
 }
 
-function parseApplicationAttachments(value) {
+function parseApplicationAttachments(value, { maxFileBytes = 2 * 1024 * 1024, maxTotalBytes = 5 * 1024 * 1024 } = {}) {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.length > 5) {
     throw new HttpError(400, "Можно приложить не более пяти файлов.");
@@ -1628,9 +1634,13 @@ function parseApplicationAttachments(value) {
           ? content.length >= 12 && content.toString("ascii", 0, 4) === "RIFF" && content.toString("ascii", 8, 12) === "WEBP"
           : content.length >= 5 && content.toString("ascii", 0, 5) === "%PDF-";
     if (!signatureMatches) throw new HttpError(400, "Содержимое файла не соответствует его формату.");
-    if (content.length > 2 * 1024 * 1024) throw new HttpError(413, "Размер одного файла не должен превышать 2 МБ.");
+    if (content.length > maxFileBytes) {
+      throw new HttpError(413, `Размер одного файла не должен превышать ${Math.floor(maxFileBytes / (1024 * 1024))} МБ.`);
+    }
     totalSize += content.length;
-    if (totalSize > 5 * 1024 * 1024) throw new HttpError(413, "Общий размер вложений не должен превышать 5 МБ.");
+    if (totalSize > maxTotalBytes) {
+      throw new HttpError(413, `Общий размер вложений не должен превышать ${Math.floor(maxTotalBytes / (1024 * 1024))} МБ.`);
+    }
     return { name, contentType, content };
   });
 }
@@ -1858,14 +1868,12 @@ export function createPortalServer(options = {}) {
     const preferences = db.prepare(`SELECT u.discord_id, p.discord_dm_enabled
       FROM users u LEFT JOIN notification_preferences p ON p.user_id = u.id
       WHERE u.id = ?`).get(userId);
-    if (!sendDiscord || preferences?.discord_dm_enabled !== 1) {
+    if (!sendDiscord || preferences?.discord_dm_enabled === 0 || !preferences?.discord_id) {
       return { id: notificationId, discordWarning: "" };
     }
 
     let warning = "";
-    if (!preferences.discord_id) {
-      warning = "Discord не привязан к аккаунту.";
-    } else if (!discord.botToken) {
+    if (!discord.botToken) {
       warning = "Discord-бот не настроен на сервере.";
     } else {
       try {
@@ -1892,6 +1900,16 @@ export function createPortalServer(options = {}) {
       console.error(`Discord notification delivery failed for portal user ${userId}:`, warning);
     }
     return { id: notificationId, discordWarning: warning };
+  }
+
+  async function sendPortalDirectMessage(userId, account, avatarUrl, title, description) {
+    const preference = db.prepare("SELECT discord_dm_enabled FROM notification_preferences WHERE user_id = ?")
+      .get(userId);
+    if (preference?.discord_dm_enabled === 0) return "";
+    return sendDiscordDirectMessage(account.discord_id, account, avatarUrl, title, description, {
+      token: discord.botToken,
+      fetchImpl: discordFetch
+    });
   }
 
   async function notifyPortalRoles(targetRoles, payload, excludeUserId = 0) {
@@ -1925,6 +1943,9 @@ export function createPortalServer(options = {}) {
               )`).all(citizenRole, event.responsible_id, event.id);
         for (const recipient of recipients) {
           if (!/^\d{15,22}$/.test(recipient.discord_id)) continue;
+          const preference = db.prepare("SELECT discord_dm_enabled FROM notification_preferences WHERE user_id = ?")
+            .get(recipient.id);
+          if (preference?.discord_dm_enabled === 0) continue;
           const previous = db.prepare(`SELECT last_attempt_at, sent_at FROM calendar_reminder_deliveries
             WHERE event_id = ? AND user_id = ? AND lead_minutes = ?`)
             .get(event.id, recipient.id, leadMinutes);
@@ -1968,7 +1989,7 @@ export function createPortalServer(options = {}) {
   async function notifyReprimandByDm(target, id, reason, photo, fields) {
     const preference = db.prepare("SELECT discord_dm_enabled FROM notification_preferences WHERE user_id = ?")
       .get(target.id);
-    if (preference?.discord_dm_enabled !== 1) return "Личные уведомления Discord выключены в профиле.";
+    if (preference?.discord_dm_enabled === 0) return "Личные уведомления Discord выключены в профиле.";
     if (!target.discord_id) return "Discord не привязан: личное уведомление не отправлено.";
     if (!discord.botToken) return "Личное уведомление не отправлено: не настроен DISCORD_BOT_TOKEN.";
     if (!/^\d{15,22}$/.test(target.discord_id)) return "Личное уведомление не отправлено: некорректный Discord ID.";
@@ -2258,7 +2279,8 @@ export function createPortalServer(options = {}) {
           if (consumed.changes !== 1) throw new HttpError(400, "Ссылка Discord уже использована.");
           await syncDiscordMember(targetUserId);
           const user = publicUser(db, targetUserId);
-          await sendDiscordDirectMessage(String(identity.id), user, avatarUrl);
+          await sendPortalDirectMessage(targetUserId, user, avatarUrl,
+            "Discord успешно привязан", `Аккаунт **${user.display_name}** привязан к порталу Коллегии адвокатов.`);
           await deliverWebhook(webhooks.logs, "Discord привязан к аккаунту", `${user.display_name} (${user.role}) привязал Discord ${identity.username}.`);
           res.statusCode = 303;
           res.setHeader("location", "/?discord=linked");
@@ -2411,7 +2433,7 @@ export function createPortalServer(options = {}) {
         if (user.status !== "active") throw new HttpError(403, "Аккаунт ожидает одобрения ГКА или приостановлен.");
         const requiresDiscordLink = requireDiscordLink && user.role !== citizenRole && !user.discord_id;
         if (requiresDiscordLink &&
-            !["/api/discord/status", "/api/discord/link", "/api/auth/logout"].includes(pathname) &&
+            !["/api/discord/status", "/api/discord/link", "/api/discord/unlink", "/api/auth/logout"].includes(pathname) &&
             !pathname.startsWith("/api/notifications")) {
           throw new HttpError(403, "Для доступа сотрудника сначала привяжите Discord к аккаунту.");
         }
@@ -2466,6 +2488,23 @@ export function createPortalServer(options = {}) {
           });
         }
 
+        if (pathname === "/api/discord/unlink" && req.method === "POST") {
+          if (!user.discord_id) return sendJson(res, 200, { ok: true, discordWarning: "" });
+          db.exec("BEGIN IMMEDIATE");
+          try {
+            db.prepare("DELETE FROM discord_link_states WHERE user_id = ?").run(user.id);
+            db.prepare(`UPDATE users SET discord_id = NULL, discord_username = '', discord_avatar_url = '',
+              discord_linked_at = NULL, discord_sync_error = '', discord_nickname_error = '' WHERE id = ?`)
+              .run(user.id);
+            db.exec("COMMIT");
+          } catch (error) {
+            db.exec("ROLLBACK");
+            throw error;
+          }
+          const discordWarning = await revokeDiscordAccess(user);
+          return sendJson(res, 200, { ok: true, discordWarning });
+        }
+
         if (pathname === "/api/notifications" && req.method === "GET") {
           const preferences = db.prepare("SELECT discord_dm_enabled FROM notification_preferences WHERE user_id = ?")
             .get(user.id);
@@ -2475,7 +2514,7 @@ export function createPortalServer(options = {}) {
           return sendJson(res, 200, {
             notifications,
             unreadCount: notifications.filter((item) => !item.read_at).length,
-            discordDmEnabled: preferences?.discord_dm_enabled === 1
+            discordDmEnabled: preferences?.discord_dm_enabled !== 0
           });
         }
 
@@ -2513,6 +2552,30 @@ export function createPortalServer(options = {}) {
               updated_at = CURRENT_TIMESTAMP`)
             .run(user.id, body.discordDmEnabled ? 1 : 0);
           return sendJson(res, 200, { discordDmEnabled: body.discordDmEnabled });
+        }
+
+        if (pathname === "/api/notifications/test" && req.method === "POST") {
+          if (user.username !== "yyte") {
+            throw new HttpError(403, "Тестовые уведомления доступны только владельцу аккаунта.");
+          }
+          if (!user.discord_id) throw new HttpError(409, "Сначала привяжите Discord к аккаунту.");
+          const body = requireObject(await readJson(req));
+          const notification = auditTestNotificationTypes[String(body.type || "")];
+          if (!notification) throw new HttpError(400, "Выберите тестовое уведомление кадрового аудита.");
+          const result = await notifyPortalUser({
+            userId: user.id,
+            type: "audit_test",
+            title: notification.title,
+            body: notification.body,
+            href: "/page/audit"
+          });
+          const delivery = db.prepare("SELECT discord_sent_at FROM portal_notifications WHERE id = ?")
+            .get(result.id);
+          return sendJson(res, 201, {
+            id: result.id,
+            discordSent: Boolean(delivery?.discord_sent_at),
+            warning: result.discordWarning
+          });
         }
 
         if (pathname === "/api/discord/diagnostics" && req.method === "GET") {
@@ -2668,8 +2731,8 @@ export function createPortalServer(options = {}) {
           for (const assigneeId of assigneeIds) {
             const assignee = db.prepare("SELECT discord_id, discord_avatar_url, display_name, role, username FROM users WHERE id = ?").get(assigneeId);
             if (assignee?.discord_id) {
-              await sendDiscordDirectMessage(
-                assignee.discord_id,
+              await sendPortalDirectMessage(
+                assigneeId,
                 assignee,
                 assignee.discord_avatar_url,
                 "Новое поручение",
@@ -3301,8 +3364,9 @@ export function createPortalServer(options = {}) {
             ? db.prepare("SELECT discord_id, discord_avatar_url, display_name, role, username FROM users WHERE id = ?").get(item.assigned_to)
             : db.prepare("SELECT discord_id, discord_avatar_url, display_name, role, username FROM users WHERE id = ?").get(item.user_id);
           if (recipientAccount?.discord_id) {
-            await sendDiscordDirectMessage(
-              recipientAccount.discord_id,
+            const recipientId = item.user_id === user.id ? item.assigned_to : item.user_id;
+            await sendPortalDirectMessage(
+              recipientId,
               recipientAccount,
               recipientAccount.discord_avatar_url,
               `Ответ по обращению #${item.id}`,
@@ -3460,8 +3524,8 @@ export function createPortalServer(options = {}) {
                 { name: "Новый исполнитель", value: target?.display_name || "очередь", inline: true }
               ]);
             if (target?.discord_id) {
-              await sendDiscordDirectMessage(
-                target.discord_id,
+              await sendPortalDirectMessage(
+                targetId,
                 target,
                 target.discord_avatar_url,
                 "Вам назначено обращение",
@@ -3497,8 +3561,8 @@ export function createPortalServer(options = {}) {
           if (options.discordCreateCaseChannel) {
             await options.discordCreateCaseChannel(item.id, citizen.discord_id || "", user.discord_id || "");
           }
-          await sendDiscordDirectMessage(
-            user.discord_id,
+          await sendPortalDirectMessage(
+            user.id,
             user,
             user.discord_avatar_url,
             "Обращение принято в работу",
@@ -3549,7 +3613,7 @@ export function createPortalServer(options = {}) {
             VALUES (?, ?, 'closed', 'Обращение закрыто исполнителем.')`).run(item.id, user.id);
           const citizen = db.prepare("SELECT discord_id, discord_avatar_url, display_name, role, username FROM users WHERE id = ?").get(item.user_id);
           if (citizen?.discord_id) {
-            await sendDiscordDirectMessage(citizen.discord_id, citizen, citizen.discord_avatar_url,
+            await sendPortalDirectMessage(item.user_id, citizen, citizen.discord_avatar_url,
               "Обращение закрыто", `Ваше обращение #${item.id} закрыто адвокатом. Теперь можно оставить оценку в портале.`);
           }
           if (options.discordCloseCaseChannel) await options.discordCloseCaseChannel(item.id);
@@ -3696,6 +3760,42 @@ export function createPortalServer(options = {}) {
           return sendJson(res, 200, { ok: true, discordWarning, nicknameWarning, logWarning });
         }
 
+        if (pathname === "/api/exams/history" && req.method === "GET") {
+          if (user.role === citizenRole) throw new HttpError(403, "История экзаменов доступна только сотрудникам Коллегии.");
+          const exams = db.prepare(`SELECT id, track, score, passed, answers_json, created_at
+            FROM exam_results WHERE user_id = ? ORDER BY id DESC LIMIT 50`).all(user.id).map((exam) => {
+            const storedAnswers = parseStoredJson(exam.answers_json, "ответы экзамена");
+            const savedQuestions = Array.isArray(storedAnswers?.questions) ? storedAnswers.questions : null;
+            const answers = Array.isArray(storedAnswers)
+              ? storedAnswers
+              : Array.isArray(storedAnswers?.answers) ? storedAnswers.answers : [];
+            const subject = exam.track.startsWith("law:") ? exam.track.slice(4) : "";
+            const bank = subject ? lawExamBank[subject] : examBank[exam.track];
+            const questions = savedQuestions || (Array.isArray(bank)
+              ? bank.map((question, index) => ({
+                question: question.q,
+                selectedAnswer: Number.isInteger(answers[index]) ? question.a[answers[index]] : "",
+                correctAnswer: question.a[question.correct],
+                correct: answers[index] === question.correct
+              }))
+              : []);
+            const total = questions.length || (Array.isArray(bank) ? bank.length : answers.length);
+            return {
+              id: exam.id,
+              track: exam.track,
+              title: subject
+                ? lawExamTitles[subject] || "Тест по законодательству"
+                : `Проверка знаний · ${exam.track}`,
+              score: exam.score,
+              total,
+              passed: Boolean(exam.passed),
+              created_at: exam.created_at,
+              questions
+            };
+          });
+          return sendJson(res, 200, { exams });
+        }
+
         if (pathname === "/api/exams/current" && req.method === "GET") {
           const attestationId = Number(requestUrl.searchParams.get("attestationId") || 0);
           const subject = String(requestUrl.searchParams.get("subject") || "");
@@ -3778,10 +3878,18 @@ export function createPortalServer(options = {}) {
           }
           const score = answers.reduce((sum, answer, index) => sum + (answer === questions[index].correct ? 1 : 0), 0);
           const passed = score / questions.length >= 0.7;
+          const answerReview = {
+            questions: questions.map((question, index) => ({
+              question: question.q,
+              selectedAnswer: question.a[answers[index]],
+              correctAnswer: question.a[question.correct],
+              correct: answers[index] === question.correct
+            }))
+          };
           db.prepare(`INSERT INTO exam_results
             (user_id, application_id, track, score, passed, answers_json) VALUES (?, ?, ?, ?, ?, ?)`)
             .run(attestation ? attestation.user_id : user.id, application ? application.id : null,
-              track, score, passed ? 1 : 0, JSON.stringify(answers));
+              track, score, passed ? 1 : 0, JSON.stringify(answerReview));
           if (attestation) {
             db.prepare("UPDATE attestations SET score = ?, status = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?")
               .run(score, passed ? "passed" : "failed", attestation.id);
@@ -4226,7 +4334,7 @@ export function createPortalServer(options = {}) {
           const logWarning = await deliverWebhook(webhooks.logs, "Выдано достижение",
             `${user.display_name} выдал достижение «${achievement.title}» сотруднику ${targetId}.`);
           if (target.discord_id) {
-            await sendDiscordDirectMessage(target.discord_id, target, target.discord_avatar_url,
+            await sendPortalDirectMessage(targetId, target, target.discord_avatar_url,
               "Получено достижение", `Вам выдано достижение «${achievement.title}» руководством Коллегии.`);
           }
           return sendJson(res, 201, { awarded: true, logWarning });
@@ -4250,7 +4358,7 @@ export function createPortalServer(options = {}) {
           const logWarning = await deliverWebhook(webhooks.logs, "Вручена награда",
             `${user.display_name} вручил «${title}» сотруднику ${targetId}.`);
           if (target.discord_id) {
-            await sendDiscordDirectMessage(target.discord_id, target, target.discord_avatar_url,
+            await sendPortalDirectMessage(targetId, target, target.discord_avatar_url,
               "Вручена награда", `Вам вручена награда «${title}».\nОснование: ${description || "решение руководства"}`);
           }
           return sendJson(res, 201, { id: Number(result.lastInsertRowid), logWarning });
@@ -5016,7 +5124,7 @@ export function createPortalServer(options = {}) {
 
         if (pathname === "/api/activity-reports" && req.method === "POST") {
           if (user.role === citizenRole) throw new HttpError(403, "Сдавать отчёты могут только сотрудники Коллегии.");
-          const body = await readJson(req, 4 * 1024 * 1024);
+          const body = await readJson(req, 22 * 1024 * 1024);
           const reportType = String(body.reportType || "");
           const occurredAt = String(body.occurredAt || "");
           const reference = String(body.reference || "").trim();
@@ -5040,7 +5148,10 @@ export function createPortalServer(options = {}) {
           if (reportType === "bail" && body.photo) throw new HttpError(400, "К отчёту о залоге скриншот не прикрепляется.");
           let photo = null;
           if (body.photo) {
-            [photo] = parseApplicationAttachments([body.photo]);
+            [photo] = parseApplicationAttachments([body.photo], {
+              maxFileBytes: activityReportPhotoMaxBytes,
+              maxTotalBytes: activityReportPhotoMaxBytes
+            });
             if (!photo.contentType.startsWith("image/")) {
               throw new HttpError(400, "К отчёту можно приложить только изображение.");
             }

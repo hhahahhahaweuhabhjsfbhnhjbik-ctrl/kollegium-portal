@@ -78,9 +78,10 @@ let photozotPhotos = [];
 let activePhotozotGroup = "";
 let activityReportPhoto = null;
 let activityReportPhotoUrl = "";
+let activityReportPhotoRequest = 0;
 let photoViewerReturnFocus = null;
 let currentView = "dashboard";
-let discordDmEnabled = false;
+let discordDmEnabled = true;
 let discordSettings = null;
 const activityReportLabels = {
   call: "Вызов",
@@ -143,6 +144,7 @@ function localDateValue(date = new Date()) {
 async function loadNotifications() {
   const data = await api("/api/notifications");
   discordDmEnabled = Boolean(data.discordDmEnabled);
+  renderDiscordPreferenceButton();
   const count = Number(data.unreadCount || 0);
   const badge = $("#notification-count");
   badge.textContent = count > 99 ? "99+" : String(count);
@@ -300,7 +302,9 @@ async function enterSession(session) {
   $("#pending-screen").classList.add("hidden");
   $("#app-shell").classList.remove("hidden");
   applyRoleVisibility();
-  const requestedView = viewsByPath.get(window.location.pathname) || "dashboard";
+  const requestedView = currentUser.role !== "Гражданин" && currentUser.discordLinked === false
+    ? "awards"
+    : viewsByPath.get(window.location.pathname) || "dashboard";
   await navigate(viewIsAllowed(requestedView) ? requestedView : "dashboard");
   try {
     await loadNotifications();
@@ -1145,6 +1149,50 @@ function highlightLawSearchText(text, query) {
   return output + escapeHtml(text.slice(cursor));
 }
 
+function renderExamHistory(exams) {
+  const attempts = Array.isArray(exams) ? exams : [];
+  const passed = attempts.filter((exam) => exam.passed).length;
+  const totalQuestions = attempts.reduce((sum, exam) => sum + Number(exam.total || 0), 0);
+  const correctAnswers = attempts.reduce((sum, exam) => sum + Number(exam.score || 0), 0);
+  const average = totalQuestions ? Math.round((correctAnswers / totalQuestions) * 100) : 0;
+  $("#exam-history-summary").innerHTML = [
+    ["Всего попыток", attempts.length],
+    ["Сдано", passed],
+    ["Не сдано", attempts.length - passed],
+    ["Точность ответов", `${average}%`]
+  ].map(([label, value]) => `<div class="exam-history-stat"><span>${label}</span><strong>${value}</strong></div>`).join("");
+  $("#exam-history-list").innerHTML = attempts.length ? attempts.map((exam, index) => {
+    const percent = exam.total ? Math.round((exam.score / exam.total) * 100) : 0;
+    const isPassed = Boolean(exam.passed);
+    const questions = Array.isArray(exam.questions) ? exam.questions : [];
+    return `<article class="exam-attempt ${isPassed ? "is-passed" : "is-failed"}">
+      <div class="exam-attempt-heading">
+        <div>
+          <h4>${escapeHtml(exam.title || exam.track || "Экзамен")}</h4>
+          <span class="exam-attempt-meta">${escapeHtml(formatNotificationDate(exam.created_at) || exam.created_at || "")}</span>
+        </div>
+        <div class="exam-attempt-result">
+          <strong>${Number(exam.score || 0)} / ${Number(exam.total || 0)} · ${percent}%</strong>
+          <span class="exam-status-pill ${isPassed ? "is-passed" : "is-failed"}">${isPassed ? "Сдан" : "Не сдан"}</span>
+        </div>
+      </div>
+      ${questions.length ? `<details class="exam-attempt-details" ${index === 0 ? "open" : ""}>
+        <summary>Разбор ответов: ${questions.length}</summary>
+        <ol>${questions.map((item) => {
+          const answered = Boolean(item.selectedAnswer);
+          const stateClass = answered ? item.correct ? "is-correct" : "is-incorrect" : "is-unavailable";
+          return `<li class="exam-question-review ${stateClass}">
+            <p>${escapeHtml(item.question)}</p>
+            <span>Ваш ответ: ${escapeHtml(item.selectedAnswer || "не сохранился в этой записи")}</span>
+            <span>Правильный ответ: ${escapeHtml(item.correctAnswer || "нет данных")}</span>
+            <span>${answered ? item.correct ? "Ответ верный" : "Ответ неверный" : "Подробности ответа недоступны"}</span>
+          </li>`;
+        }).join("")}</ol>
+      </details>` : ""}
+    </article>`;
+  }).join("") : emptyState("Вы ещё не проходили тесты. После первой попытки здесь появятся баллы, статус и разбор ответов.");
+}
+
 async function loadTests() {
   const hasCareerExam = Boolean(examTracks[currentUser.role]);
   $("#career-exam-title").textContent = hasCareerExam
@@ -1158,7 +1206,11 @@ async function loadTests() {
   $("#career-quick-links-label").textContent = hasCareerExam
     ? "Быстрые переходы:"
     : "Для вашей должности доступно:";
-  const data = await api("/api/applications");
+  const [data, history] = await Promise.all([
+    api("/api/applications"),
+    api("/api/exams/history")
+  ]);
+  renderExamHistory(history.exams);
   const exam = (data.applications || []).find((item) =>
     item.type === "exam" && item.career_flow && item.stage_role === currentUser.role &&
     item.status === "pending" && String(item.result || "").toLocaleLowerCase("ru").includes("пройдена"));
@@ -1219,14 +1271,22 @@ async function submitQuiz(event) {
   }
   const body = { answers };
   if (quizSession.subject) body.subject = quizSession.subject;
+  const examTitle = quizSession.subject
+    ? lawExamSubjects[quizSession.subject] || "Тест по законодательству"
+    : `Проверка знаний · ${quizSession.track}`;
   const result = await api("/api/exams", { method: "POST", body });
   $("#quiz-dialog").classList.add("hidden");
   quizSession = null;
   if (result.user) {
     await enterSession({ user: result.user, csrfToken });
-  } else if (result.interviewRequired) {
-    await loadTests();
   }
+  $("#exam-latest-result").className = `exam-latest-result ${result.passed ? "is-passed" : "is-failed"}`;
+  $("#exam-latest-result").innerHTML = `<span class="exam-result-status">${result.passed ? "ТЕСТ СДАН" : "ТЕСТ НЕ СДАН"}</span>
+    <div><strong>${escapeHtml(examTitle)}</strong><span>${Number(result.score)} из ${Number(result.total)} правильных · ${Math.round((result.score / result.total) * 100)}%</span></div>
+    ${result.interviewRequired ? "<p>Следующий шаг — отметка готовности и обзвон с руководством.</p>" : ""}`;
+  $("#exam-latest-result").classList.remove("hidden");
+  await loadTests();
+  if (currentView === "tests") $("#exam-latest-result").scrollIntoView({ behavior: "smooth", block: "center" });
   const nextStep = result.interviewRequired ? " Следующий шаг — отметка готовности и обзвон с руководством." : "";
   notify(`Результат: ${result.score}/${result.total}. ${result.passed ? "Тест сдан." : "Тест не сдан."}${nextStep}`);
 }
@@ -1549,7 +1609,8 @@ async function copyMemo() {
 }
 
 async function loadAwards() {
-  const data = await api("/api/profile");
+  const status = await api("/api/discord/status");
+  const data = status.linked ? await api("/api/profile") : { awards: [], achievements: [] };
   const awards = (data.awards || []).map((award) => ({
     title: award.title,
     description: award.description || "Награда Коллегии",
@@ -1571,29 +1632,48 @@ async function loadAwards() {
       ${item.date ? `<span class="award-date">${escapeHtml(item.date)}</span>` : ""}
     </article>`
   ).join("") : emptyState("Наград и достижений пока нет.");
-  await loadDiscordSettings();
+  await loadDiscordSettings(status);
 }
 
-async function loadDiscordSettings() {
-  discordSettings = await api("/api/discord/status");
+function renderDiscordPreferenceButton() {
+  const button = $("#discord-dm-toggle");
+  if (!button) return;
+  button.textContent = discordDmEnabled ? "Выключить уведомления" : "Включить уведомления";
+  button.classList.toggle("is-enabled", discordDmEnabled);
+  button.classList.toggle("is-disabled", !discordDmEnabled);
+  button.setAttribute("aria-pressed", String(discordDmEnabled));
+  button.disabled = !discordSettings?.linked || !discordSettings?.botCanDm;
+}
+
+async function loadDiscordSettings(discordStatus = null) {
+  const [settings, notifications] = await Promise.all([
+    discordStatus ? Promise.resolve(discordStatus) : api("/api/discord/status"),
+    api("/api/notifications")
+  ]);
+  discordSettings = settings;
+  discordDmEnabled = Boolean(notifications.discordDmEnabled);
   const connected = Boolean(discordSettings.linked);
-  const status = $("#discord-link-status");
+  const statusPill = $("#discord-link-status");
   const connectButton = $("#discord-connect");
-  const preference = $("#discord-dm-enabled");
-  status.textContent = connected
+  const unlinkButton = $("#discord-unlink");
+  const preference = $("#discord-dm-toggle");
+  statusPill.textContent = connected
     ? `Привязан: ${discordSettings.username || "Discord"}`
     : "Discord не привязан";
   connectButton.disabled = connected || !discordSettings.configured;
   connectButton.classList.toggle("hidden", connected);
-  preference.checked = discordDmEnabled;
-  preference.disabled = !connected || !discordSettings.botCanDm;
+  unlinkButton.classList.toggle("hidden", !connected);
+  preference.classList.toggle("hidden", !connected);
+  renderDiscordPreferenceButton();
 
   const message = connected
     ? discordSettings.botCanDm
-      ? "Discord привязан. Включите переключатель, чтобы получать уведомления бота в личные сообщения."
+      ? discordDmEnabled
+        ? "Личные сообщения бота разрешены. Нажмите зелёную кнопку, если хотите их выключить."
+        : "Личные сообщения бота выключены. Нажмите красную кнопку, чтобы снова получать уведомления."
       : "Discord привязан, но бот не настроен для личных сообщений."
     : discordSettings.configured
-      ? "Привязка необязательна. Подключите Discord и включите ЛС бота, если хотите получать личные уведомления."
+      ? "Подключите Discord, чтобы получать личные уведомления. Привязку можно сменить в любой момент."
       : "Привязка необязательна. Для подключения Discord владелец сайта должен настроить OAuth.";
   $("#discord-status-message").textContent = message;
 }
@@ -1603,20 +1683,32 @@ async function connectDiscord() {
   window.location.assign(result.authorizeUrl);
 }
 
-async function saveDiscordNotificationPreference(event) {
-  const checkbox = event.target;
+async function unlinkDiscord() {
+  if (!window.confirm("Отвязать текущий Discord от аккаунта? После этого можно будет подключить другой.")) return;
+  const result = await api("/api/discord/unlink", { method: "POST", body: {} });
+  currentUser.discordLinked = false;
+  await loadDiscordSettings();
+  notify(result.discordWarning
+    ? `Discord отвязан. ${result.discordWarning}`
+    : "Discord отвязан. Теперь можно подключить другой аккаунт.");
+}
+
+async function toggleDiscordDmPreference(button) {
+  button.disabled = true;
   try {
     const result = await api("/api/notifications/preferences", {
       method: "PATCH",
-      body: { discordDmEnabled: checkbox.checked }
+      body: { discordDmEnabled: !discordDmEnabled }
     });
     discordDmEnabled = Boolean(result.discordDmEnabled);
+    renderDiscordPreferenceButton();
     notify(discordDmEnabled
-      ? "Личные уведомления Discord включены."
-      : "Личные уведомления Discord выключены.");
+      ? "Бот снова будет присылать уведомления в ЛС."
+      : "Бот больше не будет присылать уведомления в ЛС.");
   } catch (error) {
-    checkbox.checked = !checkbox.checked;
     throw error;
+  } finally {
+    renderDiscordPreferenceButton();
   }
 }
 
@@ -1643,6 +1735,7 @@ async function loadAudit() {
   ]);
   const members = memberData.members || [];
   const reprimands = reprimandData.reprimands || [];
+  $("#audit-test-notifications").classList.toggle("hidden", currentUser.username !== "yyte");
   const counts = new Map();
   reprimands.forEach((item) => counts.set(Number(item.user_id), (counts.get(Number(item.user_id)) || 0) + 1));
   $("#reprimand-member").innerHTML = `<option value="">Выберите сотрудника</option>${members
@@ -1737,6 +1830,22 @@ async function purgeAllMembers() {
     ? `Удалено аккаунтов: ${Number(result.deletedCount)}. Для ${deliveryWarnings} аккаунтов не удалось отправить уведомление или снять Discord-роли.`
     : `Удалено аккаунтов: ${Number(result.deletedCount)}. Ваш текущий аккаунт сохранён.`);
   await loadAudit();
+}
+
+async function testAuditNotification(button) {
+  if (currentUser.username !== "yyte") {
+    throw new Error("Тестовые уведомления доступны только владельцу аккаунта.");
+  }
+  const result = await api("/api/notifications/test", {
+    method: "POST",
+    body: { type: button.dataset.type }
+  });
+  notify(result.warning
+    ? `Тестовое уведомление сохранено, но Discord не доставил ЛС: ${result.warning}`
+    : result.discordSent
+      ? "Тестовое сообщение отправлено только в ваш Discord."
+      : "Тест записан в уведомлениях портала; отправка ЛС отключена.");
+  await loadNotifications();
 }
 
 function fileAsBase64(file) {
@@ -1856,20 +1965,25 @@ function updateActivityReportFields() {
   if (isBailReport) clearActivityReportPhoto();
 }
 
-function setActivityReportPhoto(file) {
+async function setActivityReportPhoto(file) {
   if (!file) return;
   if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
     throw new Error("Выберите изображение JPG, PNG или WebP.");
   }
-  if (file.size > 2 * 1024 * 1024) throw new Error("Размер фото не должен превышать 2 МБ.");
-  if (activityReportPhotoUrl) URL.revokeObjectURL(activityReportPhotoUrl);
+  if (file.size > 15 * 1024 * 1024) throw new Error("Размер фото не должен превышать 15 МБ.");
+  const requestId = ++activityReportPhotoRequest;
+  activityReportPhoto = null;
+  activityReportPhotoUrl = "";
+  renderActivityReportPhoto();
+  const dataUrl = await readActivityReportPhoto(file);
+  if (requestId !== activityReportPhotoRequest) return;
   activityReportPhoto = file;
-  activityReportPhotoUrl = URL.createObjectURL(file);
+  activityReportPhotoUrl = dataUrl;
   renderActivityReportPhoto();
 }
 
 function clearActivityReportPhoto() {
-  if (activityReportPhotoUrl) URL.revokeObjectURL(activityReportPhotoUrl);
+  activityReportPhotoRequest += 1;
   activityReportPhoto = null;
   activityReportPhotoUrl = "";
   $("#activity-report-photo").value = "";
@@ -1882,12 +1996,11 @@ function handleActivityReportPaste(event) {
   const file = imageItem?.getAsFile();
   if (!file) return;
   event.preventDefault();
-  try {
-    setActivityReportPhoto(file);
-    notify("Скриншот добавлен к отчёту.");
-  } catch (error) {
-    notify(error.message);
-  }
+  setActivityReportPhoto(file)
+    .then(() => {
+      if (activityReportPhoto === file) notify("Скриншот добавлен к отчёту.");
+    })
+    .catch((error) => notify(error.message));
 }
 
 function readActivityReportPhoto(file) {
@@ -1915,7 +2028,7 @@ async function submitActivityReport(event) {
   const reportType = $("#activity-report-type").value;
   const photo = reportType === "call" ? activityReportPhoto : null;
   if (reportType === "call" && !photo) throw new Error("Добавьте фото-доказательство к отчёту о вызове.");
-  const photoData = photo ? await readActivityReportPhoto(photo) : null;
+  const photoData = photo ? activityReportPhotoUrl : null;
   const result = await api("/api/activity-reports", {
     method: "POST",
     body: {
@@ -2050,6 +2163,9 @@ async function handleAction(button) {
   else if (action === "read-all-notifications") await readAllNotifications();
   else if (action === "open-notification") await openNotification(button);
   else if (action === "connect-discord") await connectDiscord();
+  else if (action === "unlink-discord") await unlinkDiscord();
+  else if (action === "toggle-discord-dm") await toggleDiscordDmPreference(button);
+  else if (action === "test-audit-notification") await testAuditNotification(button);
   else if (action === "review-activity-report") await reviewActivityReport(button);
   else if (action === "remove-activity-report-photo") clearActivityReportPhoto();
   else if (action === "select-photozot-group") {
@@ -2186,17 +2302,12 @@ document.addEventListener("change", (event) => {
   }
   const photoInput = event.target.closest("#activity-report-photo");
   if (photoInput) {
-    try {
-      if (photoInput.files[0]) setActivityReportPhoto(photoInput.files[0]);
-      else clearActivityReportPhoto();
-    } catch (error) {
-      clearActivityReportPhoto();
-      notify(error.message);
-    }
-    return;
-  }
-  if (event.target.closest("#discord-dm-enabled")) {
-    saveDiscordNotificationPreference(event).catch((error) => notify(error.message));
+    if (photoInput.files[0]) {
+      setActivityReportPhoto(photoInput.files[0]).catch((error) => {
+        clearActivityReportPhoto();
+        notify(error.message);
+      });
+    } else clearActivityReportPhoto();
     return;
   }
   const select = event.target.closest("[data-member-role]");

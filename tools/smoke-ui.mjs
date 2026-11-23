@@ -61,10 +61,11 @@ const responses = {
   "/api/auth/me": { user, csrfToken: "test-csrf" },
   "/api/profile": { profile, awards: [award], achievements: [] },
   "/api/discord/status": {
-    configured: false,
-    botConfigured: false,
-    botCanDm: false,
-    linked: false
+    configured: true,
+    botConfigured: true,
+    botCanDm: true,
+    linked: true,
+    username: "gka"
   },
   "/api/notifications": {
     notifications: [{
@@ -77,7 +78,7 @@ const responses = {
       read_at: null
     }],
     unreadCount: 1,
-    discordDmEnabled: false
+    discordDmEnabled: true
   },
   "/api/notifications/read-all": { ok: true },
   "/api/activity-reports": {
@@ -97,6 +98,40 @@ const responses = {
   "/api/activity-reports/101": { ok: true, status: "approved" },
   "/api/auth/logout": { ok: true },
   "/api/applications": { applications: [] },
+  "/api/exams/history": {
+    exams: [
+      {
+        id: 2,
+        track: "law:uk",
+        title: "Уголовный кодекс",
+        score: 4,
+        total: 5,
+        passed: true,
+        created_at: "2026-02-14 12:00:00",
+        questions: [{
+          question: "Какой срок установлен?",
+          selectedAnswer: "Правильный вариант",
+          correctAnswer: "Правильный вариант",
+          correct: true
+        }]
+      },
+      {
+        id: 1,
+        track: "Юрист",
+        title: "Проверка знаний · Юрист",
+        score: 2,
+        total: 5,
+        passed: false,
+        created_at: "2026-01-10 12:00:00",
+        questions: [{
+          question: "Как поступить?",
+          selectedAnswer: "Неверный вариант",
+          correctAnswer: "Верный вариант",
+          correct: false
+        }]
+      }
+    ]
+  },
   "/api/lawsuits": { lawsuits: [] },
   "/api/members": {
     members: [{
@@ -212,6 +247,10 @@ window.fetch = async (input, options = {}) => {
       completed: correct || completedRpCaseIds.has(body.caseId),
       explanation: correct ? "Точный ответ." : "Ответ неверный."
     };
+  } else if (url.pathname === "/api/notifications/preferences" && method === "PATCH") {
+    const preference = JSON.parse(options.body);
+    responses["/api/notifications"].discordDmEnabled = preference.discordDmEnabled;
+    payload = preference;
   }
   if (payload === undefined) {
     problems.push(`Необработанный запрос API: ${url.pathname}`);
@@ -258,6 +297,12 @@ check(!document.querySelector("#register-email") &&
   !document.querySelector("#globalSearch") &&
   !document.querySelector(".global-search"),
 "Email не должен быть в регистрации, а общий поиск — в верхней панели.");
+check(!document.querySelector("#discord-dm-enabled") &&
+  document.querySelector("#discord-dm-toggle") &&
+  document.querySelector("#discord-unlink"),
+"Настройки Discord должны использовать переключатель и отдельную кнопку отвязки вместо чекбокса.");
+check(document.querySelector("#audit-test-notifications")?.classList.contains("hidden"),
+  "Тестовые уведомления аудита должны быть скрыты для аккаунтов, кроме yyte.");
 check(document.querySelector(".quick-actions-panel"), "На главной должны быть быстрые переходы.");
 check(css.includes(".rp-phone-conversation .ifruit-messages::-webkit-scrollbar-thumb") &&
   css.includes("scrollbar-color: #45516a #0b101b"),
@@ -451,6 +496,7 @@ for (const [route, view] of [
   ["/page/iski", "lawsuits"],
   ["/page/rating", "rating"],
   ["/page/audit", "audit"],
+  ["/page/exams", "tests"],
   ["/page/reports", "reports"]
 ]) {
   dom.reconfigure({ url: `http://127.0.0.1:3000${route}` });
@@ -463,6 +509,38 @@ check(approveButton?.textContent.trim() === "Одобрить" && approveButton.
   "ГКА должен одобрять новые аккаунты из кадрового аудита.");
 
 check(document.querySelector("#awardsGrid .award-card")?.textContent.includes("Мастер допроса"), "Награда из профиля не отображается.");
+check(document.querySelector("#discord-dm-toggle")?.textContent.trim() === "Выключить уведомления" &&
+  document.querySelector("#discord-dm-toggle")?.classList.contains("is-enabled"),
+"При включённых ЛС должна отображаться зелёная кнопка их отключения.");
+document.querySelector("#discord-dm-toggle")?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+await wait(15);
+check(document.querySelector("#discord-dm-toggle")?.textContent.trim() === "Включить уведомления" &&
+  document.querySelector("#discord-dm-toggle")?.classList.contains("is-disabled"),
+"После отключения ЛС должна отображаться красная кнопка обратного включения.");
+document.querySelector("#discord-dm-toggle")?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+await wait(15);
+check(document.querySelector("#discord-dm-toggle")?.textContent.trim() === "Выключить уведомления" &&
+  document.querySelector("#discord-dm-toggle")?.classList.contains("is-enabled"),
+"Повторное нажатие должно включить ЛС и вернуть зелёную кнопку.");
+const examAttempts = [...document.querySelectorAll("#exam-history-list .exam-attempt")];
+const examStats = [...document.querySelectorAll("#exam-history-summary .exam-history-stat")]
+  .map((item) => `${item.querySelector("span")?.textContent}:${item.querySelector("strong")?.textContent}`);
+check(examAttempts.length === 2 &&
+  examAttempts[0].classList.contains("is-passed") &&
+  examAttempts[0].textContent.includes("4 / 5") &&
+  examAttempts[1].classList.contains("is-failed") &&
+  examStats.includes("Всего попыток:2") &&
+  examStats.includes("Сдано:1") &&
+  examAttempts[0].querySelector(".exam-attempt-details")?.open &&
+  examAttempts[0].textContent.includes("Правильный вариант"),
+"История экзаменов должна показывать попытки, результат, статус и разбор ответов.");
+responses["/api/discord/status"] = {
+  configured: false,
+  botConfigured: false,
+  botCanDm: false,
+  linked: false
+};
+await window.loadDiscordSettings();
 check(requested.some((entry) => entry === "GET /api/laws"), "Экран законов не запросил данные сервера.");
 check(requested.some((entry) => entry === "GET /api/reports"), "Экран отчётности не запросил серверный отчёт.");
 window.switchLawsTab("zones");
@@ -521,8 +599,6 @@ document.querySelector("#activity-report-type").dispatchEvent(new window.Event("
 document.querySelector("#activity-report-date").value = "2026-01-15";
 document.querySelector("#activity-report-reference").value = "PC-404";
 document.querySelector("#activity-report-details").value = "Проверка отправки жалобы.";
-window.URL.createObjectURL = () => "blob:report-photo";
-window.URL.revokeObjectURL = () => {};
 const reportImage = new window.File([
   new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])
 ], "report.png", { type: "image/png" });
@@ -531,8 +607,11 @@ Object.defineProperty(pasteEvent, "clipboardData", {
   value: { items: [{ type: "image/png", getAsFile: () => reportImage }] }
 });
 document.dispatchEvent(pasteEvent);
+await wait(10);
 check(!document.querySelector("#activity-report-photo-preview")?.classList.contains("hidden"),
   "Вставленное через Ctrl+V фото должно сразу появиться в предпросмотре.");
+check(document.querySelector("#activity-report-photo-preview img")?.getAttribute("src")?.startsWith("data:image/png;base64,"),
+  "Предпросмотр фото должен использовать загруженное содержимое, а не временный URL.");
 await window.submitActivityReport({ preventDefault() {} });
 check(requested.includes("POST /api/activity-reports"), "Форма отчёта не отправила отдельную запись.");
 check(activityReportBodies[0]?.reportType === "call" && activityReportBodies[0]?.photo?.name === "report.png",

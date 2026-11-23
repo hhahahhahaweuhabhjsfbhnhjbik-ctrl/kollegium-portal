@@ -1477,8 +1477,14 @@ body::before {
 .discord-settings { display: grid; gap: 12px; margin-top: 14px; }
 .discord-settings h2 { font-size: 16px; }
 .discord-settings-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
-.discord-dm-option { display: flex; align-items: flex-start; gap: 9px; color: var(--text-secondary); font-size: 12px; }
-.discord-dm-option input { margin-top: 3px; accent-color: #f5a623; }
+.discord-dm-option { margin: 0; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
+.discord-dm-toggle.is-enabled { border-color: #37b24d; color: #07140a; background: #51cf66; }
+.discord-dm-toggle.is-enabled:hover { border-color: #69db7c; background: #69db7c; }
+.discord-dm-toggle.is-disabled { border-color: #fa5252; color: #fff; background: #c92a2a; }
+.discord-dm-toggle.is-disabled:hover { border-color: #ff6b6b; background: #e03131; }
+.discord-dm-toggle:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.audit-test-notifications { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.audit-test-notifications span { margin-right: 4px; color: var(--text-muted); font-size: 11px; }
 
 @media (prefers-reduced-motion: reduce) {
   .snow-layer { display: none; }

@@ -594,6 +594,18 @@
               <button class="btn" id="btnTest2" type="button" data-action="start-law-exam">Тест по законам</button>
               <p class="text-muted law-test-hint">Выберите кодекс и начните тест. Результат появится сразу после ответа на вопросы.</p>
             </div>
+            <section class="card col-span-12 exam-history-card" aria-labelledby="exam-history-title">
+              <div class="exam-history-heading">
+                <div>
+                  <span class="badge badge-info">МОИ РЕЗУЛЬТАТЫ</span>
+                  <h3 id="exam-history-title">История тестов и экзаменов</h3>
+                  <p class="text-muted">Баллы, статус и разбор каждого ответа сохраняются здесь после прохождения.</p>
+                </div>
+              </div>
+              <div id="exam-latest-result" class="exam-latest-result hidden" role="status" aria-live="polite"></div>
+              <div id="exam-history-summary" class="exam-history-summary" aria-live="polite"></div>
+              <div id="exam-history-list" class="exam-history-list" aria-live="polite"></div>
+            </section>
           </div>
         </section>
 
@@ -659,11 +671,14 @@
                 <svg class="icon icon-sm"><use href="/web/icons-sprite.svg#icon-27_discord_webhook"></use></svg>
                 Подключить Discord
               </button>
+              <button class="btn hidden" id="discord-unlink" type="button" data-action="unlink-discord">
+                Отвязать Discord
+              </button>
+              <button class="btn hidden discord-dm-toggle" id="discord-dm-toggle" type="button" data-action="toggle-discord-dm" disabled>
+                Выключить уведомления
+              </button>
             </div>
-            <label class="discord-dm-option">
-              <input id="discord-dm-enabled" type="checkbox" disabled>
-              <span>Разрешить боту присылать уведомления в личные сообщения</span>
-            </label>
+            <p class="discord-dm-option">Зелёная кнопка «Выключить уведомления» означает, что ЛС бота разрешены. Красная «Включить уведомления» означает, что ЛС выключены; нажмите её, чтобы получать сообщения снова.</p>
           </div>
         </section>
 
@@ -701,6 +716,12 @@
               <div>
                 <h2 style="font-size: 18px; font-weight: 800;">Кадровый аудит</h2>
                 <p style="font-size: 12.5px; color: var(--text-muted);">Состав, кадровые решения и одобрение новых сотрудников</p>
+              </div>
+              <div id="audit-test-notifications" class="audit-test-notifications hidden" aria-label="Тестовые уведомления">
+                <span>Тестовые ЛС отправляются только на ваш аккаунт</span>
+                <button class="btn" type="button" data-action="test-audit-notification" data-type="role">Тест роли</button>
+                <button class="btn" type="button" data-action="test-audit-notification" data-type="status">Тест статуса</button>
+                <button class="btn" type="button" data-action="test-audit-notification" data-type="dismissal">Тест увольнения</button>
               </div>
               <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                 <button class="btn head-only hidden" type="button" data-action="purge-all-members">
@@ -754,7 +775,7 @@
                 <label id="activity-report-photo-field">Фото-доказательство
                   <input class="input" id="activity-report-photo" type="file" accept="image/jpeg,image/png,image/webp">
                 </label>
-                <p class="activity-report-upload-hint" id="activity-report-upload-hint">Можно выбрать файл или вставить скриншот через Ctrl+V. JPG, PNG или WebP, до 2 МБ.</p>
+                <p class="activity-report-upload-hint" id="activity-report-upload-hint">Можно выбрать файл или вставить скриншот через Ctrl+V. JPG, PNG или WebP, до 15 МБ.</p>
                 <div id="activity-report-photo-preview" class="activity-report-photo-preview hidden" aria-live="polite"></div>
                 <button class="btn btn-gold" type="submit">Отправить на одобрение</button>
               </form>

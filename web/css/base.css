@@ -458,6 +458,41 @@ html, body {
 .quiz-number { min-width: 24px; height: 24px; display: inline-grid; place-items: center; border-radius: 50%; color: #111; background: var(--accent-gold); font-size: 12px; }
 .quiz-answer { width: 100%; padding: 8px 10px; border: 1px solid transparent; border-radius: var(--radius-sm); transition: .15s ease; }
 .quiz-answer:has(input:checked) { border-color: rgba(245, 158, 11, .55); background: rgba(245, 158, 11, .08); }
+.exam-history-card { display: grid; gap: 14px; }
+.exam-history-heading h3 { margin: 8px 0 4px; font-size: 18px; }
+.exam-history-heading p { font-size: 12.5px; }
+.exam-history-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 9px; }
+.exam-history-stat { padding: 11px 13px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--bg-body); }
+.exam-history-stat span { display: block; color: var(--text-muted); font-size: 11px; }
+.exam-history-stat strong { display: block; margin-top: 5px; font-size: 18px; }
+.exam-history-list { display: grid; gap: 10px; }
+.exam-attempt { padding: 13px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-body); }
+.exam-attempt.is-passed { border-color: rgba(55, 178, 77, .35); }
+.exam-attempt.is-failed { border-color: rgba(231, 76, 60, .35); }
+.exam-attempt-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.exam-attempt-heading h4 { margin: 0 0 4px; font-size: 14px; }
+.exam-attempt-meta { color: var(--text-muted); font-size: 11px; }
+.exam-attempt-result { flex: 0 0 auto; text-align: right; }
+.exam-attempt-result strong { display: block; font-size: 16px; }
+.exam-status-pill, .exam-result-status { display: inline-block; margin-top: 5px; padding: 3px 8px; border-radius: 999px; font-size: 10px; font-weight: 800; }
+.exam-status-pill.is-passed, .exam-result-status { color: #b7f0c2; background: rgba(55, 178, 77, .14); }
+.exam-status-pill.is-failed { color: #ffc0b8; background: rgba(231, 76, 60, .14); }
+.exam-latest-result { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 13px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-body); }
+.exam-latest-result.is-passed { border-color: rgba(55, 178, 77, .45); }
+.exam-latest-result.is-failed { border-color: rgba(231, 76, 60, .45); }
+.exam-latest-result .exam-result-status { margin-top: 0; }
+.exam-latest-result.is-failed .exam-result-status { color: #ffc0b8; background: rgba(231, 76, 60, .14); }
+.exam-latest-result > div { display: grid; gap: 4px; }
+.exam-latest-result > div span, .exam-latest-result p { color: var(--text-secondary); font-size: 12px; }
+.exam-latest-result p { flex-basis: 100%; margin: 0; }
+.exam-attempt-details { margin-top: 12px; border-top: 1px solid var(--border-subtle); }
+.exam-attempt-details summary { padding-top: 10px; color: var(--text-secondary); font-size: 12px; cursor: pointer; }
+.exam-question-review { margin-top: 9px; padding: 10px; border-left: 3px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--bg-elevated); }
+.exam-question-review.is-correct { border-left-color: #37b24d; }
+.exam-question-review.is-incorrect { border-left-color: #e74c3c; }
+.exam-question-review.is-unavailable { border-left-color: var(--border-subtle); }
+.exam-question-review p { margin: 0 0 6px; font-size: 12px; font-weight: 700; }
+.exam-question-review span { display: block; margin-top: 3px; color: var(--text-secondary); font-size: 11px; line-height: 1.45; }
 .laws-list { display: flex; flex-direction: column; gap: 10px; }
 .laws-subtabs { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
 .photozot-tabs { display: flex; gap: 7px; margin: 8px 0 14px; overflow-x: auto; padding: 2px 1px 5px; }

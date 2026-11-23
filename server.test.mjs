@@ -1238,6 +1238,7 @@ test("Discord permission failures explain how to fix role synchronization", asyn
     (username,password_hash,display_name,role,status,discord_id,discord_username)
     VALUES (?,?,?,?,?,?,?)`).run("linked", passwordHash, "Участник", "Юрист", "active",
       "345678901234567890", "linked-user").lastInsertRowid);
+  db.prepare("INSERT INTO notification_preferences (user_id,discord_dm_enabled) VALUES (?,0)").run(memberId);
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
   const admin = await createClient(baseUrl);
@@ -1650,6 +1651,16 @@ test("all law tests are available to staff and supplied law text omits copied im
       assert.deepEqual({ score: result.data.score, total: result.data.total, passed: result.data.passed },
         { score: 5, total: 5, passed: true });
     }
+    const examHistory = await lawyer("/api/exams/history");
+    assert.equal(examHistory.status, 200);
+    assert.equal(examHistory.data.exams.length, 8);
+    const completedAk = examHistory.data.exams.find((exam) => exam.track === "law:ak");
+    assert.equal(completedAk.title, "Административный кодекс");
+    assert.equal(completedAk.total, 5);
+    assert.equal(completedAk.passed, true);
+    assert.equal(completedAk.questions.length, 5);
+    assert.equal(completedAk.questions[0].correct, true);
+    assert.equal(completedAk.questions[0].selectedAnswer, completedAk.questions[0].correctAnswer);
     assert.equal((await lawyer("/api/exams/current?subject=invalid")).status, 400);
     const code = await lawyer("/api/laws/ak");
     assert.equal(code.status, 200);
@@ -1681,6 +1692,7 @@ test("all law tests are available to staff and supplied law text omits copied im
       username: "citizen", password: "CodeExamPassword!23"
     })).status, 200);
     assert.equal((await citizen("/api/exams/current?subject=ak")).status, 403);
+    assert.equal((await citizen("/api/exams/history")).status, 403);
     assert.equal((await citizen("/api/rp-practice/completions")).status, 403);
     assert.equal((await citizen("/api/rp-practice/answer", "POST", {
       caseId: "rp_easy_01", answerIndex: 1
@@ -1984,6 +1996,113 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
     assert.equal(syncRequests[0].body.token, syncToken);
     assert.equal(syncRequests[0].body.report.rows.find((row) => row.userId === lawyerId).casesClosed, 1);
     assert.equal(JSON.stringify(syncRequests[0].body.report).includes("email"), false);
+
+    const largePhotoBytes = Buffer.alloc(2 * 1024 * 1024 + 128);
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(largePhotoBytes);
+    const largePhotoReport = await lawyer("/api/activity-reports", "POST", {
+      reportType: "call",
+      occurredAt: "2026-10-25",
+      reference: "CALL-LARGE-PHOTO",
+      details: "Фото отчёта больше прежнего лимита 2 МБ.",
+      photo: {
+        name: "large-evidence.png",
+        type: "image/png",
+        data: `data:image/png;base64,${largePhotoBytes.toString("base64")}`
+      }
+    });
+    assert.equal(largePhotoReport.status, 201);
+    const largePhoto = await lawyer.raw(`/api/activity-reports/${largePhotoReport.data.id}/photo`);
+    assert.equal(largePhoto.status, 200);
+    assert.equal(largePhoto.bytes.length, largePhotoBytes.length);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+    db.close();
+  }
+});
+
+test("Discord preference persists, audit test notifications are owner-only, and unlink permits relinking", async () => {
+  const discordRequests = [];
+  const server = createPortalServer({
+    dbPath: ":memory:",
+    cookieSecure: false,
+    requireDiscordLink: true,
+    discordClientId: "test-client",
+    discordClientSecret: "test-secret",
+    discordRedirectUri: "http://127.0.0.1:3000/api/discord/callback",
+    discordBotToken: "test-bot-token",
+    discordGuildId: "123456789012345678",
+    discordRoleIds: {},
+    discordFetch: async (url, options) => {
+      const requestUrl = String(url);
+      discordRequests.push({ url: requestUrl, method: options?.method || "GET" });
+      if (requestUrl.endsWith("/users/@me/channels")) {
+        return new Response(JSON.stringify({ id: "234567890123456789" }), { status: 200 });
+      }
+      if (requestUrl.includes("/guilds/123456789012345678/members/")) {
+        return new Response(JSON.stringify({ roles: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ id: "message-id" }), { status: 200 });
+    }
+  });
+  const db = server.portalDb;
+  const password = "DiscordPreferencePassword!23";
+  const salt = randomBytes(16);
+  const hash = scryptSync(password, salt, 64, {
+    N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024
+  });
+  const passwordHash = `scrypt$${salt.toString("base64")}$${hash.toString("base64")}`;
+  const addUser = (username, role, discordId = null) => Number(db.prepare(`INSERT INTO users
+    (username,password_hash,display_name,role,status,discord_id)
+    VALUES (?,?,?,?,'active',?)`).run(username, passwordHash, username, role, discordId).lastInsertRowid);
+  const ownerId = addUser("yyte", "ЗГКА", "345678901234567890");
+  addUser("other-gka", "ГКА");
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const owner = await createClient(baseUrl);
+  const otherGka = await createClient(baseUrl);
+  try {
+    assert.equal((await owner("/api/auth/login", "POST", {
+      username: "yyte", password
+    })).status, 200);
+    assert.equal((await otherGka("/api/auth/login", "POST", {
+      username: "other-gka", password
+    })).status, 200);
+
+    assert.equal((await owner("/api/notifications")).data.discordDmEnabled, true);
+    assert.equal((await otherGka("/api/notifications/test", "POST", { type: "role" })).status, 403);
+    const firstTest = await owner("/api/notifications/test", "POST", { type: "role" });
+    assert.equal(firstTest.status, 201);
+    assert.equal(firstTest.data.discordSent, true);
+    assert.equal(discordRequests.filter((request) =>
+      request.url.endsWith("/users/@me/channels") || /\/channels\/\d+\/messages$/.test(request.url)).length, 2);
+
+    assert.equal((await owner("/api/notifications/preferences", "PATCH", {
+      discordDmEnabled: false
+    })).status, 200);
+    assert.equal((await owner("/api/notifications")).data.discordDmEnabled, false);
+    const optedOutTest = await owner("/api/notifications/test", "POST", { type: "status" });
+    assert.equal(optedOutTest.status, 201);
+    assert.equal(optedOutTest.data.discordSent, false);
+    assert.equal(discordRequests.filter((request) =>
+      request.url.endsWith("/users/@me/channels") || /\/channels\/\d+\/messages$/.test(request.url)).length, 2);
+
+    assert.equal((await owner("/api/notifications/preferences", "PATCH", {
+      discordDmEnabled: true
+    })).status, 200);
+    assert.equal((await owner("/api/notifications")).data.discordDmEnabled, true);
+    const unlinked = await owner("/api/discord/unlink", "POST", {});
+    assert.equal(unlinked.status, 200);
+    assert.equal(db.prepare("SELECT discord_id FROM users WHERE id = ?").get(ownerId).discord_id, null);
+    assert.equal((await owner("/api/discord/status")).data.linked, false);
+    assert.equal((await owner("/api/discord/link", "POST", {})).status, 200);
+    assert.equal((await owner("/api/profile")).status, 403);
+
+    const ownerNotifications = await owner("/api/notifications");
+    assert.equal(ownerNotifications.data.notifications.filter((item) =>
+      item.notification_type === "audit_test").length, 2);
+    assert.equal((await otherGka("/api/notifications")).data.notifications.length, 0);
   } finally {
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
