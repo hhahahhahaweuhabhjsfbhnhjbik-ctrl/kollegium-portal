@@ -1,16 +1,8 @@
 #!/usr/bin/env node
 /**
- * Смоук-тест интерфейса без браузера.
+ * Browserless smoke test for the redesigned portal and its API-backed views.
  *
- * Поднимает advokate.html в jsdom, подменяет сеть заранее подготовленными
- * ответами API, выполняет модули web/js и проверяет, что:
- *   • приложение стартует без ошибок JavaScript;
- *   • главная панель заполняется данными;
- *   • витрина «Элита коллегии» рисует ровно 10 наград;
- *   • каждый раздел открывается без исключений;
- *   • в HTML не осталось инлайновой логики.
- *
- * Запуск: node tools/smoke-ui.mjs
+ * Run with: node tools/smoke-ui.mjs
  */
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -19,135 +11,151 @@ import { JSDOM, VirtualConsole } from "jsdom";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const read = (relative) => readFile(path.join(root, relative), "utf8");
-
-/* ── Исходники интерфейса в порядке зависимостей ────────────────────────── */
 const moduleFiles = [
+  "web/js/data/rp-practice.js",
+  "web/js/data/rp-interviews.js",
   "web/js/data/config.js",
   "web/js/core/dom.js",
-  "web/js/views/elite-awards.js",
   "web/js/app.js"
 ];
 
-/** Превращает ESM-модули в один классический скрипт для jsdom. */
 function toClassicScript(sources) {
   return sources.map((source) => source
-    // многострочные и однострочные import ... from "..."
     .replace(/^[ \t]*import\s+[\s\S]*?from\s+["'][^"']+["'];?[ \t]*$/gm, "")
     .replace(/^[ \t]*import\s+["'][^"']+["'];?[ \t]*$/gm, "")
-    // export const/let/function/class
+    .replace(/^[ \t]*export\s*\{[^}]*\}\s*from\s*["'][^"']+["'];?[ \t]*$/gm, "")
     .replace(/^export\s+(async\s+function|function|class|const|let|var)\s/gm, "$1 ")
-    // export { ... }
     .replace(/^export\s*\{[^}]*\};?[ \t]*$/gm, "")
   ).join("\n;\n");
 }
 
-/* ── Подготовленные ответы API ─────────────────────────────────────────── */
 const user = {
   id: 1,
   username: "gka",
   displayName: "Александр Волков",
   role: "ГКА",
-  status: "active",
-  discordLinked: true,
-  discordUsername: "volkov",
-  discordAvatarUrl: "https://cdn.discordapp.com/embed/avatars/0.png",
-  memberSince: "2025-01-15",
-  createdAt: "2025-01-15T10:00:00.000Z"
+  status: "active"
 };
-
 const profile = {
   id: 1,
-  display_name: "Александр Волков",
-  role: "ГКА",
-  created_at: "2025-01-15T10:00:00.000Z",
-  member_since: "2025-01-15",
-  reattest_due: "",
-  discord_username: "volkov",
-  discord_avatar_url: "https://cdn.discordapp.com/embed/avatars/0.png",
-  forum_profile_url: "https://forum.gta5rp.com/members/volkov",
-  forum_profile_verified_at: "2025-02-01T10:00:00.000Z",
-  document_count: 7,
-  lawsuit_count: 3,
-  closed_request_count: 12,
-  completed_task_count: 5,
-  passed_exam_count: 2,
-  review_count: 4,
-  average_rating: 4.75,
-  approved_call_count: 31
+  display_name: user.displayName,
+  role: user.role,
+  approved_call_count: 7,
+  member_since: "2025-01-15"
 };
-
-const award = { kind: "special", title: "Мастер допроса", description: "50 успешных перекрёстных допросов", created_at: "2025-06-01T10:00:00.000Z", granted_by_name: "Совет Коллегии" };
-
+const attorney = {
+  id: 2,
+  display_name: "Елена Петрова",
+  role: "Адвокат",
+  average_rating: 4.5,
+  cases_closed: 3,
+  lawsuit_count: 2,
+  document_count: 5
+};
+const award = {
+  title: "Мастер допроса",
+  description: "Награда Коллегии",
+  created_at: "2025-06-01"
+};
 const responses = {
-  "/api/health": { ok: true, apiVersion: 4 },
-  "/api/auth/me": { user, csrfToken: "csrf-token" },
-  "/api/applications": { applications: [] },
-  "/api/laws": { laws: { ak: { available: true } } },
-  "/api/laws/ak": { name: "Административный кодекс", text: "Статья 1. Общие положения.", sourceNote: "" },
-  "/api/attestations": { attestations: [] },
-  "/api/documents": { documents: [], approvedCount: 7, myCount: 7 },
-  "/api/lawsuits": { lawsuits: [] },
-  "/api/promotion-requirements": { lawyerCallsRequired: 25 },
-  "/api/tasks": { tasks: [] },
-  "/api/calendar": { events: [] },
-  "/api/profiles/1": { profile, reviews: [], achievements: [], awards: [award] },
-  "/api/attorneys": { attorneys: [] },
-  "/api/profile": {
-    profile,
-    metrics: {},
-    promotions: [],
-    exams: [],
-    attestations: [],
-    reprimands: [],
-    tasks: [],
-    achievements: [],
-    awards: [award],
-    reviews: [],
-    employmentHistory: [],
-    absences: [],
-    reserve: []
-  },
-  "/api/achievements": { achievements: [] },
-  "/api/reserve": { reserve: [] },
-  "/api/absences": { absences: [] },
-  "/api/characteristics": { characteristics: [] },
-  "/api/academy": { materials: [] },
-  "/api/members": { members: [] },
-  "/api/colleagues": { colleagues: [] },
-  "/api/reprimands": { reprimands: [] },
+  "/api/auth/me": { user, csrfToken: "test-csrf" },
+  "/api/profile": { profile, awards: [award], achievements: [] },
   "/api/discord/status": {
-    linked: true,
-    configured: true,
-    username: "volkov",
-    avatarUrl: "https://cdn.discordapp.com/embed/avatars/0.png",
-    linkedAt: "2025-01-16 10:00:00",
-    nicknameError: "",
-    syncError: ""
+    configured: false,
+    botConfigured: false,
+    botCanDm: false,
+    linked: false
   },
-  "/api/discord/diagnostics": {
-    oauth: { configured: true, clientIdSet: true, clientSecretSet: true, redirectValid: true, redirectHost: "portal.example.com" },
-    bot: { configured: true, guildConfigured: true, rolesConfigured: 7 },
-    webhooks: [
-      { kind: "applications", label: "Заявки и приём в Коллегию", url: "канал заявок · …/123/****", configured: true, sent: 12, failed: 0, retries: 0, lastError: "", lastErrorAt: null, lastSuccessAt: "2026-11-20T00:00:00.000Z" },
-      { kind: "exams", label: "Экзамены и повышения", url: "канал экзаменов · …/456/****", configured: true, sent: 3, failed: 1, retries: 2, lastError: "HTTP 500", lastErrorAt: "2026-11-19T23:00:00.000Z", lastSuccessAt: "2026-11-19T22:00:00.000Z" },
-      { kind: "logs", label: "Журнал руководства", url: "не настроен", configured: false, sent: 0, failed: 0, retries: 0, lastError: "", lastErrorAt: null, lastSuccessAt: null }
-    ],
-    queue: { pending: 0, queued: 0 }
+  "/api/notifications": {
+    notifications: [{
+      id: 12,
+      notification_type: "activity_report_review",
+      title: "Отчёт одобрен",
+      body: "Вызов CALL-101 одобрен ГКА.",
+      href: "/page/reports",
+      created_at: "2026-01-15 12:00:00",
+      read_at: null
+    }],
+    unreadCount: 1,
+    discordDmEnabled: false
   },
-  "/api/rating-settings": { weights: { documentsApproved: 2, casesClosed: 2, lawsuitsFiled: 3, tasksCompleted: 2, reviews: 1 }, history: [] },
-  "/api/analytics": { period: "30", staff: [], cases: [], documents: [], requests: [], reviews: [], hr: [], series: [] },
-  "/api/reports": { period: "2026-11", rows: [] },
-  "/api/weekly-reset/preview": { calendar: 0, absences: 0, reprimands: 0, applications: 0 },
-  "/api/weekly-reset/history": { runs: [] }
+  "/api/notifications/read-all": { ok: true },
+  "/api/activity-reports": {
+    canReview: true,
+    reports: [{
+      id: 101,
+      report_type: "call",
+      occurred_at: "2026-01-15",
+      reference: "CALL-101",
+      details: "Подтверждённый вызов.",
+      status: "pending",
+      decision: "",
+      reporter_name: "Елена Петрова",
+      reporter_role: "Адвокат"
+    }]
+  },
+  "/api/activity-reports/101": { ok: true, status: "approved" },
+  "/api/auth/logout": { ok: true },
+  "/api/applications": { applications: [] },
+  "/api/lawsuits": { lawsuits: [] },
+  "/api/members": {
+    members: [{
+      id: 2,
+      display_name: "Новый сотрудник",
+      username: "pending",
+      role: "Стажер КА",
+      status: "pending",
+      document_count: 0,
+      lawsuit_count: 0
+    }]
+  },
+  "/api/photozot": {
+    photos: [
+      { label: "LSPD · фото 1", group_key: "lspd", group_label: "LSPD", url: "/photozot/lspd-1.png" },
+      { label: "Федеральная тюрьма · фото 1", group_key: "ft", group_label: "Федеральная тюрьма", url: "/photozot/ft-1.png" }
+    ]
+  },
+  "/api/reprimands": { reprimands: [] },
+  "/api/analytics": {
+    period: "7",
+    trend: [{ period: "2026-01-01", members: 1, lawsuits: 2, documents: 3, requests: 1, promotions: 0, reprimands: 0 }]
+  },
+  "/api/attorneys": { attorneys: [attorney] },
+  "/api/profiles/2": {
+    profile: {
+      id: attorney.id,
+      display_name: attorney.display_name,
+      role: attorney.role,
+      average_rating: attorney.average_rating,
+      review_count: 2,
+      closed_case_count: 3,
+      lawsuit_count: 2,
+      profile_bio: "Опытный адвокат."
+    },
+    reviews: [{ rating: 5, comment: "Помогла разобраться.", created_at: "2025-05-01" }]
+  },
+  "/api/laws": { laws: { ak: { available: true } } },
+  "/api/laws/ak": {
+    name: "ak.txt",
+    text: "Статья 7.3. Полномочия должностного лица.\nСтатья 2.7.3. Иная норма.",
+    sourceNote: "Файл: laws/ak.txt"
+  },
+  "/api/reports": { period: "2026-01", rows: [], totals: {} }
 };
 
-/* ── Запуск ────────────────────────────────────────────────────────────── */
 const problems = [];
+const requested = [];
+const completedRpCaseIds = new Set();
+const audioTones = [];
 const virtualConsole = new VirtualConsole();
 virtualConsole.on("jsdomError", (error) => problems.push(`jsdom: ${error.message}`));
 virtualConsole.on("error", (...args) => problems.push(`console.error: ${args.join(" ")}`));
 
 const html = await read("advokate.html");
+const css = await read("web/css/base.css");
+if (/<(?:button|input|select|textarea)\b[^>]*\bon(?:click|input|change|submit)=/i.test(html)) {
+  problems.push("В HTML остался встроенный обработчик события.");
+}
 const dom = new JSDOM(html, {
   url: "http://127.0.0.1:3000/",
   runScripts: "outside-only",
@@ -156,93 +164,388 @@ const dom = new JSDOM(html, {
 });
 const { window } = dom;
 const { document } = window;
-
+window.matchMedia = () => ({ matches: false });
+window.AudioContext = class {
+  constructor() {
+    this.currentTime = 0;
+    this.state = "running";
+    this.destination = {};
+  }
+  createOscillator() {
+    const oscillator = {
+      type: "",
+      frequency: { setValueAtTime() {}, exponentialRampToValueAtTime() {} },
+      connect() {},
+      start() { audioTones.push(this.type); },
+      stop() {}
+    };
+    return oscillator;
+  }
+  createGain() {
+    return {
+      gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} },
+      connect() {}
+    };
+  }
+};
 window.addEventListener("error", (event) => problems.push(`window.error: ${event.message}`));
-window.addEventListener("unhandledrejection", (event) => problems.push(`unhandledrejection: ${event.reason?.message || event.reason}`));
-
-const requested = [];
+window.addEventListener("unhandledrejection", (event) =>
+  problems.push(`unhandledrejection: ${event.reason?.message || event.reason}`)
+);
 window.fetch = async (input, options = {}) => {
   const url = new URL(typeof input === "string" ? input : input.url, "http://127.0.0.1:3000");
-  requested.push(`${options.method || "GET"} ${url.pathname}`);
-  if (url.pathname === "/web/data/elite-awards.json") {
-    const catalog = JSON.parse(await read("web/data/elite-awards.json"));
-    return { ok: true, status: 200, json: async () => catalog, text: async () => JSON.stringify(catalog) };
+  const method = options.method || "GET";
+  requested.push(`${method} ${url.pathname}`);
+  let payload = responses[url.pathname];
+  if (url.pathname === "/api/rp-practice/completions") {
+    payload = { completedCaseIds: [...completedRpCaseIds] };
+  } else if (url.pathname === "/api/rp-practice/answer" && method === "POST") {
+    const body = JSON.parse(options.body);
+    const correct = body.caseId === "rp_easy_01" && body.answerIndex === 1;
+    if (correct) completedRpCaseIds.add(body.caseId);
+    payload = {
+      correct,
+      completed: correct || completedRpCaseIds.has(body.caseId),
+      explanation: correct ? "Точный ответ." : "Ответ неверный."
+    };
   }
-  const payload = responses[url.pathname];
   if (payload === undefined) {
     problems.push(`Необработанный запрос API: ${url.pathname}`);
-    return { ok: false, status: 404, json: async () => ({ error: "not found" }), text: async () => "{}" };
+    return { ok: false, status: 404, json: async () => ({ error: "not found" }) };
   }
-  return { ok: true, status: 200, json: async () => payload, text: async () => JSON.stringify(payload) };
+  return { ok: true, status: 200, json: async () => payload };
 };
 
 const sources = await Promise.all(moduleFiles.map((file) => read(file)));
-const bundle = toClassicScript(sources);
-
-// Инлайновая логика в HTML запрещена — это отдельное требование к структуре.
-if (/<script(?![^>]*\bsrc=)[^>]*>[\s\S]*?\S[\s\S]*?<\/script>/i.test(html)) {
-  problems.push("В advokate.html остался инлайновый <script> с кодом.");
-}
-
 try {
-  window.eval(bundle);
+  window.eval(toClassicScript(sources));
 } catch (error) {
   problems.push(`Ошибка выполнения модулей: ${error.message}`);
 }
 
-/* Ждём асинхронную инициализацию портала. */
-const startedAt = Date.now();
-while (Date.now() - startedAt < 5000) {
-  const ready = document.querySelectorAll("#elite-awards .elite-card").length >= 10;
-  if (ready) break;
-  await new Promise((resolve) => setTimeout(resolve, 20));
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+for (let attempt = 0; attempt < 100; attempt += 1) {
+  if (!document.querySelector("#app-shell")?.classList.contains("hidden") &&
+      document.querySelector("#kpiCalls")?.textContent === "6") break;
+  await wait(20);
 }
 
-/* ── Проверки ──────────────────────────────────────────────────────────── */
 const check = (condition, message) => { if (!condition) problems.push(message); };
+check(!document.querySelector("#app-shell")?.classList.contains("hidden"), "Портал не открылся после авторизации.");
+check(document.querySelector("#active-user-name")?.textContent === user.displayName, "Имя активного пользователя не показано.");
+check(document.querySelector("#welcome-calls")?.textContent === "7", "Подтверждённые вызовы профиля не загрузились.");
+check(document.querySelector("#kpiCalls")?.textContent === "6" &&
+  document.querySelector("#kpiActivityTitle")?.textContent === "Активность за 7 дней",
+"Сводка активности за неделю не загрузилась.");
+check(document.querySelector('.sidebar-scroll [data-view="dashboard"] use')?.getAttribute("href") ===
+  "/web/icons-sprite.svg#icon-01_overview", "Иконка главной должна использовать переданный SVG-спрайт.");
+check(document.querySelector('link[rel="icon"]')?.getAttribute("href") === "/assets/site-icon.png",
+  "Вкладка сайта должна использовать присланную иконку.");
+check(document.querySelector(".auth-brand img")?.getAttribute("src") === "/assets/site-icon.png" &&
+  document.querySelector(".brand-mark img")?.getAttribute("src") === "/assets/site-icon.png",
+"Иконка сайта должна отображаться на входе и в шапке.");
+const contentArea = document.querySelector(".content-area");
+check([...document.querySelectorAll(".page-view")].every((section) => section.parentElement === contentArea),
+  "Все страницы должны оставаться внутри основной области контента.");
+check(!document.querySelector("#register-invite") &&
+  document.querySelector('#registration-kind option[value="staff"]')?.textContent.includes("после одобрения"),
+"Регистрация сотрудника не должна требовать код приглашения и должна объяснять ожидание одобрения.");
+check(!document.querySelector("#register-email") &&
+  !document.querySelector("#globalSearch") &&
+  !document.querySelector(".global-search"),
+"Email не должен быть в регистрации, а общий поиск — в верхней панели.");
+check(document.querySelector(".quick-actions-panel"), "На главной должны быть быстрые переходы.");
+check(css.includes(".rp-phone-conversation .ifruit-messages::-webkit-scrollbar-thumb") &&
+  css.includes("scrollbar-color: #45516a #0b101b"),
+"Полоса прокрутки телефона должна быть оформлена в тёмной теме.");
+check([...document.querySelectorAll("#lawsuit-template option")].map((option) => option.value).join(",") ===
+  "lawsuit-supreme,lawsuit-federal,motion-supreme,motion-federal,rehabilitation,appeal",
+"В форме иска должны остаться шесть поддерживаемых видов документов.");
+check([...document.querySelectorAll("#activity-report-type option")].map((option) => option.value).join(",") === "call",
+"В ручной отчётности должен остаться только отчёт о вызове.");
+const sidebar = document.querySelector("#sidebar");
+check(!sidebar?.querySelector(".sidebar-scroll [data-view='rating'], .sidebar-scroll [data-view='audit'], .sidebar-scroll [data-view='awards'], .sidebar-scroll [data-view='reports']") &&
+  sidebar?.querySelector(".sidebar-footer [data-view='rating']") &&
+  sidebar?.querySelector(".sidebar-footer [data-view='audit']") &&
+  sidebar?.querySelector(".sidebar-footer [data-view='awards']") &&
+  sidebar?.querySelector(".sidebar-footer [data-view='reports']"),
+"Рейтинги, управление и отчёты должны находиться в нижнем блоке сайдбара.");
+const careerButton = document.querySelector("#careerBranchBtn");
+const careerSubmenu = document.querySelector("#careerSubmenu");
+check(careerButton?.textContent.includes("Начало пути"), "Раздел обучения должен называться «Начало пути».");
+check(careerSubmenu?.textContent.includes("Тесты") && careerSubmenu.textContent.includes("(Экзамены)") &&
+  careerSubmenu.textContent.includes("Практика (РП)"), "Подветки экзаменов и практики не отображаются.");
+careerButton?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+await wait(5);
+check(careerButton?.getAttribute("aria-expanded") === "false" && !careerSubmenu?.classList.contains("open"),
+  "Подветка «Начало пути» не сворачивается.");
+careerButton?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+await wait(5);
+check(careerButton?.getAttribute("aria-expanded") === "true" && careerSubmenu?.classList.contains("open"),
+  "Подветка «Начало пути» не раскрывается.");
+const approvedBadge = document.createElement("div");
+approvedBadge.innerHTML = window.statusBadge("approved");
+check(approvedBadge.querySelector('use')?.getAttribute("href") ===
+  "/web/icons-sprite.svg#icon-17_check_approved", "Статус «Одобрено» должен отображаться своей иконкой.");
+check(document.querySelector(".attorney-card")?.textContent.includes("Елена Петрова"), "Рейтинг адвокатов на главной не отображается.");
+document.querySelector('[data-action="attorney-profile"]')?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+await wait(25);
+check(requested.some((entry) => entry === "GET /api/profiles/2"), "Карточка адвоката не загрузила его профиль.");
+check(document.querySelector("#document-dialog-body")?.textContent.includes("Опытный адвокат."),
+  "Профиль адвоката не открылся из главной.");
+document.querySelector('[data-action="close-document"]')?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
 
-const eliteCards = document.querySelectorAll("#elite-awards .elite-card");
-check(eliteCards.length === 10, `Ожидалось 10 карточек наград, найдено ${eliteCards.length}.`);
-
-const titles = [...document.querySelectorAll("#elite-awards .elite-title")].map((node) => node.textContent.trim());
-const expectedTitles = ["Адвокат дела", "Защитник народа", "Мастер допроса", "Правовой архитектор", "Железный аргумент",
-  "Хранитель тайны", "Законник", "Несокрушимый", "Властитель города", "Легенда коллегии"];
-check(expectedTitles.every((title) => titles.includes(title)), `В витрине нет всех наград. Найдено: ${titles.join(", ")}`);
-
-check(document.querySelectorAll("#elite-awards .elite-card.is-legendary").length === 1, "Легендарная награда должна быть выделена одна.");
-check(document.querySelectorAll("#elite-awards .elite-card.is-earned").length === 1, "Полученная награда «Мастер допроса» должна быть отмечена.");
-check(document.querySelectorAll("#elite-awards .elite-laurel use").length === 10, "Лавровый венок не подключён к карточкам наград.");
-check(document.querySelectorAll("#i-laurel ellipse").length >= 16, "Символ лаврового венка пуст.");
-check(document.querySelector("#welcome-title")?.textContent.includes("Александр"), "Заголовок приветствия не заполнен именем сотрудника.");
-check(document.querySelector("#document-count")?.textContent === "7", "Счётчик документов не обновился.");
-
-/* Каждый раздел должен открываться без исключений. */
-const tabs = [...document.querySelectorAll(".nav-btn[data-tab]")]
+const views = [...new Set([...document.querySelectorAll("[data-view]")]
   .filter((button) => !button.classList.contains("hidden"))
-  .map((button) => button.dataset.tab);
-
-for (const tab of tabs) {
-  const button = document.querySelector(`.nav-btn[data-tab="${tab}"]`);
-  try {
-    button.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    const page = document.querySelector(`#page-${tab}`);
-    check(page && page.classList.contains("active"), `Раздел «${tab}» не открылся.`);
-  } catch (error) {
-    problems.push(`Раздел «${tab}»: ${error.message}`);
-  }
+  .map((button) => button.dataset.view))];
+const practiceNav = document.querySelector("#practice-nav");
+check(!practiceNav?.classList.contains("hidden") && !practiceNav?.disabled &&
+  practiceNav?.getAttribute("aria-disabled") === "false" && practiceNav?.dataset.view === "practice",
+"Практика должна быть доступна активному сотруднику с правами руководителя.");
+check(document.querySelectorAll(".rp-practice-controls [data-level]").length === 3 &&
+  Boolean(document.querySelector("#rp-practice-content")),
+  "Раздел «Практика (РП)» должен содержать три кнопки уровней и область кейсов.");
+check(![...document.querySelectorAll("#law-test-subject option")].some((option) => option.value.startsWith("rp_")),
+  "RP-ситуации не должны отображаться в списке экзаменов.");
+for (const view of views) {
+  await window.navigate(view);
+  await wait(25);
+  check(document.querySelector(`#view-${view}`)?.classList.contains("active"), `Экран «${view}» не открылся.`);
+}
+await window.navigate("practice");
+for (const level of ["rp_easy", "rp_medium", "rp_hard"]) {
+  document.querySelector(`.rp-practice-controls [data-level="${level}"]`)?.dispatchEvent(
+    new window.MouseEvent("click", { bubbles: true })
+  );
+  await wait(10);
+  check(document.querySelectorAll("#rp-practice-content .rp-case-card").length === 6 &&
+    document.querySelectorAll("#rp-practice-content .rp-case-option").length === 18,
+  `${level} должен открывать шесть кейсов с тремя вариантами ответа.`);
 }
 
-/* ── Отчёт ─────────────────────────────────────────────────────────────── */
-const report = {
+document.querySelector('.rp-practice-controls [data-level="rp_easy"]')?.dispatchEvent(
+  new window.MouseEvent("click", { bubbles: true })
+);
+let firstPracticeCard = document.querySelector("#rp-practice-content .rp-case-card");
+firstPracticeCard.querySelector('[data-index="0"]')?.dispatchEvent(
+  new window.MouseEvent("click", { bubbles: true })
+);
+await wait(10);
+firstPracticeCard = document.querySelector("#rp-practice-content .rp-case-card");
+check(!firstPracticeCard.classList.contains("is-completed") &&
+  firstPracticeCard.querySelector(".rp-case-explanation.is-incorrect"),
+"Неверный ответ не должен закрывать RP-кейс.");
+firstPracticeCard.querySelector('[data-index="1"]')?.dispatchEvent(
+  new window.MouseEvent("click", { bubbles: true })
+);
+await wait(10);
+firstPracticeCard = document.querySelector("#rp-practice-content .rp-case-card");
+check(firstPracticeCard.classList.contains("is-completed") &&
+  [...firstPracticeCard.querySelectorAll(".rp-case-option")].every((button) => button.disabled),
+"Верный ответ должен закрыть кейс и отключить его варианты.");
+await window.navigate("practice");
+document.querySelector('.rp-practice-controls [data-level="rp_easy"]')?.dispatchEvent(
+  new window.MouseEvent("click", { bubbles: true })
+);
+check(document.querySelector("#rp-practice-content .rp-case-card")?.classList.contains("is-completed"),
+"Пройденный RP-кейс должен оставаться закрытым после повторной загрузки раздела.");
+
+document.querySelector('[data-action="open-rp-phone"]')?.dispatchEvent(
+  new window.MouseEvent("click", { bubbles: true })
+);
+await wait(10);
+check(!document.querySelector("#rp-phone-dialog")?.classList.contains("hidden") &&
+  document.querySelectorAll("#rp-phone-case-picker .rp-phone-scenario").length === 2 &&
+  document.querySelector("#rp-phone-title")?.textContent === "AI Case" &&
+  document.querySelector('.rp-phone-status-icons svg[aria-label="Wi-Fi"]') &&
+  document.querySelector(".rp-phone-battery"),
+"Интерактивный обзвон должен открываться отдельно на весь экран с выбором сценария.");
+document.querySelector('#rp-phone-case-picker [data-case-id="case_lspd_kpz"]')?.dispatchEvent(
+  new window.MouseEvent("click", { bubbles: true })
+);
+check(document.querySelector("#rp-phone-messages .msg-cop") &&
+  document.querySelectorAll("#rp-phone-choices .choice-reply-btn").length === 3,
+"Сценарий телефона должен показывать реплику офицера и варианты ответа.");
+document.querySelector('#rp-phone-choices [data-index="1"]')?.dispatchEvent(
+  new window.MouseEvent("click", { bubbles: true })
+);
+await wait(10);
+check(document.querySelector("#rp-phone-mood")?.textContent.includes("Ухмыляется") &&
+  document.querySelector("#rp-phone-messages")?.textContent.includes("сам всё признал") &&
+  audioTones.includes("triangle"),
+"Ошибочный ответ должен вести по своей ветке и вызывать ухмылку офицера.");
+document.querySelector('[data-action="close-rp-phone"]')?.dispatchEvent(
+  new window.MouseEvent("click", { bubbles: true })
+);
+document.querySelector('[data-action="open-rp-phone"]')?.dispatchEvent(
+  new window.MouseEvent("click", { bubbles: true })
+);
+check(document.querySelector("#rp-phone-messages")?.textContent.includes("сам всё признал"),
+"Закрытие и повторное открытие телефона должно сохранять текущий диалог.");
+document.querySelector('#rp-phone-choices [data-index="0"]')?.dispatchEvent(
+  new window.MouseEvent("click", { bubbles: true })
+);
+await wait(10);
+check(document.querySelector("#rp-phone-mood")?.textContent.includes("Злится"),
+"Правильный ответ должен вызывать злость офицера.");
+check(audioTones.includes("sawtooth"), "Правильный ответ должен воспроизводить звук злой реакции.");
+document.querySelector('#rp-phone-choices [data-index="0"]')?.dispatchEvent(
+  new window.MouseEvent("click", { bubbles: true })
+);
+await wait(10);
+check(document.querySelector("#rp-phone-choices")?.textContent.includes("Пройти диалог ещё раз") &&
+  document.querySelector("#rp-phone-messages")?.textContent.includes("доверитель освобождён"),
+"Интерактивный сценарий должен завершаться развязкой и отдельными действиями.");
+document.querySelector("#rp-phone-sound-toggle")?.dispatchEvent(
+  new window.MouseEvent("click", { bubbles: true })
+);
+check(document.querySelector("#rp-phone-sound-toggle")?.getAttribute("aria-pressed") === "false" &&
+  document.querySelector("#rp-phone-sound-toggle")?.textContent.includes("выключен"),
+"Звуковые эффекты должны отключаться отдельной кнопкой.");
+document.querySelector('[data-action="close-rp-phone"]')?.dispatchEvent(
+  new window.MouseEvent("click", { bubbles: true })
+);
+
+await window.navigate("laws");
+const lawsSearch = document.querySelector("#lawsSearch");
+lawsSearch.value = "7.3";
+lawsSearch.dispatchEvent(new window.Event("input", { bubbles: true }));
+await wait(10);
+check(document.querySelectorAll("#lawsSearchResults .law-search-result").length === 1 &&
+  document.querySelector("#lawsSearchResults")?.textContent.includes("Источник: ak.txt") &&
+  !document.querySelector("#lawsSearchResults")?.textContent.includes("2.7.3"),
+"Поиск статьи 7.3 должен показывать источник и не путать её с 2.7.3.");
+
+check(document.querySelector("#lawsuit-preview-code")?.textContent.includes("[TABLE width=\"100%\"]"),
+  "BBCode-форма должна показывать предпросмотр.");
+check(document.querySelector("#lawsuit-form")?.children[0]?.classList.contains("lawsuit-editor") &&
+  document.querySelector("#lawsuit-form")?.children[1]?.classList.contains("lawsuit-forum-panel"),
+  "Редактор документа должен располагаться рядом с визуальным предпросмотром форума.");
+check(document.querySelector("#lawsuit-forum-preview img")?.getAttribute("src") === "/assets/law-association-seal.png",
+  "В предпросмотре должна отображаться присланная печать.");
+const claimantField = document.querySelector('#lawsuit-fields [data-lawsuit-field="claimant"]');
+claimantField.value = 'Тестовый Истец <img src=x onerror="alert(1)">';
+claimantField.dispatchEvent(new window.Event("input", { bubbles: true }));
+check(document.querySelector("#lawsuit-preview-code")?.textContent.includes("Тестовый Истец"),
+  "Предпросмотр BBCode должен обновляться при вводе.");
+check(document.querySelector("#lawsuit-forum-preview")?.textContent.includes('Тестовый Истец <img src=x onerror="alert(1)">') &&
+  document.querySelectorAll("#lawsuit-forum-preview img").length === 1,
+  "Визуальный предпросмотр должен обновляться при вводе и выводить пользовательский текст безопасно.");
+for (const template of [
+  "lawsuit-supreme", "lawsuit-federal", "motion-supreme", "motion-federal",
+  "rehabilitation", "appeal"
+]) {
+  const selector = document.querySelector("#lawsuit-template");
+  selector.value = template;
+  selector.dispatchEvent(new window.Event("change", { bubbles: true }));
+  check(Boolean(document.querySelector("#lawsuit-forum-preview .forum-preview-page h2")?.textContent.trim()) &&
+    document.querySelector("#lawsuit-forum-preview img")?.getAttribute("src") === "/assets/law-association-seal.png",
+    `Визуальный предпросмотр шаблона «${template}» не отобразился.`);
+}
+
+for (const [route, view] of [
+  ["/page/iski", "lawsuits"],
+  ["/page/rating", "rating"],
+  ["/page/audit", "audit"],
+  ["/page/reports", "reports"]
+]) {
+  dom.reconfigure({ url: `http://127.0.0.1:3000${route}` });
+  await window.enterSession({ user, csrfToken: "test-csrf" });
+  check(document.querySelector(`#view-${view}`)?.classList.contains("active"),
+    `Прямой маршрут ${route} должен открывать раздел «${view}».`);
+}
+const approveButton = document.querySelector('#auditTableBody [data-action="update-member-status"]');
+check(approveButton?.textContent.trim() === "Одобрить" && approveButton.dataset.status === "active",
+  "ГКА должен одобрять новые аккаунты из кадрового аудита.");
+
+check(document.querySelector("#awardsGrid .award-card")?.textContent.includes("Мастер допроса"), "Награда из профиля не отображается.");
+check(requested.some((entry) => entry === "GET /api/laws"), "Экран законов не запросил данные сервера.");
+check(requested.some((entry) => entry === "GET /api/reports"), "Экран отчётности не запросил серверный отчёт.");
+window.switchLawsTab("zones");
+await wait(15);
+check(document.querySelectorAll("#photozotTabs [role='tab']").length === 2 &&
+  document.querySelectorAll("#photozotContainer .photozot-card").length === 1,
+"Фотографии территорий должны отображаться раздельными категориями.");
+document.querySelector("#photozotTabs [data-group='ft']")?.dispatchEvent(
+  new window.MouseEvent("click", { bubbles: true })
+);
+await wait(10);
+check(document.querySelector("#photozotContainer")?.textContent.toLocaleLowerCase("ru").includes("федеральная тюрьма"),
+  "Выбор категории должен показывать только её фото.");
+const photoTrigger = document.querySelector("#photozotContainer .photozot-card a");
+const photoViewer = document.querySelector("#photo-viewer");
+photoTrigger.focus();
+photoTrigger.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
+await wait(10);
+check(!photoViewer?.classList.contains("hidden") &&
+  document.querySelector("#photo-viewer-image")?.getAttribute("src")?.includes("ft-1.png") &&
+  document.body.classList.contains("photo-viewer-open"),
+"Нажатие на фото должно открывать просмотр поверх размытого фона.");
+document.querySelector("#photo-viewer-close")?.dispatchEvent(
+  new window.MouseEvent("click", { bubbles: true })
+);
+check(photoViewer?.classList.contains("hidden") && !document.body.classList.contains("photo-viewer-open") &&
+  document.activeElement === photoTrigger,
+"Крестик должен закрывать просмотр и возвращать фокус к фотографии.");
+photoTrigger.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
+await wait(10);
+document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+check(photoViewer?.classList.contains("hidden"), "Escape должен закрывать просмотр фото.");
+check(document.querySelector("#activity-report-list .activity-report-card")?.textContent.includes("CALL-101") &&
+  document.querySelector('#activity-report-list [data-status="approved"]'),
+"ГКА должен видеть индивидуальные отчёты и управлять их одобрением.");
+document.querySelector('#activity-report-list [data-status="approved"]')?.dispatchEvent(
+  new window.MouseEvent("click", { bubbles: true })
+);
+await wait(15);
+check(requested.includes("PATCH /api/activity-reports/101"),
+  "Одобрение отчёта ГКА не отправило решение на сервер.");
+check(document.querySelector("#discord-connect")?.disabled &&
+  document.querySelector("#discord-status-message")?.textContent.includes("OAuth"),
+"Не настроенная Discord-привязка должна объясняться без видимости успешного подключения.");
+document.querySelector("#notification-toggle")?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+await wait(10);
+check(!document.querySelector("#notification-panel")?.classList.contains("hidden") &&
+  document.querySelector("#notification-count")?.textContent === "1" &&
+  document.querySelector("#notification-list")?.textContent.includes("Отчёт одобрен"),
+"Центр уведомлений не показал непрочитанное уведомление.");
+document.querySelector('[data-action="read-all-notifications"]')?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+await wait(10);
+check(requested.includes("POST /api/notifications/read-all"), "Команда «Прочитать все» не вызвала API.");
+document.querySelector("#activity-report-type").value = "prosecutor_complaint";
+document.querySelector("#activity-report-date").value = "2026-01-15";
+document.querySelector("#activity-report-reference").value = "PC-404";
+document.querySelector("#activity-report-details").value = "Проверка отправки жалобы.";
+window.URL.createObjectURL = () => "blob:report-photo";
+window.URL.revokeObjectURL = () => {};
+const reportImage = new window.File([
+  new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])
+], "report.png", { type: "image/png" });
+const pasteEvent = new window.Event("paste", { bubbles: true, cancelable: true });
+Object.defineProperty(pasteEvent, "clipboardData", {
+  value: { items: [{ type: "image/png", getAsFile: () => reportImage }] }
+});
+document.dispatchEvent(pasteEvent);
+check(!document.querySelector("#activity-report-photo-preview")?.classList.contains("hidden"),
+  "Вставленное через Ctrl+V фото должно сразу появиться в предпросмотре.");
+await window.submitActivityReport({ preventDefault() {} });
+check(requested.includes("POST /api/activity-reports"), "Форма отчёта не отправила отдельную запись.");
+let confirmLogout = false;
+window.confirm = () => confirmLogout;
+await window.logout();
+check(!requested.includes("POST /api/auth/logout"), "Отмена подтверждения не должна завершать сессию.");
+confirmLogout = true;
+await window.logout();
+check(requested.includes("POST /api/auth/logout") &&
+  !document.querySelector("#auth-screen")?.classList.contains("hidden"),
+"Подтверждённый выход не завершил сессию.");
+
+console.log(JSON.stringify({
   ok: problems.length === 0,
   modules: moduleFiles,
-  bundleBytes: bundle.length,
-  tabs: tabs.length,
-  eliteAwards: eliteCards.length,
+  views: views.length,
   apiCalls: requested.length,
   problems
-};
-console.log(JSON.stringify(report, null, 2));
+}, null, 2));
 dom.window.close();
 process.exit(problems.length ? 1 : 0);

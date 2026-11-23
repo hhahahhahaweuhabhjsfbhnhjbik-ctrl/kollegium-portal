@@ -37,6 +37,7 @@
       "data/laws/**/*",
       "integrations/google-sheets/**/*",
       "advokate.html",
+      "pamyatka_advokata.html",
       "server.mjs",
       "webhooks.mjs",
       "discord-bot.mjs",

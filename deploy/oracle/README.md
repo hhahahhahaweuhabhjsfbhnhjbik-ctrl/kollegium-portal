@@ -28,6 +28,8 @@ nano .env
 
 Set `DOMAIN` to the DuckDNS hostname you registered, and set the Discord OAuth and bot values. `DISCORD_REDIRECT_URI` must be `https://<your-DuckDNS-hostname>/api/discord/callback`. Save `.env` only on the VM; never commit it. DuckDNS gives you a free subdomain, not a Cloudflare-registered domain. To use Cloudflare Registrar instead, you must register a domain there and point its DNS to this VM.
 
+Set `DISCORD_WEBHOOK_LAWYER_TEST` and `DISCORD_WEBHOOK_ATTORNEY_INTERVIEW` in the server-only `.env` to enable the corresponding promotion notifications. Keep webhook URLs out of source code and Git.
+
 ## 2. Configure DuckDNS and Discord
 
 Register a free subdomain at [DuckDNS](https://www.duckdns.org/), then set its IPv4 address to the VM's public IPv4. If the VM's public IP changes, update the DuckDNS record.

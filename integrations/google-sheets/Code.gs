@@ -34,7 +34,8 @@ function doPost(event) {
     const reportHeaders = [
       "Период", "ID", "Сотрудник", "Роль", "Документов создано", "Документов одобрено",
       "Исков подано", "Обращений взято", "Обращений закрыто", "Экзаменов сдано",
-      "Переаттестаций пройдено", "Выговоров"
+      "Переаттестаций пройдено", "Выговоров", "Отчётов о вызовах одобрено",
+      "Отчётов об исках одобрено", "Жалоб в прокуратуру одобрено"
     ];
     const monthlySheet = getSheet(spreadsheet, "Отчётность", reportHeaders);
     upsertMonthlyRows(monthlySheet, reportHeaders, report);
@@ -58,9 +59,15 @@ function getSheet(spreadsheet, name, headers) {
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     return sheet;
   }
-  const currentHeaders = sheet.getRange(1, 1, 1, headers.length).getValues()[0].map(String);
-  if (headers.some((header, index) => currentHeaders[index] !== header)) {
+  const lastColumn = sheet.getLastColumn();
+  const currentHeaders = sheet.getRange(1, 1, 1, Math.max(lastColumn, headers.length)).getValues()[0].map(String);
+  const comparedHeaders = Math.min(lastColumn, headers.length);
+  if (headers.slice(0, comparedHeaders).some((header, index) => currentHeaders[index] !== header)) {
     throw new Error("Unexpected columns in sheet: " + name);
+  }
+  if (lastColumn < headers.length) {
+    sheet.getRange(1, lastColumn + 1, 1, headers.length - lastColumn)
+      .setValues([headers.slice(lastColumn)]);
   }
   return sheet;
 }
@@ -88,7 +95,7 @@ function upsertMonthlyRows(sheet, headers, report) {
       String(report.period), Number(item.userId), safeText(item.displayName), safeText(item.role),
       Number(item.documentsCreated), Number(item.documentsApproved), Number(item.lawsuitsFiled),
       Number(item.casesTaken), Number(item.casesClosed), Number(item.examsPassed),
-      Number(item.attestationsPassed), Number(item.reprimands)
+      Number(item.attestationsPassed), Number(item.reprimands), Number(item.callsReported)
     ];
     const key = String(report.period) + ":" + String(item.userId);
     const rowNumber = rowByKey.get(key);

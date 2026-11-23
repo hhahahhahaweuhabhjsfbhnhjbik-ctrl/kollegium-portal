@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Памятка адвоката: задержания, статьи, тайминги</title>
+<style>
+:root{
+  --navy:#14213d; --navy2:#1f3a6b; --gold:#c9a227; --bg:#f3f5f9; --card:#fff;
+  --text:#1b2333; --muted:#5d6a82; --line:#e1e6ef; --red:#b3261e; --green:#1b7f4b; --warn:#fff6dc;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.55 "Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif}
+header{background:linear-gradient(135deg,var(--navy),var(--navy2));color:#fff;padding:44px 20px 36px;text-align:center;border-bottom:4px solid var(--gold)}
+header .tag{display:inline-block;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--gold);border:1px solid var(--gold);padding:3px 12px;border-radius:99px;margin-bottom:14px}
+header h1{margin:0 0 8px;font-size:clamp(26px,5vw,40px);line-height:1.15}
+header p{margin:0 auto;max-width:720px;color:#cdd7ee;font-size:15px}
+nav{position:sticky;top:0;z-index:5;background:#fff;border-bottom:1px solid var(--line);box-shadow:0 2px 8px rgba(20,33,61,.06)}
+nav .in{max-width:1100px;margin:0 auto;padding:8px 14px;display:flex;gap:6px;overflow-x:auto;white-space:nowrap}
+nav a{color:var(--navy2);text-decoration:none;font-size:14px;font-weight:600;padding:6px 12px;border-radius:99px}
+nav a:hover{background:var(--bg)}
+main{max-width:1100px;margin:0 auto;padding:26px 16px 50px}
+section{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px 22px 18px;margin-bottom:22px;box-shadow:0 2px 10px rgba(20,33,61,.04)}
+h2{margin:0 0 14px;font-size:22px;color:var(--navy);display:flex;align-items:center;gap:10px}
+h2 .n{background:var(--navy);color:var(--gold);width:32px;height:32px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;font-size:16px;flex:none}
+h3{margin:18px 0 6px;font-size:17px;color:var(--navy2)}
+p{margin:8px 0}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:12px;margin:10px 0}
+table{border-collapse:collapse;width:100%;font-size:14.5px;min-width:560px}
+th{background:var(--navy);color:#fff;text-align:left;padding:10px 12px;font-weight:600;white-space:nowrap}
+td{padding:9px 12px;border-top:1px solid var(--line);vertical-align:top}
+tbody tr:nth-child(even){background:#f8f9fc}
+tbody tr:hover{background:#eef2fb}
+td:first-child{font-weight:600;color:var(--navy)}
+.ref{color:var(--muted);font-size:13px;white-space:nowrap}
+.pill{display:inline-block;padding:1px 9px;border-radius:99px;font-size:12.5px;font-weight:600;white-space:nowrap}
+.fed{background:#fde8e6;color:var(--red)} .reg{background:#e5f4ec;color:var(--green)}
+.hot td:first-child{color:var(--red)}
+.note{background:var(--warn);border-left:4px solid var(--gold);padding:10px 14px;border-radius:8px;margin:12px 0;font-size:14.5px}
+.good{background:#e9f6ef;border-left:4px solid var(--green);padding:10px 14px;border-radius:8px;margin:12px 0;font-size:14.5px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:12px 0}
+.stat{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:12px 14px;text-align:center}
+.stat b{display:block;font-size:26px;color:var(--navy2)}
+.stat span{font-size:13px;color:var(--muted)}
+ul.chk{list-style:none;padding:0;margin:8px 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:8px}
+ul.chk li{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 12px 9px 40px;position:relative;font-size:14.5px}
+ul.chk li:before{content:"✓";position:absolute;left:12px;top:8px;width:20px;height:20px;border-radius:6px;background:var(--green);color:#fff;font-size:13px;text-align:center;line-height:20px}
+footer{max-width:1100px;margin:0 auto;padding:0 16px 40px;color:var(--muted);font-size:13px;text-align:center}
+@media print{nav{display:none}body{background:#fff}section{box-shadow:none;break-inside:avoid}}
+</style>
+</head>
+<body>
+<header>
+  <span class="tag">Коллегия адвокатов · San Andreas</span>
+  <h1>Памятка адвоката</h1>
+  <p>Задержания, статьи, тайминги и залог. Редакции: УК, ПК, Закон о статусе госслужащих, ЗОТ — 23.11.2026; АК, Закон об оружии — 14.11.2026; Закон об адвокатуре — 09.11.2026.</p>
+</header>
+
+<nav><div class="in">
+  <a href="#s1">Главное</a><a href="#s2">Тайминги</a><a href="#s3">Статьи</a><a href="#s4">Админка</a>
+  <a href="#s5">Штрафы</a><a href="#s6">Залог</a><a href="#s7">Особые клиенты</a><a href="#s8">Риски</a>
+</div></nav>
+
+<main>
+
+<section id="s1">
+  <h2><span class="n">1</span>Главное за 30 секунд</h2>
+  <div class="tw"><table>
+    <thead><tr><th>Что</th><th>Правило</th><th>Ссылка</th></tr></thead>
+    <tbody>
+    <tr><td>Договор</td><td>Частный адвокат: письменный договор или устный по телефону, записанный на боди-камеру. Сотрудник вправе потребовать подтверждение.</td><td class="ref">Закон об адвокатуре 6.16, 8.3, 8.8</td></tr>
+    <tr><td>Облик</td><td>Деловой стиль, уважительно к гражданам и сотрудникам, документ по требованию.</td><td class="ref">8.5, 8.7, 4.3</td></tr>
+    <tr><td>Основание задержания</td><td>Должно существовать до действия. Находка при обыске его не заменяет.</td><td class="ref">ПК 2.2, 5.1</td></tr>
+    <tr><td>Обстоятельства</td><td>Адвокат вправе требовать пояснить причину задержания. Сотрудник показывает видео и выслушивает рекомендации.</td><td class="ref">Закон об адвокатуре 3.9, ПК 5.11</td></tr>
+    <tr><td>Беседа с клиентом</td><td>До 10 минут наедине, помещение предоставляет сотрудник.</td><td class="ref">ПК 5.9</td></tr>
+    <tr><td>Права клиента</td><td>Молчание, один звонок до 3 минут, адвокат. Показания до разъяснения прав не используются.</td><td class="ref">ПК 5.5, 5.10, 11.3</td></tr>
+    <tr><td>Видео</td><td>Полная запись с аудио, хранить 72 часа. Нет записи основания — слабое доказательство.</td><td class="ref">ПК 11.4–11.6</td></tr>
+    <tr><td>Жалоба</td><td>В прокуратуру в течение 24 часов.</td><td class="ref">ПК 14.3</td></tr>
+    </tbody></table></div>
+</section>
+
+<section id="s2">
+  <h2><span class="n">2</span>Тайминги</h2>
+  <div class="grid">
+    <div class="stat"><b>1 час</b><span>максимум задержания (ПК 5.2)</span></div>
+    <div class="stat"><b>3 + 5 мин</b><span>ответ адвоката + прибытие (ПК 5.8)</span></div>
+    <div class="stat"><b>10 мин</b><span>беседа с клиентом (ПК 5.9)</span></div>
+    <div class="stat"><b>60 мин</b><span>максимум допроса (ПК 9.9)</span></div>
+  </div>
+  <div class="tw"><table>
+    <thead><tr><th>Что</th><th>Срок</th><th>Ссылка</th></tr></thead>
+    <tbody>
+    <tr><td>В час задержания не входят</td><td>Ожидание и беседа с адвокатом, ожидание прокурора и руководства, допрос</td><td class="ref">ПК 5.2</td></tr>
+    <tr><td>Адвокат не ответил или опоздал</td><td>Сотрудник вправе после необходимых действий и решения перейти к исполнению наказания</td><td class="ref">ПК 5.8</td></tr>
+    <tr><td>Допрос</td><td>Пауза 10 минут при вызове адвоката; адвокат один раз берёт перерыв до 5 минут</td><td class="ref">ПК 9.6, 9.7</td></tr>
+    <tr><td>Задержан госслужащий</td><td>Прокурор и руководство ожидаются 10 минут</td><td class="ref">ПК 5.13</td></tr>
+    <tr><td>Предварительное расследование</td><td>До 7 дней</td><td class="ref">ПК 3.6</td></tr>
+    <tr><td>Срок оплаты письменного штрафа</td><td>72–168 часов</td><td class="ref">АК 3.5, УК 4.16</td></tr>
+    <tr><td>Давность</td><td>Преступление — 15 («15 дней»), админ. — 3 («3 дня»)</td><td class="ref">УК 4.12, АК 4.2</td></tr>
+    </tbody></table></div>
+  <div class="note"><b>Конверсия наказания:</b> 1 месяц = 2 минуты, 1 год = 25 минут под стражей (комментарий к УК).</div>
+</section>
+
+<section id="s3">
+  <h2><span class="n">3</span>Статьи, по которым задерживают чаще всего</h2>
+  <div class="tw"><table>
+    <thead><tr><th>Статья УК</th><th>Суть</th><th>Уровень, срок</th><th>Залог</th><th>Розыск</th><th>На что смотреть</th></tr></thead>
+    <tbody>
+    <tr class="hot"><td>12.8</td><td>Оружие, боеприпасы, спецсредства, гос. бронежилет у гражданского; оружие без лицензии или мед. карты «A»</td><td><span class="pill fed">Федеральная</span> до 1 года</td><td>не указан ⚠️</td><td>2</td><td>Серийный номер, калибр, лицензия, мед. карта, законность обыска</td></tr>
+    <tr><td>12.8.1</td><td>Незаконное использование холодного оружия</td><td><span class="pill reg">Региональная</span> до 8 мес.</td><td>не указан ⚠️</td><td>1</td><td>Самооборона; обнажать в общественных местах нельзя</td></tr>
+    <tr class="hot"><td>17.1</td><td>Посягательство на жизнь сотрудника из-за службы</td><td><span class="pill fed">Федеральная</span> 1 год, пожизненный запрет на госслужбу, штраф не предусмотрен</td><td>не указан ⚠️</td><td>2, 4</td><td>Умысел именно на смерть, осведомлённость, опознание сотрудника, видео</td></tr>
+    <tr><td>17.2</td><td>Насилие, не опасное для жизни, или угроза расправой сотруднику</td><td><span class="pill reg">Региональная</span> до 8 мес.</td><td>5 000$</td><td>2</td><td>Типичная переквалификация с 17.1</td></tr>
+    <tr><td>17.3</td><td>Оскорбление сотрудника при исполнении</td><td><span class="pill reg">Региональная</span> до 4 мес.</td><td>2 000$</td><td>1</td><td>Было ли это при исполнении, форма оскорбления</td></tr>
+    <tr><td>17.6</td><td>Неповиновение законному требованию</td><td><span class="pill reg">Региональная</span> до 5 мес.</td><td>5 000$</td><td>1</td><td>Законность и понятность требования, повторное требование, время на исполнение</td></tr>
+    <tr><td>17.7</td><td>Отказ платить штраф от уполномоченного лица</td><td><span class="pill reg">Региональная</span> до 8 мес.</td><td>не указан ⚠️</td><td>2</td><td>Законность штрафа, 20 секунд, устный отказ</td></tr>
+    <tr><td>17.7.1</td><td>Отказ платить штраф прокуратуры, суда, Минсоцзащиты, Сената</td><td><span class="pill fed">Федеральная</span> 1 год</td><td>не указан ⚠️</td><td>5</td><td>Истёк ли срок, было ли уведомление</td></tr>
+    <tr><td>17.8</td><td>Побег от сотрудника при задержании или аресте</td><td><span class="pill fed">Федеральная</span> 1 год</td><td>не указан ⚠️</td><td>1</td><td>Было ли законное задержание</td></tr>
+    <tr><td>12.7</td><td>Незаконное нахождение на охраняемой территории</td><td><span class="pill reg">Региональная</span> 5 мес.</td><td>2 500$</td><td>2</td><td>Законность присутствия, предупреждение (ЗОТ 3)</td></tr>
+    </tbody></table></div>
+  <div class="note">⚠️ <b>Залог «не указан»:</b> в УК для статьи нет суммы, а залог считается по суммам из УК (Закон об адвокатуре 3.10, 5.5). Значит залог не предусмотрен, но прямо закон этого не говорит — уточняйте у руководства коллегии.</div>
+
+  <h3>Защита по 12.8</h3>
+  <p><b>Серийный номер:</b> AMXXXXXX — гражданское; MWXXXXXX — частично гражданское (только лёгкое и среднее); LSSD, PRIS, FIB, MAY, ARMY, LSPD — государственное. Нет номера или формат неизвестен — нелегальное. <b>Калибр:</b> тяжёлое (7.62, 11.43, .50 BMG, 12-й калибр не из «Аммунации») только правоохранителям; боеприпасы 7.62, 11.43 и .50 запрещены гражданским. <b>Лицензия:</b> 18+, мед. карта «A», экзамен, пошлина.</p>
+  <p><b>Бронежилет:</b> гражданский легален везде, кроме госучреждений — там это не 12.8, а админ. 6.12 (до 20 000$). Государственный запрещён (это 12.8), но немедленная добровольная сдача найденного изделия не наказывается. Источник: Закон об оружии 14.3–14.5.</p>
+  <p><b>Обыск:</b> личный — только при законном задержании или по ордеру (ПК 7.1); транспорт — по перечню ПК 7.2; добытое незаконным обыском не доказывает вину (ПК 11.3). Только легальное оружие и имущество с лицензиями не изымают до помещения в учреждение (ПК 7.6); если нашли и нелегальное — изымают всё (ПК 7.7).</p>
+
+  <h3>Защита по 17.1</h3>
+  <p>Состав требует умысла, прямо направленного на смерть, и знания, что потерпевший — сотрудник и что это связано со службой (примечание к 17.1). Нет умысла на смерть — переквалификация на 17.2 или 6.1 (принцип вины, УК 5.4). Проверьте, представился ли сотрудник и виден ли знак (ПК 2.1, 13.2, 13.5), была ли сила законной (Закон об оружии 12, ПК гл. 12), велась ли запись (ПК 11.4). Необходимая оборона — УК 3.1–3.3, смягчающие — УК 4.4.</p>
+</section>
+
+<section id="s4">
+  <h2><span class="n">4</span>Административные правонарушения</h2>
+  <p>Привлекают: LSPD и LSSD в своей юрисдикции, FIB, суд, прокуратура, USMS по решению суда, USSS (АК 2.3).</p>
+  <div class="tw"><table>
+    <thead><tr><th>Статья АК</th><th>Суть</th><th>Штраф</th></tr></thead>
+    <tbody>
+    <tr><td>5.2</td><td>Невыполнение требования прекратить правонарушение</td><td>до 30 000$</td></tr>
+    <tr><td>6.5</td><td>Вмешательство гражданского в задержание или арест</td><td>до 20 000$</td></tr>
+    <tr><td>6.6</td><td>То же со стороны госслужащего</td><td>до 30 000$</td></tr>
+    <tr><td>6.7</td><td>Сокрытие личности (маска)</td><td>до 15 000$</td></tr>
+    <tr><td>6.8</td><td>Мелкое хулиганство</td><td>до 15 000$</td></tr>
+    <tr><td>6.9</td><td>Неприемлемый вид</td><td>до 15 000$</td></tr>
+    <tr><td>6.10</td><td>Нарушение закона об оружии силовиком без тяжёлых последствий (штраф выписывает прокурор или судья)</td><td>до 25 000$</td></tr>
+    <tr><td>6.12</td><td>Гражданский в бронежилете в госучреждении</td><td>до 20 000$</td></tr>
+    <tr><td>7.1, 7.2</td><td>Оскорбление</td><td>до 10 000$</td></tr>
+    <tr><td>9.3</td><td>Воспрепятствование медицинской помощи</td><td>до 20 000$</td></tr>
+    </tbody></table></div>
+  <div class="good"><b>Аргументы:</b> малозначительность и устное замечание (АК 3.2), смягчающие и отягчающие (3.3, 3.4), давность 3 («3 дня»), штраф назначается на видео (ПК 11.4).</div>
+  <div class="note"><b>Ловушки:</b> по 5.2 новое требование прекратить правонарушение предъявляют не раньше наказания за предыдущее, а за длящееся нарушение штраф один раз. Отказ снять маску — сразу 17.6 УК, без предварительного админ. наказания (примечание к АК 6.7).</div>
+</section>
+
+<section id="s5">
+  <h2><span class="n">5</span>Неуплата штрафов</h2>
+  <p>На месте штраф лучше <b>оплатить и обжаловать в течение 24 часов</b>. Фраза «не согласен, оплачу и обжалую» отказом не считается, а устное «не буду платить», возврат тикета, 20 секунд молчания или попытка уйти — это 17.7.</p>
+  <ul>
+    <li>Проверяйте полномочия выписавшего (ПК 1.6, 6.6), сумму в пределах «до X», наличие видео.</li>
+    <li>Штраф прокуратуры платят любому её сотруднику, судебный — судье (УК 4.15.1).</li>
+    <li>Неуплата уголовного штрафа аннулирует освобождение, лицо отвечает по исходным статьям (УК 4.11.1).</li>
+    <li>⚠️ По 17.7.1 срок оплаты 72–168 часов, поэтому состав логично возникает после его истечения; прямо в тексте этого нет.</li>
+  </ul>
+</section>
+
+<section id="s6">
+  <h2><span class="n">6</span>Залог</h2>
+  <div class="tw"><table>
+    <thead><tr><th>Вопрос</th><th>Правило</th></tr></thead>
+    <tbody>
+    <tr><td>Кто вправе</td><td>Любой задержанный, кроме задержанных по ордеру или судебному акту с прямым указанием на отсутствие залога (ПК 15.2)</td></tr>
+    <tr><td>Что запрещено адвокату</td><td>Выпускать под залог задержанных по ордеру или постановлению суда (Закон об адвокатуре 5.4) — действуйте по этой более строгой норме</td></tr>
+    <tr><td>Сумма</td><td>По УК. Предложить увеличить можно не более чем вдвое, уменьшать нельзя (3.10, 5.5)</td></tr>
+    <tr><td>Частный адвокат</td><td>Вправе освободить под залог того, кому помогал при задержании (8.2). После стадии ареста может остаться ради залога, иначе покидает территорию (8.4)</td></tr>
+    </tbody></table></div>
+</section>
+
+<section id="s7">
+  <h2><span class="n">7</span>Особые клиенты</h2>
+  <div class="tw"><table>
+    <thead><tr><th>Клиент</th><th>Что помнить</th></tr></thead>
+    <tbody>
+    <tr><td>Госслужащий</td><td>Вызывают прокурора и представителя руководства, ждут 10 минут. Не явились — освобождение. Нет полной видеозаписи — освобождение (ПК 5.12–5.15). По главам 14, 15, 16 УК задерживать нельзя (Закон о взаимодействии 8.1). Локальное решение о вине ведёт к увольнению (ТК 7.2).</td></tr>
+    <tr><td>Силовик с оружием</td><td>Любое оружие, в том числе нелегальное, — только при исполнении, нелегальное сдаётся на склад (Закон об оружии 11.2). Задержан по 12.8 или 12.8.1 без опасных последствий — освобождение, оружие не изымают, жалоба в прокуратуру. Админ. 6.10 — только суд или прокуратура.</td></tr>
+    <tr><td>Неприкосновенный</td><td>Задержание только для предотвращения опасности или по ордеру AS, PTD или суду. О вине решают только прокуратура и суд. Следственные действия — по ордеру IA (ПК гл. 16).</td></tr>
+    <tr><td>Внештатник</td><td>Документ на срок не более 7 дней (168 часов) с данными паспорта, руководителя, даты и времени выдачи и окончания (Закон о взаимодействии 12–13).</td></tr>
+    </tbody></table></div>
+</section>
+
+<section id="s8">
+  <h2><span class="n">8</span>Риски самого адвоката</h2>
+  <div class="tw"><table>
+    <thead><tr><th>Риск</th><th>Основание</th></tr></thead>
+    <tbody>
+    <tr><td>В КПЗ частный адвокат — только по вызову; в Федеральной тюрьме — по вызову по рации или телефону. Нахождение без оснований — 12.7 или 12.7.1 УК.</td><td class="ref">ЗОТ 27, 34, 38; Закон об адвокатуре 8.4</td></tr>
+    <tr><td>Стажёр и юрист не заходят на ЗОТ единолично</td><td class="ref">Закон об адвокатуре 1.8</td></tr>
+    <tr><td>Нельзя публично заявлять о вине, если клиент её отрицает; идти против воли клиента</td><td class="ref">5.2, 5.1</td></tr>
+    <tr><td>Лицензия изымается: нарушение УК, судимость, просроченная мед. карта, налог 40 000$ (3 дня), аккредитация 1-го числа 5 000$</td><td class="ref">6.4, 6.8, 7.1</td></tr>
+    <tr><td>Если мешают работать — 9.6 УК (до 3 мес., залог 5 000$): фиксируйте на видео, жалоба в 24 часа</td><td class="ref">УК 9.6</td></tr>
+    <tr><td>Встречи с отбывающим наказание: до 2 раз в сутки по 10 минут</td><td class="ref">3.4</td></tr>
+    </tbody></table></div>
+</section>
+
+</main>
+<footer>Памятка справочная, составлена по текстам законов, и не заменяет решение суда или толкование Пленума Верховного Суда. Пункты с ⚠️ уточняйте у руководства коллегии.</footer>
+</body>
+</html>

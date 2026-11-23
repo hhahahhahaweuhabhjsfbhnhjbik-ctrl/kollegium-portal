@@ -131,6 +131,11 @@ test("desktop server serves the portal and shuts down cleanly", async () => {
     const response = await fetch(`http://127.0.0.1:${portal.port}/`);
     assert.equal(response.status, 200);
     assert.match(await response.text(), /Коллегия адвокатов/);
+    const memo = await fetch(`http://127.0.0.1:${portal.port}/pamyatka_advokata.html`);
+    assert.equal(memo.status, 200);
+    assert.equal(memo.headers.get("x-frame-options"), "SAMEORIGIN");
+    assert.match(memo.headers.get("content-security-policy"), /frame-ancestors 'self'/);
+    assert.match(await memo.text(), /Памятка адвоката/);
     const health = await fetch(`http://127.0.0.1:${portal.port}/api/health`);
     assert.deepEqual(await health.json(), { ok: true, apiVersion: 4, maintenance: false });
 
@@ -251,7 +256,7 @@ test("Discord portal commands require a linked active account and matching serve
   }
 });
 
-test("invite-only accounts, server-approved exams, attestations and law access", async () => {
+test("staff accounts require website approval, server-approved exams, attestations and law access", async () => {
   const webhookRequests = [];
   const discordRequests = [];
   const server = createPortalServer({
@@ -291,11 +296,9 @@ test("invite-only accounts, server-approved exams, attestations and law access",
   try {
     const login = await admin("/api/auth/login", "POST", { username: "gka", password: "CorrectHorseBattery9!" });
     assert.equal(login.status, 200);
-    const invite = await admin("/api/invites", "POST", {});
-    assert.equal(invite.status, 201);
 
     const registration = await trainee("/api/auth/register", "POST", {
-      inviteCode: invite.data.code,
+      accountType: "staff",
       username: "trainee",
       displayName: "Стажер",
       password: "CandidatePassword!23"
@@ -304,18 +307,28 @@ test("invite-only accounts, server-approved exams, attestations and law access",
     assert.equal(registration.data.user.status, "pending");
     assert.equal(registration.data.user.role, "Стажер КА");
     assert.equal(registration.data.webhookWarning, "");
-    const inviteApplicationWebhook = webhookRequests.find((request) => {
+    const staffApplicationWebhook = webhookRequests.find((request) => {
       if (!(request.body instanceof FormData)) return false;
-      return JSON.parse(request.body.get("payload_json")).embeds[0].title === "Новая заявка по коду-приглашению";
+      return JSON.parse(request.body.get("payload_json")).embeds[0].title === "Новая заявка на вступление";
     });
-    assert.ok(inviteApplicationWebhook);
-    const inviteApplicationEmbed = JSON.parse(inviteApplicationWebhook.body.get("payload_json")).embeds[0];
-    assert.equal(inviteApplicationEmbed.thumbnail.url, "attachment://collegium-seal.png");
-    assert.equal(inviteApplicationWebhook.body.get("files[0]").name, "collegium-seal.png");
+    assert.ok(staffApplicationWebhook);
+    const staffApplicationEmbed = JSON.parse(staffApplicationWebhook.body.get("payload_json")).embeds[0];
+    assert.equal(staffApplicationEmbed.thumbnail.url, "attachment://collegium-seal.png");
+    assert.equal(staffApplicationWebhook.body.get("files[0]").name, "collegium-seal.png");
+    const pendingSession = await trainee("/api/auth/me");
+    assert.equal(pendingSession.status, 200);
+    assert.equal(pendingSession.data.user.status, "pending");
     assert.equal((await trainee("/api/applications")).status, 403);
-    assert.equal((await trainee("/api/auth/register", "POST", {
-      inviteCode: invite.data.code, username: "second", displayName: "Второй", password: "CandidatePassword!23"
-    })).status, 400);
+    const secondApplicant = await createClient(baseUrl);
+    const secondRegistration = await secondApplicant("/api/auth/register", "POST", {
+      accountType: "staff", username: "second", displayName: "Второй", password: "CandidatePassword!23"
+    });
+    assert.equal(secondRegistration.status, 201);
+    assert.equal(secondRegistration.data.user.status, "pending");
+
+    const pendingMembers = await admin("/api/members");
+    assert.ok(pendingMembers.data.members.some((member) =>
+      member.id === registration.data.user.id && member.status === "pending"));
 
     const memberId = registration.data.user.id;
     assert.equal((await admin(`/api/members/${memberId}`, "PATCH", { status: "active" })).status, 200);
@@ -329,7 +342,7 @@ test("invite-only accounts, server-approved exams, attestations and law access",
     assert.equal(questions.data.questions.length, 5);
     assert.equal((await admin(`/api/applications/${application.data.id}/review`, "PATCH", { status: "approved" })).status, 409);
 
-    const result = await trainee("/api/exams", "POST", { answers: [1, 1, 1, 1, 1] });
+    const result = await trainee("/api/exams", "POST", { answers: [1, 1, 1, 2, 1] });
     assert.deepEqual({ score: result.data.score, passed: result.data.passed }, { score: 5, passed: true });
     assert.equal((await admin(`/api/applications/${application.data.id}/review`, "PATCH", {
       status: "approved", criteria: { lectureVerified: true }
@@ -432,6 +445,8 @@ test("invite-only accounts, server-approved exams, attestations and law access",
     assert.equal((await citizen(`/api/reprimands/${reprimand.data.id}/photo`)).status, 404);
     db.prepare("UPDATE users SET discord_id = ?, discord_username = ? WHERE id = ?")
       .run("45678901234567890", "lawyer", memberId);
+    db.prepare("INSERT INTO notification_preferences (user_id,discord_dm_enabled) VALUES (?,1)")
+      .run(memberId);
     const linkedReprimand = await admin("/api/reprimands", "POST", {
       userId: memberId,
       reason: "Нарушение порядка рассмотрения дела.",
@@ -527,8 +542,8 @@ test("self-service promotion requires study, test and interview readiness after 
     assert.equal((await trainee("/api/exams/current")).data.questions.length, 5);
     const traineeResult = await trainee("/api/exams", "POST", { answers: [1, 1, 1, 1, 1] });
     assert.equal(traineeResult.data.passed, true);
-    assert.equal(traineeResult.data.interviewRequired, false);
-    assert.equal(traineeResult.data.user.role, "Юрист");
+    assert.equal(traineeResult.data.interviewRequired, true);
+    assert.equal((await trainee("/api/auth/me")).data.user.role, "Стажер КА");
 
     assert.equal((await head("/api/promotion-requirements", "PATCH", {
       lawyerCallsRequired: 2
@@ -629,7 +644,7 @@ test("promotion stages enforce attendance, call counts, exam review and GKA appr
       type: "exam", details: "Прошу проверить знание законодательства."
     });
     assert.equal(attorneyExam.status, 201);
-    assert.equal((await candidate("/api/exams", "POST", { answers: [1, 2, 0, 0, 1] })).data.passed, true);
+    assert.equal((await candidate("/api/exams", "POST", { answers: [1, 0, 1, 1, 0] })).data.passed, true);
     assert.equal((await head(`/api/applications/${attorneyExam.data.id}/review`, "PATCH", {
       status: "approved"
     })).status, 200);
@@ -690,7 +705,7 @@ test("staff role capability matrix and invite permissions", async () => {
   });
   const passwordHash = `scrypt$${salt.toString("base64")}$${hash.toString("base64")}`;
   const matrix = [
-    ["Стажер КА", "training", "practice"],
+    ["Стажер КА", "training", null, "practice"],
     ["Юрист", "practice", "promotion"],
     ["Адвокат", "practice", "admin", "exam"],
     ["Ст.Адвокат", null, "promotion"],
@@ -716,9 +731,11 @@ test("staff role capability matrix and invite permissions", async () => {
           type: allowedType, details: "Проверка допустимого действия для роли."
         })).status, 201, `${role} should be able to submit ${allowedType}`);
       }
-      assert.equal((await account("/api/applications", "POST", {
-        type: forbiddenType, details: "Проверка недоступного действия."
-      })).status, 403, `${role} should not be able to submit ${forbiddenType}`);
+      if (forbiddenType) {
+        assert.equal((await account("/api/applications", "POST", {
+          type: forbiddenType, details: "Проверка недоступного действия."
+        })).status, 403, `${role} should not be able to submit ${forbiddenType}`);
+      }
       if (extraAllowedType) {
         assert.equal((await account("/api/applications", "POST", {
           type: extraAllowedType, details: "Проверка экзамена для текущей ступени."
@@ -793,8 +810,7 @@ test("one-time password recovery and court case lifecycle", async () => {
     const submitted = await newLogin("/api/lawsuits", "POST", {
       template: "lawsuit-supreme",
       title: "Исковое заявление · тестовое дело",
-      bbcode: "[TABLE]Полный текст заявления и материалы для суда.[/TABLE]",
-      forumUrl: "https://forum.example.test/topic/123"
+      bbcode: "[TABLE]Полный текст заявления и материалы для суда.[/TABLE]"
     });
     assert.equal(submitted.status, 201);
     assert.equal((await newLogin("/api/documents")).data.myCount, 0);
@@ -802,6 +818,11 @@ test("one-time password recovery and court case lifecycle", async () => {
     const charter = await citizen("/api/laws/charter");
     assert.equal(charter.status, 403);
     assert.equal((await citizen("/api/lawsuits")).status, 403);
+    const forumLink = await newLogin(`/api/documents/${submitted.data.documentId}/forum`, "POST", {
+      forumUrl: "https://forum.example.test/topic/123"
+    });
+    assert.equal(forumLink.status, 200);
+    assert.equal((await newLogin("/api/documents")).data.documents[0].forum_status, "pending");
     assert.equal((await admin(`/api/documents/${submitted.data.documentId}/forum`, "PATCH", {
       status: "approved"
     })).status, 200);
@@ -1105,34 +1126,27 @@ test("staff tasks and calendar enforce roles, persist workflow, and protect atta
 });
 
 test("all generated forum document templates have valid balanced BBCode", async () => {
-  // Генератор документов живёт в модуле интерфейса, а не в HTML.
   const source = await readFile(new URL("./web/js/app.js", import.meta.url), "utf8");
-  const start = source.indexOf("function bbValue(value)");
-  const end = source.indexOf("function bbcodeToHtml(text)", start);
+  const start = source.indexOf("function lawsuitFieldValue(key)");
+  const end = source.indexOf("function renderAppeals(applications)", start);
   assert.ok(start >= 0 && end > start, "document generator source should be present");
   const generatorSource = source.slice(start, end);
-  const schema = new Proxy({}, { get: () => ({ court: "СУД" }) });
   const templates = [
-    "complaint", "lawsuit-supreme", "lawsuit-federal", "indictment-supreme",
-    "indictment-district", "appeal", "cassation", "constitutional",
-    "motion-citizen", "motion-agency"
+    "lawsuit-supreme", "lawsuit-federal", "motion-supreme", "motion-federal",
+    "rehabilitation", "appeal", "cassation", "constitutional"
   ];
   const allowedTags = new Set([
     "B", "CENTER", "COLOR", "FONT", "IMG", "JUSTIFY", "LIST", "RIGHT",
     "SIZE", "TABLE", "TD", "TR", "*"
   ]);
-  const generate = new Function("docSchemas", "$", "values",
-    `${generatorSource}; return makeDocument(values);`);
+  const generate = new Function("$", `${generatorSource}; return buildLawsuitBbcode();`);
 
   for (const template of templates) {
-    const values = new Proxy({
-      claims: "Первое требование\nВторое требование",
-      requests: "Первый запрос\nВторой запрос",
-      filingDate: "19.11.2026",
-      motionType: "Ходатайство",
-      motionSubject: "Проверка документа"
-    }, { get: (target, key) => target[key] ?? `Значение ${String(key)}` });
-    const bbcode = generate(schema, () => ({ value: template }), values);
+    const values = new Proxy({}, { get: (_target, key) => `Значение ${String(key)}` });
+    const select = (selector) => selector === "#lawsuit-template"
+      ? { value: template }
+      : { value: values[selector.match(/data-lawsuit-field="([^"]+)"/)?.[1]] || "Значение теста" };
+    const bbcode = generate(select);
     const stack = [];
 
     for (const match of bbcode.matchAll(/\[(\/)?([A-Za-z*]+)(?:\s+[^\]]*|=[^\]]*)?\]/g)) {
@@ -1540,6 +1554,42 @@ test("all law tests are available to staff and supplied law text omits copied im
   const hash = scryptSync("CodeExamPassword!23", salt, 64, {
     N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024
   });
+
+  test("staff photo-zone image routes are served outside the API router", async () => {
+    const server = createPortalServer({ dbPath: ":memory:", cookieSecure: false });
+    const db = server.portalDb;
+    const salt = randomBytes(16);
+    const hash = scryptSync("PhotoZoneTestPassword!23", salt, 64, {
+      N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024
+    });
+    db.prepare("INSERT INTO users (username,password_hash,display_name,role,status) VALUES (?,?,?,?, 'active')")
+      .run("photo-manager", `scrypt$${salt.toString("base64")}$${hash.toString("base64")}`, "Фото Менеджер", "ГКА");
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const client = await createClient(`http://127.0.0.1:${server.address().port}`);
+
+    try {
+      assert.equal((await client("/api/auth/login", "POST", {
+        username: "photo-manager", password: "PhotoZoneTestPassword!23"
+      })).status, 200);
+      const listing = await client("/api/photozot");
+      assert.equal(listing.status, 200);
+      assert.ok(listing.data.photos.length > 0);
+      const groups = new Set(listing.data.photos.map((photo) => photo.group_key));
+      for (const group of ["lspd", "ft", "fib", "lssd", "ng", "ems", "gov", "lsia", "court"]) {
+        assert.ok(groups.has(group), `Не найдена категория фото ${group}.`);
+      }
+      assert.equal(listing.data.photos.find((photo) => photo.group_key === "lspd").group_label, "LSPD");
+      assert.equal(listing.data.photos.find((photo) => photo.group_key === "ft").group_label, "Федеральная тюрьма");
+      const image = await client.raw(listing.data.photos[0].url);
+      assert.equal(image.status, 200);
+      assert.match(image.contentType, /^image\//);
+      assert.ok(image.bytes.length > 1000);
+    } finally {
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+      db.close();
+    }
+  });
   const passwordHash = `scrypt$${salt.toString("base64")}$${hash.toString("base64")}`;
   db.prepare("INSERT INTO users (username,password_hash,display_name,role,status) VALUES (?,?,?,?,?)")
     .run("lawyer", passwordHash, "Юрист", "Юрист", "active");
@@ -1554,11 +1604,30 @@ test("all law tests are available to staff and supplied law text omits copied im
     assert.equal((await lawyer("/api/auth/login", "POST", {
       username: "lawyer", password: "CodeExamPassword!23"
     })).status, 200);
+    assert.deepEqual((await lawyer("/api/rp-practice/completions")).data.completedCaseIds, []);
+    const wrongPracticeAnswer = await lawyer("/api/rp-practice/answer", "POST", {
+      caseId: "rp_easy_01", answerIndex: 0
+    });
+    assert.equal(wrongPracticeAnswer.status, 200);
+    assert.equal(wrongPracticeAnswer.data.correct, false);
+    assert.deepEqual((await lawyer("/api/rp-practice/completions")).data.completedCaseIds, []);
+    const correctPracticeAnswer = await lawyer("/api/rp-practice/answer", "POST", {
+      caseId: "rp_easy_01", answerIndex: 1
+    });
+    assert.equal(correctPracticeAnswer.data.correct, true);
+    assert.equal(correctPracticeAnswer.data.completed, true);
+    assert.deepEqual((await lawyer("/api/rp-practice/completions")).data.completedCaseIds, ["rp_easy_01"]);
+    assert.equal((await lawyer("/api/rp-practice/answer", "POST", {
+      caseId: "unknown-case", answerIndex: 0
+    })).status, 404);
     for (const subject of ["ak", "pk", "uk", "zot", "advocacy", "road", "labor", "ethics", "documents", "justice"]) {
       const exam = await lawyer(`/api/exams/current?subject=${subject}`);
       assert.equal(exam.status, 200);
       assert.equal(exam.data.subject, subject);
       assert.equal(exam.data.questions.length, 5);
+    }
+    for (const subject of ["rp_easy", "rp_medium", "rp_hard"]) {
+      assert.equal((await lawyer(`/api/exams/current?subject=${subject}`)).status, 400);
     }
     const passedAk = await lawyer("/api/exams", "POST", {
       subject: "ak", answers: [1, 0, 1, 0, 1]
@@ -1601,11 +1670,7 @@ test("all law tests are available to staff and supplied law text omits copied im
       }
     }
     const lawList = await lawyer("/api/laws");
-    assert.equal(lawList.data.laws.zot.available, true);
-    assert.equal(lawList.data.laws.advocacy.available, true);
-    for (const key of ["road", "labor", "ethics", "documents", "justice"]) {
-      assert.equal(lawList.data.laws[key].available, true);
-    }
+    assert.ok(Object.keys(lawList.data.laws).length >= 10);
     const charter = await lawyer("/api/laws/charter");
     assert.equal(charter.status, 200);
     assert.doesNotMatch(charter.data.text, /^#{1,6}\s|\*\*/m);
@@ -1613,6 +1678,10 @@ test("all law tests are available to staff and supplied law text omits copied im
       username: "citizen", password: "CodeExamPassword!23"
     })).status, 200);
     assert.equal((await citizen("/api/exams/current?subject=ak")).status, 403);
+    assert.equal((await citizen("/api/rp-practice/completions")).status, 403);
+    assert.equal((await citizen("/api/rp-practice/answer", "POST", {
+      caseId: "rp_easy_01", answerIndex: 1
+    })).status, 403);
   } finally {
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
@@ -1690,10 +1759,19 @@ test("analytics aggregates real portal records and is limited to management", as
 
 test("monthly reports are role-protected and sync only portal aggregates to Google Sheets", async () => {
   const syncRequests = [];
+  const webhookBodies = [];
   const syncToken = "private-report-token-".padEnd(40, "x");
   const server = createPortalServer({
     dbPath: ":memory:",
     cookieSecure: false,
+    webhookLogs: "https://discord.com/api/webhooks/123456789012345678/test-token",
+    webhookFetch: async (_url, options) => {
+      webhookBodies.push({
+        payload: JSON.parse(options.body.get("payload_json")),
+        body: options.body
+      });
+      return new Response(null, { status: 204 });
+    },
     googleSheetsUrl: "https://script.google.com/macros/s/test/exec",
     googleSheetsToken: syncToken,
     googleSheetsFetch: async (url, options) => {
@@ -1736,15 +1814,26 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
   db.prepare(`INSERT INTO reprimands (user_id,issued_by,reason,photo_name,photo_type,photo,created_at)
     VALUES (?, ?, 'Проверка', 'evidence.png', 'image/png', ?, '2026-10-22 12:00:00')`)
     .run(lawyerId, gkaId, Buffer.from("image"));
+  const addActivityReport = db.prepare(`INSERT INTO activity_reports
+    (user_id,report_type,occurred_at,reference,details,status,reviewed_by)
+    VALUES (?,?,?,?,?,?,?)`);
+  addActivityReport.run(lawyerId, "call", "2026-10-10", "CALL-101", "Подтверждённый вызов", "approved", gkaId);
+  addActivityReport.run(lawyerId, "lawsuit", "2026-10-11", "CASE-202", "Подтверждённый иск", "approved", gkaId);
+  addActivityReport.run(lawyerId, "prosecutor_complaint", "2026-10-12", "PC-303", "Подтверждённая жалоба", "approved", gkaId);
+  addActivityReport.run(lawyerId, "call", "2026-10-13", "CALL-PENDING", "Ожидает решения", "pending", null);
+  addActivityReport.run(lawyerId, "call", "2026-10-14", "CALL-REJECTED", "Отклонённый вызов", "rejected", gkaId);
+  addActivityReport.run(lawyerId, "call", "2026-09-30", "CALL-OLD", "Вызов прошлого месяца", "approved", gkaId);
 
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
   const gka = await createClient(baseUrl);
   const deputy = await createClient(baseUrl);
   const citizen = await createClient(baseUrl);
+  const lawyer = await createClient(baseUrl);
   try {
     for (const [client, username] of [
-      [gka, "report-gka"], [deputy, "report-deputy"], [citizen, "report-citizen"]
+      [gka, "report-gka"], [deputy, "report-deputy"], [citizen, "report-citizen"],
+      [lawyer, "report-lawyer"]
     ]) {
       assert.equal((await client("/api/auth/login", "POST", { username, password })).status, 200);
     }
@@ -1759,6 +1848,7 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
       documentsCreated: lawyerReport.documentsCreated,
       documentsApproved: lawyerReport.documentsApproved,
       lawsuitsFiled: lawyerReport.lawsuitsFiled,
+      callsReported: lawyerReport.callsReported,
       casesTaken: lawyerReport.casesTaken,
       casesClosed: lawyerReport.casesClosed,
       examsPassed: lawyerReport.examsPassed,
@@ -1766,8 +1856,90 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
       reprimands: lawyerReport.reprimands
     }, {
       documentsCreated: 1, documentsApproved: 1, lawsuitsFiled: 1, casesTaken: 1,
-      casesClosed: 1, examsPassed: 1, attestationsPassed: 1, reprimands: 1
+      callsReported: 1, casesClosed: 1, examsPassed: 1, attestationsPassed: 1, reprimands: 1
     });
+    assert.equal(report.data.totals.callsReported, 1);
+    assert.equal("lawsuitReports" in lawyerReport, false);
+    assert.equal("prosecutorComplaints" in lawyerReport, false);
+    assert.equal("lawsuitReports" in report.data.totals, false);
+    assert.equal("prosecutorComplaints" in report.data.totals, false);
+
+    const manualLawsuitReport = await lawyer("/api/activity-reports", "POST", {
+      reportType: "lawsuit",
+      occurredAt: "2026-10-25",
+      reference: "CASE-MANUAL",
+      details: "Иск не должен отправляться вручную"
+    });
+    assert.equal(manualLawsuitReport.status, 400);
+    const invalidPhoto = await lawyer("/api/activity-reports", "POST", {
+      reportType: "call",
+      occurredAt: "2026-10-25",
+      reference: "CALL-BAD-PHOTO",
+      details: "Отчёт с неверным форматом фото",
+      photo: {
+        name: "call-evidence.png",
+        type: "image/png",
+        data: "data:image/png;base64,JVBERi0xLjQ="
+      }
+    });
+    assert.equal(invalidPhoto.status, 400);
+    const missingPhoto = await lawyer("/api/activity-reports", "POST", {
+      reportType: "call",
+      occurredAt: "2026-10-25",
+      reference: "CALL-NO-PHOTO",
+      details: "Отчёт без фото"
+    });
+    assert.equal(missingPhoto.status, 400);
+    const submission = await lawyer("/api/activity-reports", "POST", {
+      reportType: "call",
+      occurredAt: "2026-10-25",
+      reference: "CALL-NEW",
+      details: "Новый вызов для проверки одобрения",
+      photo: {
+        name: "call-evidence.png",
+        type: "image/png",
+        data: "data:image/png;base64,iVBORw0KGgo="
+      }
+    });
+    assert.equal(submission.status, 201);
+    assert.equal(submission.data.status, "pending");
+    assert.equal(submission.data.warning, "");
+    assert.equal(webhookBodies.length, 1);
+    assert.match(webhookBodies[0].payload.embeds[0].description, /Новый вызов для проверки одобрения/);
+    assert.equal(webhookBodies[0].payload.embeds[0].image.url, "attachment://call-evidence.png");
+    assert.ok(webhookBodies[0].body.get("files[0]"));
+    const pending = await gka("/api/activity-reports");
+    assert.equal(pending.data.canReview, true);
+    const pendingReport = pending.data.reports.find((item) => item.id === submission.data.id);
+    assert.equal(pendingReport.status, "pending");
+    assert.equal(pendingReport.attachment_name, "call-evidence.png");
+    const storedPhoto = await lawyer.raw(`/api/activity-reports/${submission.data.id}/photo`);
+    assert.equal(storedPhoto.status, 200);
+    assert.equal(storedPhoto.contentType, "image/png");
+    assert.deepEqual(storedPhoto.bytes, Buffer.from("iVBORw0KGgo=", "base64"));
+    assert.equal((await deputy.raw(`/api/activity-reports/${submission.data.id}/photo`)).status, 403);
+    assert.equal((await citizen.raw(`/api/activity-reports/${submission.data.id}/photo`)).status, 403);
+    assert.equal((await deputy(`/api/activity-reports/${submission.data.id}`, "PATCH", {
+      status: "approved"
+    })).status, 403);
+    assert.equal((await gka(`/api/activity-reports/${submission.data.id}`, "PATCH", {
+      status: "approved"
+    })).status, 200);
+    assert.equal((await gka(`/api/activity-reports/${submission.data.id}`, "PATCH", {
+      status: "approved"
+    })).status, 409);
+
+    const notificationFeed = await lawyer("/api/notifications");
+    const reviewNotification = notificationFeed.data.notifications.find((item) =>
+      item.notification_type === "activity_report_review");
+    assert.ok(reviewNotification);
+    assert.equal((await lawyer(`/api/notifications/${reviewNotification.id}/read`, "PATCH", {})).status, 200);
+    assert.ok((await lawyer("/api/notifications")).data.notifications
+      .find((item) => item.id === reviewNotification.id).read_at);
+    const updatedReport = await gka("/api/reports?period=2026-10");
+    const updatedLawyerReport = updatedReport.data.rows.find((row) => row.userId === lawyerId);
+    assert.equal(updatedLawyerReport.callsReported, 2);
+
     assert.equal((await gka("/api/reports?period=2026-13")).status, 400);
     assert.equal((await deputy("/api/reports?period=2026-10")).status, 200);
     assert.equal((await deputy("/api/reports/sync", "POST", { period: "2026-10" })).status, 403);

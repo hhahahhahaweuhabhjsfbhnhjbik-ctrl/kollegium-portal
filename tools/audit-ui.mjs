@@ -5,7 +5,7 @@
  * Проверяет целостность связки HTML / CSS / JS:
  *   1. Каждый `$("#id")` и `document.getElementById("id")` в JS имеет элемент в HTML.
  *   2. Каждый `use href="#i-..."` имеет соответствующий <symbol>.
- *   3. Каждый `data-go` / `data-tab` ведёт на существующую страницу.
+ *   3. Каждый `data-go` / `data-tab` / `data-view` ведёт на существующую страницу.
  *   4. Каждый класс, который JS добавляет в разметку, описан в CSS.
  *   5. Каждый файл, подключённый из HTML, существует.
  *   6. В HTML нет инлайновой логики (<script> с кодом) и инлайновых стилей-простыней.
@@ -138,9 +138,23 @@ for (const symbol of usedSymbols) {
   if (symbol.includes("$") || symbol.endsWith("-")) continue;
   if (!symbols.has(symbol)) fail(`Иконка #${symbol} используется, но <symbol> для неё не объявлен.`);
 }
+const iconSprite = await readMaybe("web/icons-sprite.svg");
+const spriteReferences = [...html.matchAll(/<use\b[^>]*href="\/web\/icons-sprite\.svg#([^"]+)"/g)]
+  .map((match) => match[1]);
+if (spriteReferences.length && !iconSprite) fail("Файл web/icons-sprite.svg не найден.");
+if (iconSprite) {
+  const spriteSymbols = new Set([...iconSprite.matchAll(/<symbol[^>]*id="([^"]+)"/g)].map((match) => match[1]));
+  const generatedSpriteNames = [...js.matchAll(/\b(\d{2}_[a-z_]+)\b/g)].map((match) => `icon-${match[1]}`);
+  for (const symbol of [...spriteReferences, ...generatedSpriteNames]) {
+    if (!spriteSymbols.has(symbol)) fail(`Иконка #${symbol} отсутствует в web/icons-sprite.svg.`);
+  }
+}
 
 /* ---------- 6. Страницы и навигация ---------- */
-const pageIds = new Set([...html.matchAll(/class="page[^"]*"\s+id="page-([A-Za-z0-9_-]+)"/g)].map((m) => m[1]));
+const pageIds = new Set([
+  ...[...html.matchAll(/\bid="view-([A-Za-z0-9_-]+)"/g)].map((m) => m[1]),
+  ...[...html.matchAll(/class="page[^"]*"\s+id="page-([A-Za-z0-9_-]+)"/g)].map((m) => m[1])
+]);
 for (const match of html.matchAll(/data-tab="([A-Za-z0-9_-]+)"/g)) {
   if (!pageIds.has(match[1])) fail(`Кнопка навигации ведёт на несуществующую страницу: ${match[1]}`);
 }
@@ -149,6 +163,9 @@ for (const match of js.matchAll(/data-go="([A-Za-z0-9_-]+)"/g)) {
 }
 for (const match of html.matchAll(/data-go="([A-Za-z0-9_-]+)"/g)) {
   if (!pageIds.has(match[1])) fail(`HTML рендерит data-go="${match[1]}", но такой страницы нет.`);
+}
+for (const match of html.matchAll(/data-view="([A-Za-z0-9_-]+)"/g)) {
+  if (!pageIds.has(match[1])) fail(`Навигация ведёт на несуществующий экран: ${match[1]}`);
 }
 
 /* ---------- 7. Классы из JS описаны в CSS ---------- */
@@ -171,7 +188,10 @@ for (const match of jsStatic.matchAll(/classList\.(?:add|toggle|remove)\(\s*"([A
 }
 
 const cssClasses = new Set([...css.matchAll(/\.(-?[A-Za-z_][A-Za-z0-9_-]*)/g)].map((m) => m[1]));
-const utilityIgnores = new Set(["hidden", "active"]);
+const utilityIgnores = new Set([
+  "hidden", "active", "citizen-only", "document-only", "head-only",
+  "manager-only", "practice-only", "staff-only"
+]);
 // Имена с дефисом на конце — это динамические префиксы (`priority-${value}`),
 // а не готовые классы: проверять их наличие в CSS бессмысленно.
 const isDynamicPrefix = (name) => name.endsWith("-");

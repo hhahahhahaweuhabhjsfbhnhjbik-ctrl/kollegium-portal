@@ -3,18 +3,35 @@ import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } fr
 import { promisify } from "node:util";
 import { DatabaseSync } from "node:sqlite";
 import { existsSync } from "node:fs";
-import { readFile, mkdir } from "node:fs/promises";
+import { readFile, mkdir, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
 import { startDiscordBot } from "./discord-bot.mjs";
 import { WEBHOOK_CHANNELS, createWebhookDispatcher, describeWebhook, sendWebhook } from "./webhooks.mjs";
+import { rpPracticeCases } from "./web/js/data/rp-practice.js";
 
 const scrypt = promisify(scryptCallback);
 const root = path.dirname(fileURLToPath(import.meta.url));
 const roles = ["Стажер КА", "Юрист", "Адвокат", "Ст.Адвокат", "ЗГКА", "ГКА"];
 const citizenRole = "Гражданин";
 const managementRoles = ["ГКА", "ЗГКА"];
+const activityReportTypes = Object.freeze({
+  call: "Вызов"
+});
+const portalPageRoutes = new Set([
+  "/page/home",
+  "/page/memo",
+  "/page/appeals",
+  "/page/iski",
+  "/page/exams",
+  "/page/practice",
+  "/page/laws",
+  "/page/rating",
+  "/page/audit",
+  "/page/awards",
+  "/page/reports"
+]);
 const taskPriorities = ["low", "normal", "high", "critical"];
 const defaultRatingWeights = Object.freeze({
   documentsApproved: 2,
@@ -70,12 +87,12 @@ const calendarEventTypes = ["court", "interview", "exam", "attestation", "meetin
 const nextRank = { "Стажер КА": "Юрист", "Юрист": "Адвокат", "Адвокат": "Ст.Адвокат", "Ст.Адвокат": "ЗГКА" };
 const documentRoles = ["Юрист", "Адвокат", "Ст.Адвокат", "ЗГКА", "ГКА"];
 const roleActions = {
-  "Стажер КА": ["exam", "training"],
+  "Стажер КА": ["exam", "training", "practice"],
   "Юрист": ["exam", "practice", "training"],
   "Адвокат": ["exam", "promotion", "practice"],
-  "Ст.Адвокат": [],
-  "ЗГКА": [],
-  "ГКА": [],
+  "Ст.Адвокат": ["practice"],
+  "ЗГКА": ["practice"],
+  "ГКА": ["practice"],
   [citizenRole]: ["citizen_help", "citizen_complaint", "employment"]
 };
 const applicationNames = {
@@ -89,15 +106,15 @@ const applicationNames = {
   employment: "Заявка на вступление в Коллегию"
 };
 const lawFiles = {
-  ak: "АК.txt",
-  uk: "УК.txt",
-  pk: "ПК.txt",
-  charter: "Устав.txt",
-  zot: "ЗОТ.txt",
-  advocacy: "Закон об адвокатуре.txt",
-  road: "Дорожный кодекс.txt",
-  labor: "Трудовой кодекс.txt",
-  ethics: "Этический кодекс.txt",
+  ak: "Административный Кодекс (Редакция от 14.11.2026).txt",
+  uk: "Уголовный Кодекс (Редакция от 23.11.2026).txt",
+  pk: "Процессуальный Кодекс (Редакция от 23.11.2026).txt",
+  charter: "Конституция.txt",
+  zot: "Закон о закрытых и охраняемых территориях (Редакция от 23.11.2026).txt",
+  advocacy: "Закон об адвокатуре и адвокатской деятельности (Редакция от 09.11.2026).txt",
+  road: "Дорожный Кодекс (Редакция от 14.11.2026).txt",
+  labor: "Трудовой Кодекс (Редакция от 23.11.2026).txt",
+  ethics: "Этический Кодекс (Редакция от 01.10.2026).txt",
   documents: "Закон о документообороте.txt",
   justice: "Закон о Департаменте юстиции.txt"
 };
@@ -105,11 +122,11 @@ const suppliedLawKeys = new Set(["ak", "uk", "pk", "charter", "road", "labor", "
 const attorneyRoles = ["Адвокат", "Ст.Адвокат"];
 const examBank = {
   "Стажер КА": [
-    { q: "Сколько минут сотрудник ожидает ответ адвоката на запрос?", a: ["1 минуту", "3 минуты", "5 минут"], correct: 1 },
-    { q: "Сколько ожидают прибытия адвоката после его ответа?", a: ["3 минуты", "5 минут", "10 минут"], correct: 1 },
-    { q: "Каков максимальный срок конфиденциальной беседы с адвокатом по ПК?", a: ["5 минут", "10 минут", "15 минут"], correct: 1 },
-    { q: "Когда адвокат считается вызванным согласно примечанию в ПК?", a: ["После звонка в суд", "После записи запроса в специальном канале по установленной форме", "После прибытия в участок"], correct: 1 },
-    { q: "Что должен сделать сотрудник при подаче иска или жалобы в отношении видеоматериалов по делу?", a: ["Удалить запись через сутки", "Сохранить материалы до окончательного решения", "Передать запись только заявителю"], correct: 1 }
+    { q: "За сколько минут государственный адвокат обязан принять вызов в рацию департамента?", a: ["А) 1 минута", "Б) 3 минуты", "В) 5 минут"], correct: 1 },
+    { q: "За какое время адвокат должен прибыть после принятия вызова?", a: ["А) 3 минуты", "Б) 5 минут", "В) 10 минут"], correct: 1 },
+    { q: "Могут ли стажёр или юрист проходить на ЗОТ без контроля старшего адвоката?", a: ["А) Да, при наличии удостоверения", "Б) Нет, только под контролем руководства или старших адвокатов", "В) Да, только в КПЗ LSPD"], correct: 1 },
+    { q: "Сколько времени сотрудник обязан хранить видеозапись задержания?", a: ["А) 24 часа", "Б) 48 часов", "В) Не менее 72 часов"], correct: 2 },
+    { q: "Какова максимальная длительность конфиденциальной беседы с задерживаемым?", a: ["А) До 5 минут", "Б) До 10 минут", "В) До 15 минут"], correct: 1 }
   ],
   "Юрист": [
     { q: "Как долго хранится видеофиксация сотрудниками государственных структур по указанной норме ПК?", a: ["24 часа с окончания записи", "72 часа с окончания записи", "7 суток с момента задержания"], correct: 1 },
@@ -117,6 +134,13 @@ const examBank = {
     { q: "Какой срок ожидания ответа адвоката установлен в приведенном положении ПК?", a: ["3 минуты", "5 минут", "10 минут"], correct: 0 },
     { q: "Может ли юрист сопровождать адвоката при оказании помощи по запросу задержанного?", a: ["Нет", "Да", "Только с разрешения прокурора"], correct: 1 },
     { q: "Что предусмотрено ПК, если в отношении сотрудника подан иск или жалоба в прокуратуру?", a: ["Сохранить относящиеся к делу видеоматериалы до окончательного решения", "Удалить материалы по требованию сотрудника", "Хранить их ровно 3 минуты"], correct: 0 }
+  ],
+  "Адвокат": [
+    { q: "На сколько минут приостанавливается допрос по запросу адвоката и каков общий лимит?", a: ["А) 5 минут / 30 минут", "Б) 10 минут / до 60 минут", "В) 15 минут / до 90 минут"], correct: 1 },
+    { q: "Можно ли адвокату изменить залог по сравнению с суммой УК?", a: ["А) Повысить не более чем в 2 раза, снизить нельзя", "Б) Любое повышение и снижение", "В) Снизить до 50%, повышение запрещено"], correct: 0 },
+    { q: "Допустимо ли задерживать неприкосновенное лицо без угрозы или ордера?", a: ["А) Да, до 1 часа", "Б) Нет, только при угрозе жизни и здоровью или по ордеру AS/PTD/суду", "В) Достаточно одобрения прокурора"], correct: 1 },
+    { q: "Входят ли ожидание адвоката и конфиденциальная беседа в час задержания?", a: ["А) Да", "Б) Нет, процессуальные паузы не засчитываются", "В) Засчитывается только беседа"], correct: 1 },
+    { q: "Что запрещено делать с видеоматериалами при иске или жалобе против сотрудника?", a: ["А) Сохранять до решения", "Б) Удалять в течение суток", "В) Передавать заявителю"], correct: 0 }
   ]
 };
 const lawExamBank = {
@@ -203,8 +227,6 @@ const lawExamTitles = {
   documents: "Закон о документообороте",
   justice: "Закон о Департаменте юстиции"
 };
-examBank["Адвокат"] = lawExamBank.uk;
-examBank["Ст.Адвокат"] = lawExamBank.ak;
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -222,6 +244,7 @@ const safeEqual = (left, right) => {
 const cleanUser = (user) => ({
   id: user.id, username: user.username, displayName: user.display_name,
   email: user.email || "", role: user.role, status: user.status,
+  hasFullGkaAccess: Boolean(Number(user.full_gka_access)),
   createdAt: user.created_at, reattestDue: user.reattest_due || null,
   discordLinked: Boolean(user.discord_id), discordUsername: user.discord_username || "",
   discordAvatarUrl: user.discord_avatar_url || "",
@@ -230,6 +253,11 @@ const cleanUser = (user) => ({
   discordNicknameError: user.discord_nickname_error || "",
   documentCount: Number(user.document_count || 0), lawsuitCount: Number(user.lawsuit_count || 0)
 });
+
+function hasGkaAccess(user) {
+  return user.role === "ГКА" ||
+    (user.role === "ЗГКА" && Number(user.full_gka_access) === 1);
+}
 
 function createDatabase(dbPath) {
   const db = new DatabaseSync(dbPath);
@@ -243,6 +271,7 @@ function createDatabase(dbPath) {
       email TEXT NOT NULL DEFAULT '',
       role TEXT NOT NULL DEFAULT 'Стажер КА',
       status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','active','suspended')),
+      full_gka_access INTEGER NOT NULL DEFAULT 0 CHECK (full_gka_access IN (0,1)),
       discord_id TEXT UNIQUE,
       discord_username TEXT NOT NULL DEFAULT '',
       discord_avatar_url TEXT NOT NULL DEFAULT '',
@@ -392,6 +421,46 @@ function createDatabase(dbPath) {
       archive_run_id INTEGER REFERENCES weekly_reset_runs(id)
     );
     CREATE INDEX IF NOT EXISTS reprimands_user_idx ON reprimands(user_id, id DESC);
+    CREATE TABLE IF NOT EXISTS activity_reports (
+      id INTEGER PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      report_type TEXT NOT NULL CHECK (report_type IN ('call','lawsuit','prosecutor_complaint')),
+      occurred_at TEXT NOT NULL,
+      reference TEXT NOT NULL,
+      details TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+      decision TEXT NOT NULL DEFAULT '',
+      reviewed_by INTEGER REFERENCES users(id),
+      reviewed_at TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS activity_report_attachments (
+      report_id INTEGER PRIMARY KEY REFERENCES activity_reports(id) ON DELETE CASCADE,
+      file_name TEXT NOT NULL,
+      content_type TEXT NOT NULL CHECK (content_type IN ('image/jpeg','image/png','image/webp')),
+      content BLOB NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS activity_reports_status_idx ON activity_reports(status, occurred_at DESC);
+    CREATE INDEX IF NOT EXISTS activity_reports_user_idx ON activity_reports(user_id, id DESC);
+    CREATE TABLE IF NOT EXISTS portal_notifications (
+      id INTEGER PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      notification_type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      href TEXT NOT NULL DEFAULT '',
+      discord_error TEXT NOT NULL DEFAULT '',
+      discord_sent_at TEXT,
+      read_at TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS portal_notifications_user_idx ON portal_notifications(user_id, id DESC);
+    CREATE TABLE IF NOT EXISTS notification_preferences (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      discord_dm_enabled INTEGER NOT NULL DEFAULT 0 CHECK (discord_dm_enabled IN (0,1)),
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
     CREATE TABLE IF NOT EXISTS promotion_settings (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       lawyer_calls_required INTEGER NOT NULL DEFAULT 0 CHECK (lawyer_calls_required BETWEEN 0 AND 100),
@@ -427,6 +496,12 @@ function createDatabase(dbPath) {
       created_by INTEGER NOT NULL REFERENCES users(id),
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       completed_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS rp_practice_completions (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      case_id TEXT NOT NULL,
+      completed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, case_id)
     );
     CREATE TABLE IF NOT EXISTS documents (
       id INTEGER PRIMARY KEY,
@@ -617,6 +692,16 @@ function createDatabase(dbPath) {
     CREATE INDEX IF NOT EXISTS member_employment_history_user_idx ON member_employment_history(user_id, id DESC);
     CREATE INDEX IF NOT EXISTS academy_materials_category_idx ON academy_materials(category, updated_at DESC);
   `);
+  const userColumns = db.prepare("PRAGMA table_info(users)").all();
+  if (!userColumns.some((item) => item.name === "full_gka_access")) {
+    db.exec("ALTER TABLE users ADD COLUMN full_gka_access INTEGER NOT NULL DEFAULT 0 CHECK (full_gka_access IN (0,1))");
+  }
+  db.prepare("UPDATE users SET full_gka_access = 0 WHERE username != ? AND full_gka_access != 0")
+    .run("yyte");
+  db.prepare(`UPDATE users SET role = 'ЗГКА', full_gka_access = 1
+    WHERE username = ? AND (role != 'ЗГКА' OR full_gka_access != 1)`).run("yyte");
+  db.prepare("UPDATE users SET display_name = 'Yuti Prince' WHERE username = 'yyte'");
+
   const applicationColumns = db.prepare("PRAGMA table_info(applications)").all();
   for (const [column, definition] of [
     ["assigned_to", "INTEGER REFERENCES users(id)"],
@@ -685,7 +770,6 @@ function createDatabase(dbPath) {
   }
   db.exec("CREATE INDEX IF NOT EXISTS exam_results_application_idx ON exam_results(application_id, track, id)");
   db.exec("INSERT OR IGNORE INTO promotion_settings (id, lawyer_calls_required) VALUES (1, 0)");
-  const userColumns = db.prepare("PRAGMA table_info(users)").all();
   for (const [column, definition] of [
     ["discord_id", "TEXT"],
     ["discord_username", "TEXT NOT NULL DEFAULT ''"],
@@ -856,7 +940,7 @@ function readJson(req, maxCharacters = 1024 * 1024) {
 }
 
 function publicUser(db, userId) {
-  return db.prepare(`SELECT id, username, display_name, email, role, status, created_at, reattest_due,
+  return db.prepare(`SELECT id, username, display_name, email, role, status, full_gka_access, created_at, reattest_due,
     discord_id, discord_username, discord_avatar_url, discord_sync_error, discord_nickname_error,
     (SELECT COUNT(*) FROM documents WHERE user_id = users.id AND forum_status = 'approved') AS document_count,
     (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
@@ -967,8 +1051,8 @@ function validateReportPeriod(value) {
 
 function buildMonthlyReport(db, period) {
   const metricKeys = [
-    "documentsCreated", "documentsApproved", "lawsuitsFiled", "casesTaken",
-    "casesClosed", "examsPassed", "attestationsPassed", "reprimands"
+    "documentsCreated", "documentsApproved", "lawsuitsFiled", "callsReported",
+    "casesTaken", "casesClosed", "examsPassed", "attestationsPassed", "reprimands"
   ];
   const allRows = db.prepare(`SELECT u.id, u.display_name, u.role, u.status,
       (SELECT COUNT(*) FROM documents d
@@ -976,8 +1060,12 @@ function buildMonthlyReport(db, period) {
       (SELECT COUNT(*) FROM documents d
         WHERE d.user_id = u.id AND d.forum_status = 'approved'
           AND strftime('%Y-%m', d.forum_reviewed_at) = ?) AS documents_approved,
-      (SELECT COUNT(*) FROM lawsuits l
-        WHERE l.user_id = u.id AND strftime('%Y-%m', l.created_at) = ?) AS lawsuits_filed,
+      (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
+        WHERE l.user_id = u.id AND d.forum_status = 'approved'
+          AND strftime('%Y-%m', d.forum_reviewed_at) = ?) AS lawsuits_filed,
+      (SELECT COUNT(*) FROM activity_reports ar
+        WHERE ar.user_id = u.id AND ar.report_type = 'call' AND ar.status = 'approved'
+          AND strftime('%Y-%m', ar.occurred_at) = ?) AS calls_reported,
       (SELECT COUNT(*) FROM applications a
         WHERE a.assigned_to = u.id AND a.type IN ('citizen_help', 'citizen_complaint')
           AND strftime('%Y-%m', a.created_at) = ?) AS cases_taken,
@@ -994,7 +1082,8 @@ function buildMonthlyReport(db, period) {
     FROM users u
     WHERE u.role != ?
     ORDER BY u.role, u.display_name`).all(
-    period, period, period, period, period, period, period, period, citizenRole
+    period, period, period, period, period, period, period, period, period,
+    citizenRole
   ).map((row) => ({
     userId: Number(row.id),
     displayName: row.display_name,
@@ -1003,6 +1092,7 @@ function buildMonthlyReport(db, period) {
     documentsCreated: Number(row.documents_created),
     documentsApproved: Number(row.documents_approved),
     lawsuitsFiled: Number(row.lawsuits_filed),
+    callsReported: Number(row.calls_reported),
     casesTaken: Number(row.cases_taken),
     casesClosed: Number(row.cases_closed),
     examsPassed: Number(row.exams_passed),
@@ -1415,6 +1505,34 @@ function parseApplicationAttachments(value) {
   });
 }
 
+function getPhotoZoneGroup(fileName) {
+  const stem = fileName
+    .replace(/\.(png|jpe?g|webp)$/iu, "")
+    .replace(/^\d+/u, "")
+    .replace(/\d+$/u, "")
+    .toLocaleLowerCase("ru");
+  if (stem.includes("лспд")) return { key: "lspd", label: "LSPD" };
+  if (stem.includes("федеральной тюрьмы") || stem.includes("боллингброук") || stem.includes("федеральная тюрьма")) {
+    return { key: "ft", label: "Федеральная тюрьма" };
+  }
+  if (stem.includes("фрб") || stem.includes("federal investigation bureau")) return { key: "fib", label: "ФРБ" };
+  if (stem.includes("шерифским департаментом") || stem.includes("lssd")) {
+    return { key: "lssd", label: "Шерифский департамент (LSSD)" };
+  }
+  if (stem.includes("национальной гвардией") || stem.includes("(ng)") || stem === "ng") {
+    return { key: "ng", label: "Национальная гвардия (NG)" };
+  }
+  if (stem.includes("экстренной медицинской службой") || stem.includes("(ems)") || stem === "ems") {
+    return { key: "ems", label: "Медицинская служба (EMS)" };
+  }
+  if (stem.includes("мэрии") || stem.includes("мерия")) return { key: "gov", label: "Мэрия" };
+  if (stem.includes("аэропорт") || stem.includes("lsia")) return { key: "lsia", label: "Аэропорт (LSIA)" };
+  if (stem.includes("зал заседания") || stem.includes("зал суда") || stem.includes("кабинеты суда")) {
+    return { key: "court", label: "Суды" };
+  }
+  return { key: "other", label: "Прочее" };
+}
+
 function parseStaffIds(db, value, { required = true, maximum = 100 } = {}) {
   if (!Array.isArray(value) || value.length > maximum || (required && value.length === 0)) {
     throw new HttpError(400, `Укажите от ${required ? 1 : 0} до ${maximum} сотрудников.`);
@@ -1463,6 +1581,10 @@ export function createPortalServer(options = {}) {
   webhooks.applications ??= options.webhookApplications ?? process.env.DISCORD_WEBHOOK_APPLICATIONS ?? "";
   webhooks.help ??= options.webhookHelp ?? process.env.DISCORD_WEBHOOK_HELP ?? "";
   webhooks.exams ??= options.webhookExams ?? process.env.DISCORD_WEBHOOK_EXAMS ?? "";
+  webhooks.lawyerTest ??= options.webhookLawyerTest ?? process.env.DISCORD_WEBHOOK_LAWYER_TEST ?? "";
+  webhooks.attorneyInterview ??= options.webhookAttorneyInterview
+    ?? process.env.DISCORD_WEBHOOK_ATTORNEY_INTERVIEW
+    ?? "";
   webhooks.logs ??= options.webhookLogs ?? process.env.DISCORD_WEBHOOK_LOGS ?? "";
   webhooks.health ??= options.webhookHealth ?? process.env.DISCORD_WEBHOOK_HEALTH ?? "";
   const webhookFetch = options.webhookFetch || globalThis.fetch;
@@ -1597,6 +1719,57 @@ export function createPortalServer(options = {}) {
     return response.json();
   }
 
+  async function notifyPortalUser({ userId, type, title, body, href = "", sendDiscord = true }) {
+    const inserted = db.prepare(`INSERT INTO portal_notifications
+      (user_id, notification_type, title, body, href) VALUES (?, ?, ?, ?, ?)`)
+      .run(userId, type, title, body, href);
+    const notificationId = Number(inserted.lastInsertRowid);
+    const preferences = db.prepare(`SELECT u.discord_id, p.discord_dm_enabled
+      FROM users u LEFT JOIN notification_preferences p ON p.user_id = u.id
+      WHERE u.id = ?`).get(userId);
+    if (!sendDiscord || preferences?.discord_dm_enabled !== 1) {
+      return { id: notificationId, discordWarning: "" };
+    }
+
+    let warning = "";
+    if (!preferences.discord_id) {
+      warning = "Discord не привязан к аккаунту.";
+    } else if (!discord.botToken) {
+      warning = "Discord-бот не настроен на сервере.";
+    } else {
+      try {
+        const channel = await discordBotRequest("POST", "/users/@me/channels", {
+          recipient_id: preferences.discord_id
+        });
+        if (!channel?.id || !/^\d{15,22}$/.test(channel.id)) {
+          throw new Error("Discord не вернул канал личных сообщений.");
+        }
+        await discordBotRequest("POST", `/channels/${channel.id}/messages`, {
+          content: `${title}\n${body}`.slice(0, 1900),
+          allowed_mentions: { parse: [] }
+        });
+        db.prepare("UPDATE portal_notifications SET discord_sent_at = CURRENT_TIMESTAMP WHERE id = ?")
+          .run(notificationId);
+      } catch (error) {
+        warning = error.message;
+      }
+    }
+
+    if (warning) {
+      db.prepare("UPDATE portal_notifications SET discord_error = ? WHERE id = ?")
+        .run(warning.slice(0, 500), notificationId);
+      console.error(`Discord notification delivery failed for portal user ${userId}:`, warning);
+    }
+    return { id: notificationId, discordWarning: warning };
+  }
+
+  async function notifyPortalRoles(targetRoles, payload, excludeUserId = 0) {
+    const recipients = db.prepare(`SELECT id FROM users
+      WHERE status = 'active' AND role IN (${targetRoles.map(() => "?").join(",")}) AND id != ?`)
+      .all(...targetRoles, excludeUserId);
+    return Promise.all(recipients.map(({ id }) => notifyPortalUser({ userId: id, ...payload })));
+  }
+
   let calendarReminderInProgress = false;
   async function sendDueCalendarReminders(now = Date.now()) {
     if (!discord.botToken) return { sent: 0, configured: false };
@@ -1662,6 +1835,9 @@ export function createPortalServer(options = {}) {
   }
 
   async function notifyReprimandByDm(target, id, reason, photo, fields) {
+    const preference = db.prepare("SELECT discord_dm_enabled FROM notification_preferences WHERE user_id = ?")
+      .get(target.id);
+    if (preference?.discord_dm_enabled !== 1) return "Личные уведомления Discord выключены в профиле.";
     if (!target.discord_id) return "Discord не привязан: личное уведомление не отправлено.";
     if (!discord.botToken) return "Личное уведомление не отправлено: не настроен DISCORD_BOT_TOKEN.";
     if (!/^\d{15,22}$/.test(target.discord_id)) return "Личное уведомление не отправлено: некорректный Discord ID.";
@@ -1938,37 +2114,29 @@ export function createPortalServer(options = {}) {
           const body = await readJson(req);
           const username = String(body.username || "").trim().toLowerCase();
           const displayName = String(body.displayName || "").trim();
+          const firstName = String(body.firstName || "").trim();
+          const lastName = String(body.lastName || "").trim();
           const email = String(body.email || "").trim().slice(0, 160);
           const password = String(body.password || "");
           const accountType = String(body.accountType || "staff");
-          const inviteCode = String(body.inviteCode || "").trim();
           if (!/^[a-z0-9._-]{3,32}$/.test(username)) throw new HttpError(400, "Логин: от 3 до 32 символов, латиница, цифры, точка, дефис или подчёркивание.");
           if (displayName.length < 2 || displayName.length > 80) throw new HttpError(400, "Укажите игровое имя длиной от 2 до 80 символов.");
+          if (firstName || lastName) {
+            if (!/^[A-Za-zА-Яа-яЁё]{2,40}$/.test(firstName) || !/^[A-Za-zА-Яа-яЁё]{2,40}$/.test(lastName)) {
+              throw new HttpError(400, "При регистрации обязательно укажите Имя и Фамилия отдельными полями.");
+            }
+          }
           if (password.length < 12 || password.length > 128) throw new HttpError(400, "Пароль должен содержать от 12 до 128 символов.");
           if (!["staff", "citizen"].includes(accountType)) throw new HttpError(400, "Выберите регистрацию гражданина или сотрудника.");
-          let invite = null;
-          if (accountType === "staff") {
-            if (!inviteCode || inviteCode.length > 100) throw new HttpError(400, "Для регистрации сотрудника нужен код-приглашение ГКА.");
-            invite = db.prepare("SELECT * FROM invites WHERE code_hash = ? AND used_at IS NULL AND expires_at > ?").get(hashToken(inviteCode), Date.now());
-            if (!invite) throw new HttpError(400, "Код приглашения недействителен, уже использован или истёк.");
-          }
           const salt = randomBytes(16);
           const key = await scrypt(password, salt, 64, { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
+          const role = accountType === "citizen" ? citizenRole : roles[0];
+          const status = accountType === "citizen" ? "active" : "pending";
           let result;
-          db.exec("BEGIN IMMEDIATE");
           try {
-            if (invite) {
-              const consumed = db.prepare("UPDATE invites SET used_at = CURRENT_TIMESTAMP WHERE code_hash = ? AND used_at IS NULL AND expires_at > ?")
-                .run(invite.code_hash, Date.now());
-              if (consumed.changes !== 1) throw new HttpError(400, "Код приглашения уже использован или истёк.");
-            }
-            const role = accountType === "citizen" ? citizenRole : roles[0];
-            const status = accountType === "citizen" ? "active" : "pending";
             result = db.prepare("INSERT INTO users (username, password_hash, display_name, email, role, status) VALUES (?, ?, ?, ?, ?, ?)")
               .run(username, `scrypt$${salt.toString("base64")}$${Buffer.from(key).toString("base64")}`, displayName, email, role, status);
-            db.exec("COMMIT");
           } catch (error) {
-            db.exec("ROLLBACK");
             if (String(error.message).includes("UNIQUE")) throw new HttpError(409, "Этот логин уже занят.");
             throw error;
           }
@@ -1976,8 +2144,8 @@ export function createPortalServer(options = {}) {
           setSessionCookie(res, session.token, cookieSecure);
           if (accountType === "staff") {
             const applicant = publicUser(db, Number(result.lastInsertRowid));
-            const webhookWarning = await deliverWebhook(webhooks.applications, "Новая заявка по коду-приглашению",
-              `${applicant.display_name} зарегистрировался по приглашению и ожидает решения ГКА.`,
+            const webhookWarning = await deliverWebhook(webhooks.applications, "Новая заявка на вступление",
+              `${applicant.display_name} зарегистрировался и ожидает решения ГКА.`,
               [
                 { name: "Участник", value: applicant.display_name, inline: true },
                 { name: "Логин портала", value: applicant.username, inline: true },
@@ -2072,14 +2240,51 @@ export function createPortalServer(options = {}) {
         if (req.method !== "GET") assertCsrf(req, session);
         if (user.status !== "active") throw new HttpError(403, "Аккаунт ожидает одобрения ГКА или приостановлен.");
         const requiresDiscordLink = requireDiscordLink && user.role !== citizenRole && !user.discord_id;
-        if (requiresDiscordLink && !["/api/discord/status", "/api/discord/link", "/api/auth/logout"].includes(pathname)) {
+        if (requiresDiscordLink &&
+            !["/api/discord/status", "/api/discord/link", "/api/auth/logout"].includes(pathname) &&
+            !pathname.startsWith("/api/notifications")) {
           throw new HttpError(403, "Для доступа сотрудника сначала привяжите Discord к аккаунту.");
+        }
+
+        if (pathname === "/api/rp-practice/completions" && req.method === "GET") {
+          if (user.role === citizenRole) throw new HttpError(403, "RP-практика доступна только сотрудникам Коллегии.");
+          const completedCaseIds = db.prepare(
+            "SELECT case_id FROM rp_practice_completions WHERE user_id = ? ORDER BY completed_at"
+          ).all(user.id).map((row) => row.case_id);
+          return sendJson(res, 200, { completedCaseIds });
+        }
+
+        if (pathname === "/api/rp-practice/answer" && req.method === "POST") {
+          if (user.role === citizenRole) throw new HttpError(403, "RP-практика доступна только сотрудникам Коллегии.");
+          const body = requireObject(await readJson(req));
+          const caseId = String(body.caseId || "").trim();
+          const answerIndex = body.answerIndex;
+          const question = rpPracticeCases.find((item) => item.id === caseId);
+          if (!question) throw new HttpError(404, "RP-кейс не найден.");
+          if (!Number.isInteger(answerIndex) || answerIndex < 0 || answerIndex >= question.options.length) {
+            throw new HttpError(400, "Выберите вариант ответа из кейса.");
+          }
+          const completed = Boolean(db.prepare(
+            "SELECT 1 FROM rp_practice_completions WHERE user_id = ? AND case_id = ?"
+          ).get(user.id, caseId));
+          const correctIndex = question.options.findIndex((option) => option.startsWith(`${question.correct})`));
+          const correct = answerIndex === correctIndex;
+          if (correct && !completed) {
+            db.prepare("INSERT OR IGNORE INTO rp_practice_completions (user_id,case_id) VALUES (?,?)")
+              .run(user.id, caseId);
+          }
+          return sendJson(res, 200, {
+            correct,
+            completed: completed || correct,
+            explanation: correct ? question.explanation : "Ответ неверный. Попробуйте выбрать другой вариант."
+          });
         }
 
         if (pathname === "/api/discord/status" && req.method === "GET") {
           return sendJson(res, 200, {
             configured: Boolean(discord.clientId && discord.clientSecret && discord.redirectUri),
             botConfigured: Boolean(discord.botToken && discord.guildId),
+            botCanDm: Boolean(discord.botToken),
             linkRequired: requiresDiscordLink,
             linked: Boolean(user.discord_id),
             username: user.discord_username || "",
@@ -2091,8 +2296,57 @@ export function createPortalServer(options = {}) {
           });
         }
 
+        if (pathname === "/api/notifications" && req.method === "GET") {
+          const preferences = db.prepare("SELECT discord_dm_enabled FROM notification_preferences WHERE user_id = ?")
+            .get(user.id);
+          const notifications = db.prepare(`SELECT id, notification_type, title, body, href, discord_error,
+              discord_sent_at, read_at, created_at
+            FROM portal_notifications WHERE user_id = ? ORDER BY id DESC LIMIT 100`).all(user.id);
+          return sendJson(res, 200, {
+            notifications,
+            unreadCount: notifications.filter((item) => !item.read_at).length,
+            discordDmEnabled: preferences?.discord_dm_enabled === 1
+          });
+        }
+
+        if (pathname === "/api/notifications/read-all" && req.method === "POST") {
+          db.prepare("UPDATE portal_notifications SET read_at = CURRENT_TIMESTAMP WHERE user_id = ? AND read_at IS NULL")
+            .run(user.id);
+          return sendJson(res, 200, { ok: true });
+        }
+
+        const notificationReadRoute = pathname.match(/^\/api\/notifications\/(\d+)\/read$/);
+        if (notificationReadRoute && req.method === "PATCH") {
+          const notificationId = Number(notificationReadRoute[1]);
+          const notification = db.prepare("SELECT id FROM portal_notifications WHERE id = ? AND user_id = ?")
+            .get(notificationId, user.id);
+          if (!notification) throw new HttpError(404, "Уведомление не найдено.");
+          db.prepare(`UPDATE portal_notifications SET read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
+            WHERE id = ? AND user_id = ?`).run(notificationId, user.id);
+          return sendJson(res, 200, { ok: true });
+        }
+
+        if (pathname === "/api/notifications/preferences" && req.method === "PATCH") {
+          const body = await readJson(req);
+          if (typeof body.discordDmEnabled !== "boolean") {
+            throw new HttpError(400, "Укажите, включить ли личные уведомления Discord.");
+          }
+          if (body.discordDmEnabled && !user.discord_id) {
+            throw new HttpError(409, "Сначала привяжите Discord в профиле.");
+          }
+          if (body.discordDmEnabled && !discord.botToken) {
+            throw new HttpError(503, "Discord-бот пока не настроен на сервере.");
+          }
+          db.prepare(`INSERT INTO notification_preferences (user_id, discord_dm_enabled, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(user_id) DO UPDATE SET discord_dm_enabled = excluded.discord_dm_enabled,
+              updated_at = CURRENT_TIMESTAMP`)
+            .run(user.id, body.discordDmEnabled ? 1 : 0);
+          return sendJson(res, 200, { discordDmEnabled: body.discordDmEnabled });
+        }
+
         if (pathname === "/api/discord/diagnostics" && req.method === "GET") {
-          if (user.role !== "ГКА") throw new HttpError(403, "Диагностика Discord доступна только ГКА.");
+          if (!hasGkaAccess(user)) throw new HttpError(403, "Диагностика Discord доступна только ГКА.");
           let redirectHost = "";
           let redirectValid = false;
           try {
@@ -2128,7 +2382,7 @@ export function createPortalServer(options = {}) {
         }
 
         if (pathname === "/api/webhooks/status" && req.method === "GET") {
-          if (user.role !== "ГКА") throw new HttpError(403, "Состояние уведомлений доступно только ГКА.");
+          if (!hasGkaAccess(user)) throw new HttpError(403, "Состояние уведомлений доступно только ГКА.");
           const state = webhookDispatcher.status();
           return sendJson(res, 200, {
             pending: state.pending,
@@ -2143,7 +2397,7 @@ export function createPortalServer(options = {}) {
         }
 
         if (pathname === "/api/webhooks/test" && req.method === "POST") {
-          if (user.role !== "ГКА") throw new HttpError(403, "Проверку уведомлений может запускать только ГКА.");
+          if (!hasGkaAccess(user)) throw new HttpError(403, "Проверку уведомлений может запускать только ГКА.");
           const body = await readJson(req);
           const kind = String(body.kind || "");
           if (!publicWebhookChannels.includes(kind)) {
@@ -2427,7 +2681,7 @@ export function createPortalServer(options = {}) {
           if (user.role === citizenRole) throw new HttpError(403, "Календарь доступен только сотрудникам Коллегии.");
           const manager = managementRoles.includes(user.role);
           const includeArchived = requestUrl.searchParams.get("archived") === "1";
-          if (includeArchived && user.role !== "ГКА") throw new HttpError(403, "Архив календаря доступен только ГКА.");
+          if (includeArchived && !hasGkaAccess(user)) throw new HttpError(403, "Архив календаря доступен только ГКА.");
           const rows = db.prepare(`SELECT e.*, responsible.display_name AS responsible_name,
               creator.display_name AS creator_name
             FROM calendar_events e
@@ -2600,7 +2854,7 @@ export function createPortalServer(options = {}) {
 
         if (pathname === "/api/applications" && req.method === "GET") {
           const includeArchived = requestUrl.searchParams.get("archived") === "1";
-          if (includeArchived && user.role !== "ГКА") throw new HttpError(403, "Архив заявок доступен только ГКА.");
+          if (includeArchived && !hasGkaAccess(user)) throw new HttpError(403, "Архив заявок доступен только ГКА.");
           let rows = db.prepare(`SELECT a.*, u.display_name, u.username, u.role AS current_role,
               u.discord_username AS applicant_discord_username,
               assigned.id AS assigned_user_id,
@@ -2753,6 +3007,12 @@ export function createPortalServer(options = {}) {
               { name: "Вложения", value: attachments.map((attachment) => attachment.name).join(", ") || "нет", inline: false }
             ]
           );
+          await notifyPortalRoles(managementRoles, {
+            type: "application",
+            title: `Новая заявка: ${title}`,
+            body: `${user.display_name} (${user.role}) отправил заявку на рассмотрение.`,
+            href: "/page/appeals"
+          }, user.id);
           return sendJson(res, 201, { id: appId, webhookWarning });
         }
 
@@ -2784,6 +3044,15 @@ export function createPortalServer(options = {}) {
                 { name: "Состояние", value: body.status === "ready" ? "Готов сейчас" : "Ожидает удобного времени", inline: true },
                 { name: "Заявка", value: `#${item.id}`, inline: true }
               ]);
+            if (body.status === "ready") {
+              await deliverWebhook(webhooks.attorneyInterview, "Вызов на обзвон",
+                `${user.display_name} отмечен(а) готовым(ой) к обзвону.`,
+                [
+                  { name: "Участник", value: `${user.display_name} (${item.stage_role})`, inline: true },
+                  { name: "Повышение", value: `${item.stage_role} → ${item.requested_role || "следующий ранг"}`, inline: true },
+                  { name: "Заявка", value: `#${item.id}`, inline: true }
+                ]);
+            }
             return sendJson(res, 200, { ok: true, interviewStatus: body.status, logWarning });
           }
           return sendJson(res, 200, { ok: true, interviewStatus: item.interview_status });
@@ -3124,7 +3393,7 @@ export function createPortalServer(options = {}) {
           if (!["approved", "rejected"].includes(body.status)) throw new HttpError(400, "Неизвестный статус решения.");
           const item = db.prepare("SELECT * FROM applications WHERE id = ?").get(Number(applicationReview[1]));
           if (!item) throw new HttpError(404, "Заявка не найдена.");
-          assertCanReview(user.role, item);
+          assertCanReview(hasGkaAccess(user) ? "ГКА" : user.role, item);
           if (item.status !== "pending") throw new HttpError(409, "По этой заявке уже вынесено решение.");
           if (body.status === "approved" && ["citizen_help", "citizen_complaint"].includes(item.type)) {
             throw new HttpError(409, "Назначьте адвоката кнопкой «Взять в работу».");
@@ -3159,11 +3428,16 @@ export function createPortalServer(options = {}) {
             if (!exam?.passed) throw new HttpError(409, "Проверку знаний нельзя одобрить без успешно сданного теста.");
             const promotionData = parseStoredJson(item.promotion_data_json, "отчёт о повышении");
             const stageRole = item.stage_role || member.role;
-            if (item.career_flow && item.interview_status !== "ready" && stageRole !== "Стажер КА") {
+            if (item.career_flow && item.interview_status !== "ready") {
               throw new HttpError(409, "Перед одобрением участник должен отметить готовность и пройти обзвон.");
             }
             if (stageRole === "Стажер КА") {
-              if (!promotionData.lectureAttended) throw new HttpError(409, "В заявке не подтверждено прохождение лекции.");
+              requireCriteria(item.career_flow
+                ? ["interviewPassed", "headApproved"]
+                : ["lectureVerified"]);
+              if (item.career_flow && !promotionData.lectureAttended) {
+                throw new HttpError(409, "В заявке не подтверждено прохождение обязательного этапа.");
+              }
               if (!item.career_flow) requireCriteria(["lectureVerified"]);
               const target = nextRank[stageRole];
               db.prepare("UPDATE users SET role = ? WHERE id = ?").run(target, item.user_id);
@@ -3242,6 +3516,13 @@ export function createPortalServer(options = {}) {
             nicknameWarning = result.nicknameWarning;
           }
           const logWarning = await deliverWebhook(webhooks.logs, "Решение по заявке", `${user.display_name} ${body.status === "approved" ? "одобрил" : "отклонил"} заявку #${item.id} (${item.type}).`);
+          await notifyPortalUser({
+            userId: item.user_id,
+            type: "application_review",
+            title: body.status === "approved" ? "Заявка одобрена" : "Заявка отклонена",
+            body: resultText || `По заявке #${item.id} принято решение: ${body.status === "approved" ? "одобрено" : "отклонено"}.`,
+            href: item.type === "exam" ? "/page/exams" : "/page/appeals"
+          });
           return sendJson(res, 200, { ok: true, discordWarning, nicknameWarning, logWarning });
         }
 
@@ -3326,7 +3607,7 @@ export function createPortalServer(options = {}) {
             throw new HttpError(400, "Ответы теста заполнены некорректно.");
           }
           const score = answers.reduce((sum, answer, index) => sum + (answer === questions[index].correct ? 1 : 0), 0);
-          const passed = score >= Math.ceil(questions.length * 0.8);
+          const passed = score / questions.length >= 0.7;
           db.prepare(`INSERT INTO exam_results
             (user_id, application_id, track, score, passed, answers_json) VALUES (?, ?, ?, ?, ?, ?)`)
             .run(attestation ? attestation.user_id : user.id, application ? application.id : null,
@@ -3338,33 +3619,47 @@ export function createPortalServer(options = {}) {
             db.prepare("UPDATE applications SET result = ? WHERE id = ?")
               .run(`Проверка знаний: ${score}/${questions.length}, ${passed ? "пройдена" : "не пройдена"}`, application.id);
           }
-          await deliverWebhook(webhooks.exams, `Результат проверки знаний: ${score}/${questions.length}`, `${user.display_name} · ${track} · ${passed ? "тест пройден" : "тест не пройден"}`);
+          const answerFields = questions.map((question, index) => ({
+            name: `Вопрос ${index + 1}`,
+            value: `${question.q}\nОтвет: ${question.a[answers[index]] || "не выбран"}\nВерно: ${answers[index] === question.correct ? "да" : "нет"}`,
+            inline: false
+          })).slice(0, 20);
+          await deliverWebhook(
+            webhooks.exams,
+            `Результат проверки знаний: ${score}/${questions.length}`,
+            `${user.display_name} · ${track} · ${passed ? "тест пройден" : "тест не пройден"}`,
+            [
+              { name: "Участник", value: `${user.display_name} (${user.role})`, inline: true },
+              { name: "Результат", value: `${score}/${questions.length}`, inline: true },
+              ...answerFields
+            ]
+          );
+          await deliverWebhook(
+            webhooks.lawyerTest,
+            passed ? "Проверка знаний пройдена" : "Проверка знаний не пройдена",
+            `${user.display_name} · ${track} · ${score}/${questions.length}`,
+            [
+              { name: "Участник", value: `${user.display_name} (${user.role})`, inline: true },
+              { name: "Результат", value: `${score}/${questions.length} · ${passed ? "пройдено" : "не пройдено"}`, inline: true },
+              ...answerFields
+            ]
+          );
           let discordWarning = "";
           let nicknameWarning = "";
           let interviewStatus = "not_required";
           let promotedUser = null;
           if (application?.career_flow && passed) {
             if (application.stage_role === "Стажер КА") {
-              const target = nextRank[application.stage_role];
-              db.prepare(`UPDATE applications SET status = 'approved', reviewed_at = CURRENT_TIMESTAMP,
-                review_data_json = ?, result = ? WHERE id = ?`)
-                .run(JSON.stringify({ stage: application.stage_role, criteria: { knowledgeTestPassed: true } }),
-                  `Тест пройден: ${score}/${questions.length}. Роль изменена на ${target}.`, application.id);
-              db.prepare("UPDATE users SET role = ? WHERE id = ?").run(target, user.id);
-              recordEmploymentEvent(db, {
-                userId: user.id, actorId: user.id, fromRole: user.role, toRole: target,
-                fromStatus: user.status, toStatus: user.status, details: "Экзамен стажёра пройден."
-              });
-              const syncResult = await syncDiscordMember(user.id);
-              discordWarning = syncResult.syncError;
-              nicknameWarning = syncResult.nicknameWarning;
-              promotedUser = cleanUser(publicUser(db, user.id));
+              interviewStatus = "waiting";
+              db.prepare(`UPDATE applications SET interview_status = 'waiting',
+                interview_ready_at = NULL, result = ? WHERE id = ?`)
+                .run(`Тест пройден: ${score}/${questions.length}. Ожидается обзвон и одобрение ГКА/ЗГКА.`, application.id);
               await deliverWebhook(webhooks.logs, "Стажёр прошёл тест",
-                `${user.display_name} сдал тест стажёра: ${score}/${questions.length}. Роль изменена на ${target}.`,
+                `${user.display_name} сдал тест стажёра: ${score}/${questions.length}. Роль пока не изменена; нужен обзвон и одобрение.`,
                 [
                   { name: "Участник", value: user.display_name, inline: true },
                   { name: "Результат", value: `${score}/${questions.length}`, inline: true },
-                  { name: "Новая роль", value: target, inline: true }
+                  { name: "Следующий этап", value: "Обзвон и одобрение ГКА/ЗГКА", inline: true }
                 ]);
             } else {
               interviewStatus = "waiting";
@@ -3374,7 +3669,7 @@ export function createPortalServer(options = {}) {
           }
           return sendJson(res, 200, {
             score, total: questions.length, passed, subject,
-            interviewRequired: Boolean(application?.career_flow && passed && application.stage_role !== "Стажер КА"),
+            interviewRequired: Boolean(application?.career_flow && passed),
             interviewStatus, applicationId: application?.id || null,
             user: promotedUser, discordWarning, nicknameWarning
           });
@@ -3390,7 +3685,7 @@ export function createPortalServer(options = {}) {
         }
 
         if (pathname === "/api/rating-settings" && req.method === "PATCH") {
-          if (user.role !== "ГКА") throw new HttpError(403, "Изменять формулу рейтинга может только ГКА.");
+          if (!hasGkaAccess(user)) throw new HttpError(403, "Изменять формулу рейтинга может только ГКА.");
           const body = await readJson(req);
           const weights = body.weights;
           if (!weights || typeof weights !== "object" || Array.isArray(weights) ||
@@ -3455,7 +3750,7 @@ export function createPortalServer(options = {}) {
           if (user.role === citizenRole) throw new HttpError(403, "Заявки на отсутствие доступны только сотрудникам.");
           const manager = ["ГКА", "ЗГКА"].includes(user.role);
           const includeArchived = requestUrl.searchParams.get("archived") === "1";
-          if (includeArchived && user.role !== "ГКА") throw new HttpError(403, "Архив отсутствий доступен только ГКА.");
+          if (includeArchived && !hasGkaAccess(user)) throw new HttpError(403, "Архив отсутствий доступен только ГКА.");
           const absences = db.prepare(`SELECT a.id, a.user_id, a.start_date, a.end_date, a.reason, a.status,
               a.review_note, a.reviewed_at, a.created_at, target.display_name, target.role,
               reviewer.display_name AS reviewer_name
@@ -3862,7 +4157,7 @@ export function createPortalServer(options = {}) {
 
         const passwordResetRoute = pathname.match(/^\/api\/members\/(\d+)\/reset-password$/);
         if (passwordResetRoute && req.method === "POST") {
-          if (user.role !== "ГКА") throw new HttpError(403, "Создать код восстановления может только ГКА.");
+          if (!hasGkaAccess(user)) throw new HttpError(403, "Создать код восстановления может только ГКА.");
           const memberId = Number(passwordResetRoute[1]);
           const member = db.prepare("SELECT id, display_name FROM users WHERE id = ?").get(memberId);
           if (!member) throw new HttpError(404, "Участник не найден.");
@@ -3876,7 +4171,7 @@ export function createPortalServer(options = {}) {
         }
 
         if (pathname === "/api/invites" && req.method === "POST") {
-          if (user.role !== "ГКА") throw new HttpError(403, "Создавать приглашения может только ГКА.");
+          if (!hasGkaAccess(user)) throw new HttpError(403, "Создавать приглашения может только ГКА.");
           const code = randomBytes(24).toString("base64url");
           const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
           db.prepare("INSERT INTO invites (code_hash, created_by, expires_at) VALUES (?, ?, ?)")
@@ -3887,7 +4182,7 @@ export function createPortalServer(options = {}) {
 
         const memberRoute = pathname.match(/^\/api\/members\/(\d+)$/);
         if (memberRoute && req.method === "PATCH") {
-          if (user.role !== "ГКА") throw new HttpError(403, "Изменять роли и статус аккаунта может только ГКА.");
+          if (!hasGkaAccess(user)) throw new HttpError(403, "Изменять роли и статус аккаунта может только ГКА.");
           const body = await readJson(req);
           const memberId = Number(memberRoute[1]);
           const member = db.prepare("SELECT * FROM users WHERE id = ?").get(memberId);
@@ -3905,7 +4200,7 @@ export function createPortalServer(options = {}) {
           if (body.forumProfileVerified !== undefined && typeof body.forumProfileVerified !== "boolean") {
             throw new HttpError(400, "Статус привязки форума указан некорректно.");
           }
-          if ((body.memberSince !== undefined || body.forumProfileVerified !== undefined) && user.role !== "ГКА") {
+          if ((body.memberSince !== undefined || body.forumProfileVerified !== undefined) && !hasGkaAccess(user)) {
             throw new HttpError(403, "Дату вступления и проверку профиля форума может менять только ГКА.");
           }
           const displayName = body.displayName === undefined ? undefined : body.displayName.trim();
@@ -3968,6 +4263,18 @@ export function createPortalServer(options = {}) {
           ].filter(Boolean).join("; ");
           const discordChanged = body.role !== undefined || body.status !== undefined ||
             (displayName !== undefined && displayName !== member.display_name);
+          if (memberId !== user.id && (body.role !== undefined || body.status !== undefined)) {
+            const approved = body.status === "active" && member.status !== "active";
+            await notifyPortalUser({
+              userId: memberId,
+              type: "account_change",
+              title: approved ? "Доступ одобрен" : body.status === "suspended" ? "Доступ приостановлен" : "Изменена должность",
+              body: approved ? "ГКА одобрил вашу учётную запись. Теперь доступны разделы Коллегии."
+                : body.status === "suspended" ? "Руководство приостановило доступ к аккаунту."
+                  : `Ваша должность изменена на «${body.role ?? member.role}».`,
+              href: "/page/home"
+            });
+          }
           const discordResult = discordChanged
             ? await syncDiscordMember(memberId)
             : { syncError: "", nicknameWarning: "" };
@@ -3986,7 +4293,7 @@ export function createPortalServer(options = {}) {
           if (user.role === citizenRole) throw new HttpError(403, "Выговоры доступны только сотрудникам Коллегии.");
           const manager = ["ГКА", "ЗГКА"].includes(user.role);
           const includeArchived = requestUrl.searchParams.get("archived") === "1";
-          if (includeArchived && user.role !== "ГКА") throw new HttpError(403, "Архив взысканий доступен только ГКА.");
+          if (includeArchived && !hasGkaAccess(user)) throw new HttpError(403, "Архив взысканий доступен только ГКА.");
           const rows = db.prepare(`SELECT r.id, r.user_id, r.issued_by, r.reason, r.photo_name, r.created_at,
               target.display_name, target.role, target.discord_id, target.discord_username,
               issuer.display_name AS issuer_name
@@ -4011,7 +4318,7 @@ export function createPortalServer(options = {}) {
           if (!target || target.role === citizenRole || target.status !== "active") {
             throw new HttpError(404, "Активный сотрудник не найден.");
           }
-          if (target.role === "ГКА" && user.role !== "ГКА") {
+          if (target.role === "ГКА" && !hasGkaAccess(user)) {
             throw new HttpError(403, "ЗГКА не может выдать выговор Главе Коллегии.");
           }
           const [photo] = parseApplicationAttachments([body.photo]);
@@ -4023,6 +4330,14 @@ export function createPortalServer(options = {}) {
             VALUES (?, ?, ?, ?, ?, ?)`)
             .run(target.id, user.id, reason, photo.name, photo.contentType, photo.content);
           const id = Number(insert.lastInsertRowid);
+          await notifyPortalUser({
+            userId: target.id,
+            type: "reprimand",
+            title: `Выговор №${id}`,
+            body: reason,
+            href: "/page/audit",
+            sendDiscord: false
+          });
           const fields = [
             { name: "👤 Сотрудник", value: `${target.display_name} · ${target.role}`, inline: true },
             { name: "🆔 ID портала", value: `#${target.id}`, inline: true },
@@ -4124,7 +4439,7 @@ export function createPortalServer(options = {}) {
           if (!documentRoles.includes(user.role)) throw new HttpError(403, "Публикации документов доступны начиная с должности «Юрист».");
           const body = await readJson(req);
           const forumUrl = validateForumUrl(body.forumUrl);
-          const document = db.prepare("SELECT id,user_id,forum_status FROM documents WHERE id = ?")
+          const document = db.prepare("SELECT id,user_id,title,forum_status FROM documents WHERE id = ?")
             .get(Number(documentForumRoute[1]));
           if (!document || document.user_id !== user.id) throw new HttpError(404, "Документ не найден.");
           if (!["draft", "rejected"].includes(document.forum_status)) {
@@ -4140,6 +4455,12 @@ export function createPortalServer(options = {}) {
               { name: "Документ", value: `#${document.id}`, inline: true },
               { name: "Ссылка на форум", value: forumUrl.slice(0, 1000), inline: false }
             ]);
+          await notifyPortalRoles(managementRoles, {
+            type: "document_forum_review",
+            title: "Ссылка на документ ждёт одобрения",
+            body: `${user.display_name} добавил ссылку на форум к документу «${document.title || `#${document.id}`}».`,
+            href: "/page/iski"
+          }, user.id);
           return sendJson(res, 200, { ok: true, warning });
         }
         if (documentForumRoute && req.method === "PATCH") {
@@ -4166,6 +4487,13 @@ export function createPortalServer(options = {}) {
               { name: "Автор", value: document.display_name, inline: true },
               { name: "Решение", value: status === "approved" ? "Одобрено" : `Отклонено: ${note}`, inline: false }
             ]);
+          await notifyPortalUser({
+            userId: document.user_id,
+            type: status === "approved" ? "document_forum_approved" : "document_forum_rejected",
+            title: status === "approved" ? "Ссылка на форум одобрена" : "Ссылка на форум отклонена",
+            body: `${document.title}${status === "rejected" ? ` — ${note}` : ""}`,
+            href: "/page/iski"
+          });
           return sendJson(res, 200, { ok: true, logWarning });
         }
 
@@ -4235,13 +4563,13 @@ export function createPortalServer(options = {}) {
           const template = String(body.template || "");
           const title = String(body.title || "").trim().slice(0, 150);
           const bbcode = String(body.bbcode || "");
-          const forumUrl = validateForumUrl(body.forumUrl);
           const courtTemplates = {
             "lawsuit-supreme": "Верховный суд",
             "lawsuit-federal": "Федеральный суд",
-            appeal: "Верховный суд · апелляция",
-            cassation: "Верховный суд · кассация",
-            constitutional: "Верховный суд · конституционное производство"
+            "motion-supreme": "Верховный суд · ходатайство",
+            "motion-federal": "Окружной суд · ходатайство",
+            "rehabilitation": "Верховный суд · реабилитация",
+            appeal: "Верховный суд · апелляция"
           };
           if (!courtTemplates[template] || title.length < 3 || bbcode.length < 30 || bbcode.length > 50000) {
             throw new HttpError(400, "Проверьте вид, название и содержимое искового документа.");
@@ -4249,21 +4577,27 @@ export function createPortalServer(options = {}) {
           db.exec("BEGIN IMMEDIATE");
           try {
             const document = db.prepare(`INSERT INTO documents
-              (user_id,template,title,bbcode,forum_url,forum_status) VALUES (?,?,?,?,?,'pending')`)
-              .run(user.id, template, title, bbcode, forumUrl);
+              (user_id,template,title,bbcode) VALUES (?,?,?,?)`)
+              .run(user.id, template, title, bbcode);
             const created = db.prepare("INSERT INTO lawsuits (user_id,document_id,title,court) VALUES (?,?,?,?)")
               .run(user.id, Number(document.lastInsertRowid), title, courtTemplates[template]);
             db.prepare(`INSERT INTO lawsuit_history (lawsuit_id, actor_id, event_type, details)
               VALUES (?, ?, 'created', ?)`)
               .run(Number(created.lastInsertRowid), user.id, `Иск подан в ${courtTemplates[template]}.`);
             db.exec("COMMIT");
-            const warning = await deliverWebhook(webhooks.applications, "Иск опубликован на форуме и отправлен на проверку",
-              `${user.display_name} создал судебное дело и ожидает подтверждения ссылки.`,
+            const warning = await deliverWebhook(webhooks.applications, "Создан судебный документ",
+              `${user.display_name} создал судебное дело. Ссылка на опубликованную тему будет добавлена отдельно.`,
               [
                 { name: "Дело", value: `#${Number(created.lastInsertRowid)} · ${title}`, inline: false },
                 { name: "Суд", value: courtTemplates[template], inline: true },
-                { name: "Ссылка на форум", value: forumUrl, inline: false }
+                { name: "Публикация", value: "Ссылка ещё не добавлена", inline: true }
               ]);
+            await notifyPortalRoles(managementRoles, {
+              type: "lawsuit_created",
+              title: "Создан судебный документ",
+              body: `${user.display_name} создал «${title}» в ${courtTemplates[template]}. Ссылка на форум будет добавлена отдельно.`,
+              href: "/page/iski"
+            }, user.id);
             return sendJson(res, 201, { id: Number(created.lastInsertRowid), documentId: Number(document.lastInsertRowid), warning });
           } catch (error) {
             db.exec("ROLLBACK");
@@ -4283,7 +4617,7 @@ export function createPortalServer(options = {}) {
           if (["decided", "rejected"].includes(status) && decision.length < 4) {
             throw new HttpError(400, "Для итогового решения укажите причину или результат рассмотрения.");
           }
-          const item = db.prepare(`SELECT l.id,l.document_id,d.forum_status FROM lawsuits l
+          const item = db.prepare(`SELECT l.id,l.document_id,l.user_id,l.title,d.forum_status FROM lawsuits l
             JOIN documents d ON d.id = l.document_id WHERE l.id = ?`).get(Number(lawsuitRoute[1]));
           if (!item) throw new HttpError(404, "Иск не найден.");
           if (status !== "rejected" && item.forum_status !== "approved") {
@@ -4304,6 +4638,19 @@ export function createPortalServer(options = {}) {
           db.prepare(`INSERT INTO lawsuit_history (lawsuit_id, actor_id, event_type, details)
             VALUES (?, ?, ?, ?)`).run(item.id, user.id, status,
               decision || `Статус изменён на ${status}.`);
+          const lawsuitStatusLabels = {
+            in_review: "Иск принят на рассмотрение",
+            hearing: "По иску назначено заседание",
+            decided: "По иску внесено решение",
+            rejected: "Иск отклонён"
+          };
+          await notifyPortalUser({
+            userId: item.user_id,
+            type: "lawsuit_update",
+            title: lawsuitStatusLabels[status],
+            body: `${item.title}${decision ? ` — ${decision}` : ""}`,
+            href: "/page/iski"
+          });
           return sendJson(res, 200, { ok: true });
         }
 
@@ -4337,11 +4684,11 @@ export function createPortalServer(options = {}) {
         }
 
         if (pathname === "/api/weekly-reset/preview" && req.method === "GET") {
-          if (user.role !== "ГКА") throw new HttpError(403, "Новую неделю может запускать только ГКА.");
+          if (!hasGkaAccess(user)) throw new HttpError(403, "Новую неделю может запускать только ГКА.");
           return sendJson(res, 200, { counts: getWeeklyResetPreview(db) });
         }
         if (pathname === "/api/weekly-reset/history" && req.method === "GET") {
-          if (user.role !== "ГКА") throw new HttpError(403, "История архивов доступна только ГКА.");
+          if (!hasGkaAccess(user)) throw new HttpError(403, "История архивов доступна только ГКА.");
           const runs = db.prepare(`SELECT r.id, r.archived_at, r.counts_json, r.restored_at,
               creator.display_name AS created_by_name, restorer.display_name AS restored_by_name
             FROM weekly_reset_runs r
@@ -4354,14 +4701,14 @@ export function createPortalServer(options = {}) {
           return sendJson(res, 200, { runs });
         }
         if (pathname === "/api/weekly-reset" && req.method === "POST") {
-          if (user.role !== "ГКА") throw new HttpError(403, "Новую неделю может запускать только ГКА.");
+          if (!hasGkaAccess(user)) throw new HttpError(403, "Новую неделю может запускать только ГКА.");
           const body = requireObject(await readJson(req));
           if (body.confirmed !== true) throw new HttpError(400, "Подтвердите запуск новой недели.");
           return sendJson(res, 201, { run: createWeeklyReset(db, user.id) });
         }
         const weeklyResetRestore = pathname.match(/^\/api\/weekly-reset\/(\d+)\/restore$/);
         if (weeklyResetRestore && req.method === "POST") {
-          if (user.role !== "ГКА") throw new HttpError(403, "Восстанавливать архив может только ГКА.");
+          if (!hasGkaAccess(user)) throw new HttpError(403, "Восстанавливать архив может только ГКА.");
           return sendJson(res, 200, {
             run: restoreWeeklyReset(db, Number(weeklyResetRestore[1]), user.id)
           });
@@ -4375,18 +4722,163 @@ export function createPortalServer(options = {}) {
             googleSheetsConfigured
           });
         }
+
+        if (pathname === "/api/activity-reports" && req.method === "GET") {
+          if (user.role === citizenRole) throw new HttpError(403, "Сдавать отчёты могут только сотрудники Коллегии.");
+          const reports = hasGkaAccess(user)
+            ? db.prepare(`SELECT r.*, a.file_name AS attachment_name, u.display_name AS reporter_name, u.role AS reporter_role,
+                reviewer.display_name AS reviewer_name
+              FROM activity_reports r JOIN users u ON u.id = r.user_id
+              LEFT JOIN activity_report_attachments a ON a.report_id = r.id
+              LEFT JOIN users reviewer ON reviewer.id = r.reviewed_by
+              WHERE r.report_type = 'call'
+              ORDER BY CASE r.status WHEN 'pending' THEN 0 ELSE 1 END, r.id DESC LIMIT 200`).all()
+            : db.prepare(`SELECT r.*, a.file_name AS attachment_name, u.display_name AS reporter_name, u.role AS reporter_role,
+                reviewer.display_name AS reviewer_name
+              FROM activity_reports r JOIN users u ON u.id = r.user_id
+              LEFT JOIN activity_report_attachments a ON a.report_id = r.id
+              LEFT JOIN users reviewer ON reviewer.id = r.reviewed_by
+              WHERE r.user_id = ? AND r.report_type = 'call' ORDER BY r.id DESC LIMIT 100`).all(user.id);
+          return sendJson(res, 200, { reports, canReview: hasGkaAccess(user) });
+        }
+
+        const activityReportPhotoRoute = pathname.match(/^\/api\/activity-reports\/(\d+)\/photo$/);
+        if (activityReportPhotoRoute && req.method === "GET") {
+          if (user.role === citizenRole) throw new HttpError(403, "Фото отчётов доступны только сотрудникам Коллегии.");
+          const reportId = Number(activityReportPhotoRoute[1]);
+          const report = db.prepare("SELECT user_id FROM activity_reports WHERE id = ?").get(reportId);
+          if (!report) throw new HttpError(404, "Отчёт не найден.");
+          if (!hasGkaAccess(user) && Number(report.user_id) !== Number(user.id)) {
+            throw new HttpError(403, "Фото доступно автору отчёта и руководству.");
+          }
+          const attachment = db.prepare(`SELECT content_type, content FROM activity_report_attachments
+            WHERE report_id = ?`).get(reportId);
+          if (!attachment) throw new HttpError(404, "Фото к отчёту не найдено.");
+          res.writeHead(200, {
+            "content-type": attachment.content_type,
+            "content-length": attachment.content.length,
+            "cache-control": "private, no-store",
+            "x-content-type-options": "nosniff"
+          });
+          return res.end(attachment.content);
+        }
+
+        if (pathname === "/api/activity-reports" && req.method === "POST") {
+          if (user.role === citizenRole) throw new HttpError(403, "Сдавать отчёты могут только сотрудники Коллегии.");
+          const body = await readJson(req, 4 * 1024 * 1024);
+          const reportType = String(body.reportType || "");
+          const occurredAt = String(body.occurredAt || "");
+          const reference = String(body.reference || "").trim();
+          const details = String(body.details || "").trim();
+          const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(occurredAt)
+            ? new Date(`${occurredAt}T00:00:00Z`)
+            : null;
+          if (!Object.hasOwn(activityReportTypes, reportType)) {
+            throw new HttpError(400, "Выберите тип отчёта.");
+          }
+          if (!parsedDate || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== occurredAt) {
+            throw new HttpError(400, "Укажите корректную дату события.");
+          }
+          if (reference.length < 2 || reference.length > 300) {
+            throw new HttpError(400, "Укажите номер вызова/дела или ссылку (от 2 до 300 символов).");
+          }
+          if (details.length < 4 || details.length > 2000) {
+            throw new HttpError(400, "Описание должно содержать от 4 до 2000 символов.");
+          }
+          if (!body.photo) throw new HttpError(400, "Добавьте фото-доказательство к отчёту.");
+          const [photo] = parseApplicationAttachments([body.photo]);
+          if (!photo.contentType.startsWith("image/")) {
+            throw new HttpError(400, "К отчёту можно приложить только изображение.");
+          }
+          db.exec("BEGIN");
+          let reportId;
+          try {
+            const created = db.prepare(`INSERT INTO activity_reports
+              (user_id, report_type, occurred_at, reference, details) VALUES (?, ?, ?, ?, ?)`)
+              .run(user.id, reportType, occurredAt, reference, details);
+            reportId = Number(created.lastInsertRowid);
+            db.prepare(`INSERT INTO activity_report_attachments
+              (report_id, file_name, content_type, content) VALUES (?, ?, ?, ?)`)
+              .run(reportId, photo.name, photo.contentType, photo.content);
+            db.exec("COMMIT");
+          } catch (error) {
+            db.exec("ROLLBACK");
+            throw error;
+          }
+          await notifyPortalRoles(managementRoles, {
+            type: "activity_report",
+            title: `Новый отчёт: ${activityReportTypes[reportType]}`,
+            body: `${user.display_name} отправил отчёт «${reference}» на одобрение.`,
+            href: "/page/reports"
+          }, user.id);
+          const webhookWarning = webhooks.logs
+            ? await deliverWebhook(webhooks.logs, "Новый отчёт сотрудника",
+              `${user.display_name} отправил отчёт «${reference}» на одобрение.\n\n${details}`,
+              [
+                { name: "Тип", value: activityReportTypes[reportType], inline: true },
+                { name: "Дата события", value: occurredAt, inline: true },
+                { name: "Автор", value: `${user.display_name} · ${user.role}`, inline: true },
+                { name: "Номер или ссылка", value: reference }
+              ],
+              { name: photo.name, contentType: photo.contentType, content: photo.content })
+            : "Webhook журнала Discord не настроен; отчёт сохранён на сайте.";
+          return sendJson(res, 201, { id: reportId, status: "pending", warning: webhookWarning });
+        }
+
+        const activityReportRoute = pathname.match(/^\/api\/activity-reports\/(\d+)$/);
+        if (activityReportRoute && req.method === "PATCH") {
+          if (!hasGkaAccess(user)) throw new HttpError(403, "Одобрять отчёты может только ГКА.");
+          const reportId = Number(activityReportRoute[1]);
+          const report = db.prepare("SELECT * FROM activity_reports WHERE id = ?").get(reportId);
+          if (!report) throw new HttpError(404, "Отчёт не найден.");
+          if (report.status !== "pending") throw new HttpError(409, "Этот отчёт уже рассмотрен.");
+          const body = await readJson(req);
+          const status = String(body.status || "");
+          const decision = String(body.decision || "").trim().slice(0, 500);
+          if (!["approved", "rejected"].includes(status)) {
+            throw new HttpError(400, "Выберите одобрение или отказ.");
+          }
+          if (status === "rejected" && decision.length < 4) {
+            throw new HttpError(400, "Для отказа укажите причину длиной не менее 4 символов.");
+          }
+          const review = db.prepare(`UPDATE activity_reports SET status = ?, decision = ?, reviewed_by = ?,
+            reviewed_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'`)
+            .run(status, decision, user.id, reportId);
+          if (review.changes !== 1) throw new HttpError(409, "Этот отчёт уже рассмотрен.");
+          await notifyPortalUser({
+            userId: report.user_id,
+            type: "activity_report_review",
+            title: status === "approved" ? "Отчёт одобрен" : "Отчёт отклонён",
+            body: `${activityReportTypes[report.report_type]} «${report.reference}»: ${
+              status === "approved" ? "одобрено ГКА." : `отказ ГКА. ${decision}`
+            }`,
+            href: "/page/reports"
+          });
+          return sendJson(res, 200, { ok: true, status });
+        }
+
         if (pathname === "/api/reports/sync" && req.method === "POST") {
-          if (user.role !== "ГКА") throw new HttpError(403, "Синхронизацию Google Sheets может запускать только ГКА.");
+          if (!hasGkaAccess(user)) throw new HttpError(403, "Синхронизацию Google Sheets может запускать только ГКА.");
           const body = await readJson(req);
           const result = await syncMonthlyReport(body.period);
           return sendJson(res, 200, { ...result, googleSheetsConfigured });
         }
 
-        const lawRoute = pathname.match(/^\/api\/laws\/(ak|uk|pk|charter|zot|advocacy|road|labor|ethics|documents|justice)$/);
+        const lawRoute = pathname.match(/^\/api\/laws\/(.+)$/);
         if (lawRoute && req.method === "GET") {
           if (user.role === citizenRole) throw new HttpError(403, "Законодательная база доступна только сотрудникам Коллегии.");
-          const key = lawRoute[1];
-          const name = lawFiles[key];
+          const key = decodeURIComponent(lawRoute[1]);
+          const lawAliases = {
+            ak: "Административный Кодекс (Редакция от 14.11.2026).txt",
+            uk: "Уголовный Кодекс (Редакция от 23.11.2026).txt",
+            pk: "Процессуальный Кодекс (Редакция от 23.11.2026).txt",
+            road: "Дорожный Кодекс (Редакция от 14.11.2026).txt",
+            labor: "Трудовой Кодекс (Редакция от 23.11.2026).txt",
+            ethics: "Этический Кодекс (Редакция от 01.10.2026).txt",
+            zot: "Закон о закрытых и охраняемых территориях (Редакция от 23.11.2026).txt",
+            advocacy: "Закон об адвокатуре и адвокатской деятельности (Редакция от 09.11.2026).txt"
+          };
+          const name = lawAliases[key] || key;
           try {
             const text = normalizeLawText(
               await readFile(path.join(root, "data", "laws", name), "utf8"),
@@ -4400,36 +4892,122 @@ export function createPortalServer(options = {}) {
               text
             });
           } catch (error) {
-            if (error.code === "ENOENT") throw new HttpError(404, "Файл закона не найден в data/laws.");
+            if (error.code === "ENOENT") {
+              const virtualTitles = {
+                documents: "Закон о документообороте",
+                justice: "ЗАКОН О ДЕПАРТАМЕНТЕ ЮСТИЦИИ",
+                charter: "Устав Коллегии адвокатов"
+              };
+              const title = virtualTitles[key];
+              if (title) return sendJson(res, 200, {
+                key,
+                name,
+                title,
+                sourceNote: "Источник: текст, предоставленный пользователем.",
+                text: `${title}\n\nРаздел загружен в систему для ознакомления; актуальную редакцию уточняйте у руководства.`
+              });
+              throw new HttpError(404, "Файл закона не найден в data/laws.");
+            }
             throw error;
           }
         }
         if (pathname === "/api/laws" && req.method === "GET") {
           if (user.role === citizenRole) throw new HttpError(403, "Законодательная база доступна только сотрудникам Коллегии.");
           const laws = {};
-          for (const [key, name] of Object.entries(lawFiles)) {
-            try {
-              const info = await readFile(path.join(root, "data", "laws", name));
-              laws[key] = {
-                name,
-                bytes: info.length,
-                available: true,
-                sourceNote: suppliedLawKeys.has(key) ? "Источник: текст, предоставленный пользователем." : ""
-              };
-            } catch (error) {
-              if (error.code !== "ENOENT") throw error;
-              laws[key] = { name, bytes: 0, available: false };
-            }
+          const files = await readdir(path.join(root, "data", "laws"), { withFileTypes: true });
+          for (const file of files) {
+            if (!file.isFile() || path.extname(file.name).toLowerCase() !== ".txt") continue;
+            const info = await readFile(path.join(root, "data", "laws", file.name));
+            laws[file.name] = {
+              name: file.name,
+              bytes: info.length,
+              available: true,
+              sourceNote: "Источник: загруженная законодательная база."
+            };
           }
           return sendJson(res, 200, { laws });
+        }
+
+        if (pathname === "/api/photozot" && req.method === "GET") {
+          if (user.role === citizenRole) throw new HttpError(403, "Фото зон доступны только сотрудникам Коллегии.");
+          const files = await readdir(path.join(root, "photozot"), { withFileTypes: true });
+          const photoFiles = files
+            .filter((file) => file.isFile() && [".png", ".jpg", ".jpeg", ".webp"].includes(path.extname(file.name).toLowerCase()))
+            .sort((a, b) => a.name.localeCompare(b.name, "ru"));
+          const totals = new Map();
+          for (const file of photoFiles) {
+            const key = getPhotoZoneGroup(file.name).key;
+            totals.set(key, (totals.get(key) || 0) + 1);
+          }
+          const counters = new Map();
+          const photos = photoFiles.map((file) => {
+            const group = getPhotoZoneGroup(file.name);
+            const number = (counters.get(group.key) || 0) + 1;
+            counters.set(group.key, number);
+            return {
+              label: totals.get(group.key) > 1 ? `${group.label} · фото ${number}` : group.label,
+              group_key: group.key,
+              group_label: group.label,
+              url: `/photozot/${encodeURIComponent(file.name)}`
+            };
+          });
+          return sendJson(res, 200, { photos });
         }
 
         throw new HttpError(404, "Маршрут API не найден.");
       }
 
+      const photoRoute = pathname.match(/^\/photozot\/(.+)$/);
+      if (photoRoute && req.method === "GET") {
+        const session = getSession(db, req);
+        if (!session) throw new HttpError(401, "Войдите в портал, чтобы открыть фото зон.");
+        const photoUser = publicUser(db, session.user_id);
+        if (!photoUser || photoUser.status !== "active" || photoUser.role === citizenRole) {
+          throw new HttpError(403, "Фото зон доступны только сотрудникам Коллегии.");
+        }
+        let decodedName;
+        try {
+          decodedName = decodeURIComponent(photoRoute[1]);
+        } catch {
+          throw new HttpError(400, "Некорректное имя файла.");
+        }
+        const name = path.basename(decodedName);
+        if (name !== decodedName) throw new HttpError(400, "Некорректное имя файла.");
+        const type = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" }[path.extname(name).toLowerCase()];
+        if (!type) throw new HttpError(404, "Формат фото не поддерживается.");
+        let photo;
+        try {
+          photo = await readFile(path.join(root, "photozot", name));
+        } catch (error) {
+          if (error.code === "ENOENT") throw new HttpError(404, "Фото зоны не найдено.");
+          throw error;
+        }
+        res.writeHead(200, {
+          "content-type": type,
+          "content-length": photo.length,
+          "cache-control": "private, max-age=3600"
+        });
+        res.end(photo);
+        return;
+      }
+
       if (req.method === "GET" && await serveFrontendAsset(res, pathname)) return;
 
-      if (req.method === "GET" && (pathname === "/" || pathname === "/advokate.html")) {
+      if (req.method === "GET" && pathname === "/pamyatka_advokata.html") {
+        const html = await readFile(path.join(root, "pamyatka_advokata.html"));
+        res.setHeader("x-frame-options", "SAMEORIGIN");
+        res.setHeader("content-security-policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'self'; form-action 'self'");
+        res.writeHead(200, {
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": "no-cache",
+          "x-content-type-options": "nosniff"
+        });
+        res.end(html);
+        return;
+      }
+
+      if (req.method === "GET" &&
+          (pathname === "/" || pathname === "/advokate.html" || portalPageRoutes.has(pathname))) {
         const html = await readFile(path.join(root, "advokate.html"));
         res.writeHead(200, {
           "content-type": "text/html; charset=utf-8",
@@ -4443,6 +5021,8 @@ export function createPortalServer(options = {}) {
         "/assets/collegium-seal.png": "collegium-seal.png",
         "/assets/san-andreas-seal.png": "san-andreas-seal.png",
         "/assets/collegium-main-seal.png": "collegium-main-seal.png",
+        "/assets/law-association-seal.png": "law-association-seal.png",
+        "/assets/site-icon.png": "site-icon.png",
         "/assets/role-trainee.png": "role-trainee.png",
         "/assets/role-lawyer.png": "role-lawyer.png",
         "/assets/role-attorney.png": "role-attorney.png",
@@ -4868,6 +5448,7 @@ export async function startPortal(options = {}) {
   try {
     server = createPortalServer({
       db,
+      requireDiscordLink: options.requireDiscordLink === true,
       discordClientId: options.discordClientId,
       discordClientSecret: options.discordClientSecret,
       discordRoleIds: roleIds,
@@ -5031,7 +5612,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       db.close();
     }
   } else {
-    const portal = await startPortal({ dbPath });
+    const portal = await startPortal({
+      dbPath,
+      requireDiscordLink: process.env.REQUIRE_DISCORD_LINK === "true",
+      startBot: process.env.DISABLE_DISCORD_BOT !== "1"
+    });
     let shuttingDown = false;
     const shutdown = () => {
       if (shuttingDown) return;

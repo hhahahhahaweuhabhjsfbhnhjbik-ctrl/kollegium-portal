@@ -81,6 +81,12 @@ try {
   check(!/<script>[\s\S]*?\S[\s\S]*?<\/script>/i.test(html), "В HTML не должно быть инлайнового кода.");
   check(html.includes('/web/js/app.js'), "HTML должен подключать /web/js/app.js.");
   check(html.includes('/web/css/theme.css'), "HTML должен подключать /web/css/theme.css.");
+  check(html.includes('/web/icons-sprite.svg#icon-01_overview'), "Главная навигация должна использовать спрайт иконок.");
+  for (const route of ["/page/home", "/page/iski", "/page/audit", "/page/reports"]) {
+    const routePage = await request(route, { raw: true });
+    check(routePage.status === 200, `Страница ${route}: HTTP ${routePage.status}`);
+    check(routePage.payload.toString("utf8").includes('/web/js/app.js'), `Страница ${route} должна отдавать приложение.`);
+  }
 
   const csp = String(page.headers.get("content-security-policy") || "");
   check(csp.includes("script-src 'self'"), "CSP должен разрешать скрипты только с этого же источника.");
@@ -88,15 +94,17 @@ try {
 
   /* ── Статика ──────────────────────────────────────────────────────────── */
   const assets = [
+    ["/web/icons-sprite.svg", "image/svg+xml"],
     ["/web/css/base.css", "text/css"],
     ["/web/css/theme.css", "text/css"],
     ["/web/css/awards.css", "text/css"],
     ["/web/js/app.js", "text/javascript"],
     ["/web/js/core/dom.js", "text/javascript"],
     ["/web/js/data/config.js", "text/javascript"],
-    ["/web/js/views/elite-awards.js", "text/javascript"],
     ["/web/data/elite-awards.json", "application/json"],
     ["/assets/collegium-seal.png", "image/png"],
+    ["/assets/law-association-seal.png", "image/png"],
+    ["/assets/site-icon.png", "image/png"],
     ["/favicon.ico", "image/x-icon"]
   ];
   for (const [pathname, expectedType] of assets) {
