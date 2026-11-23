@@ -26,7 +26,6 @@ const outDir = process.env.PREVIEW_OUT_DIR
 /* ─────────────────────────── Портал с демо-данными ─────────────────────── */
 const server = createPortalServer({
   dbPath: ":memory:",
-  requireDiscordLink: false,
   cookieSecure: false,
   webhookFetch: async () => new Response(null, { status: 204 }),
   webhookApplications: "https://discord.com/api/webhooks/123456789012345678/demo-token",

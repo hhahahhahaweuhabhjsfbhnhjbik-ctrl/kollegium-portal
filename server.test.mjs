@@ -10,10 +10,7 @@ import {
 } from "./server.mjs";
 import { canControlService, parseTechCommand } from "./discord-bot.mjs";
 
-const createPortalServer = (options = {}) => createPortalServerInstance({
-  requireDiscordLink: false,
-  ...options
-});
+const createPortalServer = (options = {}) => createPortalServerInstance(options);
 
 async function createClient(baseUrl) {
   let cookie = "";
@@ -858,11 +855,10 @@ test("one-time password recovery and court case lifecycle", async () => {
   }
 });
 
-test("staff must link Discord before accessing staff APIs while citizens remain unaffected", async () => {
+test("Discord is optional for staff portal access and remains available to link", async () => {
   const server = createPortalServer({
     dbPath: ":memory:",
     cookieSecure: false,
-    requireDiscordLink: true,
     discordClientId: "test-client",
     discordClientSecret: "test-secret",
     discordRedirectUri: "http://127.0.0.1:3000/api/discord/callback"
@@ -894,9 +890,11 @@ test("staff must link Discord before accessing staff APIs while citizens remain 
 
     const status = await staff("/api/discord/status");
     assert.equal(status.status, 200);
-    assert.equal(status.data.linkRequired, true);
+    assert.equal(status.data.linkRequired, false);
     assert.equal(status.data.linked, false);
-    assert.equal((await staff("/api/profile")).status, 403);
+    assert.equal((await staff("/api/profile")).status, 200);
+    assert.equal((await staff("/api/applications")).status, 200);
+    assert.equal((await staff("/api/rp-practice/completions")).status, 200);
     const link = await staff("/api/discord/link", "POST", {});
     assert.equal(link.status, 200);
     assert.ok(new URL(link.data.authorizeUrl).searchParams.get("state"));
@@ -908,11 +906,13 @@ test("staff must link Discord before accessing staff APIs while citizens remain 
 
     assert.equal((await citizen("/api/profile")).status, 200);
     assert.equal((await citizen("/api/discord/status")).data.linkRequired, false);
+    assert.equal((await staff("/api/profile")).status, 200);
 
     db.prepare("UPDATE users SET discord_id = ?, discord_username = ? WHERE id = ?")
       .run("123456789012345678", "linked-staff", staffId);
     assert.equal((await staff("/api/profile")).status, 200);
     assert.equal((await staff("/api/discord/status")).data.linkRequired, false);
+    assert.equal((await staff("/api/discord/status")).data.linked, true);
   } finally {
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
@@ -924,7 +924,6 @@ test("Discord avatar is saved when an account is linked", async () => {
   const server = createPortalServer({
     dbPath: ":memory:",
     cookieSecure: false,
-    requireDiscordLink: true,
     discordClientId: "test-client",
     discordClientSecret: "test-secret",
     discordRedirectUri: "http://127.0.0.1:3000/api/discord/callback",
@@ -2026,7 +2025,6 @@ test("Discord preference persists, audit test notifications are owner-only, and 
   const server = createPortalServer({
     dbPath: ":memory:",
     cookieSecure: false,
-    requireDiscordLink: true,
     discordClientId: "test-client",
     discordClientSecret: "test-secret",
     discordRedirectUri: "http://127.0.0.1:3000/api/discord/callback",
@@ -2097,7 +2095,8 @@ test("Discord preference persists, audit test notifications are owner-only, and 
     assert.equal(db.prepare("SELECT discord_id FROM users WHERE id = ?").get(ownerId).discord_id, null);
     assert.equal((await owner("/api/discord/status")).data.linked, false);
     assert.equal((await owner("/api/discord/link", "POST", {})).status, 200);
-    assert.equal((await owner("/api/profile")).status, 403);
+    assert.equal((await owner("/api/profile")).status, 200);
+    assert.equal((await owner("/api/applications")).status, 200);
 
     const ownerNotifications = await owner("/api/notifications");
     assert.equal(ownerNotifications.data.notifications.filter((item) =>

@@ -34,7 +34,8 @@ const user = {
   username: "gka",
   displayName: "Александр Волков",
   role: "ГКА",
-  status: "active"
+  status: "active",
+  discordLinked: false
 };
 const profile = {
   id: 1,
@@ -502,7 +503,7 @@ for (const [route, view] of [
   dom.reconfigure({ url: `http://127.0.0.1:3000${route}` });
   await window.enterSession({ user, csrfToken: "test-csrf" });
   check(document.querySelector(`#view-${view}`)?.classList.contains("active"),
-    `Прямой маршрут ${route} должен открывать раздел «${view}».`);
+    `Прямой маршрут ${route} должен открывать раздел «${view}» даже без привязки Discord.`);
 }
 const approveButton = document.querySelector('#auditTableBody [data-action="update-member-status"]');
 check(approveButton?.textContent.trim() === "Одобрить" && approveButton.dataset.status === "active",

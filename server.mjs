@@ -1717,7 +1717,6 @@ export function createPortalServer(options = {}) {
   const dbPath = options.dbPath || process.env.DB_PATH || path.join(root, "data", "portal.sqlite");
   const db = options.db || createDatabase(dbPath);
   const permanentlyDeleteUser = createPermanentUserDeletion(db);
-  const requireDiscordLink = options.requireDiscordLink !== false;
   const webhooks = options.discordWebhooks || {};
   webhooks.applications ??= options.webhookApplications ?? process.env.DISCORD_WEBHOOK_APPLICATIONS ?? "";
   webhooks.help ??= options.webhookHelp ?? process.env.DISCORD_WEBHOOK_HELP ?? "";
@@ -2431,12 +2430,6 @@ export function createPortalServer(options = {}) {
         const user = publicUser(db, session.user_id);
         if (req.method !== "GET") assertCsrf(req, session);
         if (user.status !== "active") throw new HttpError(403, "Аккаунт ожидает одобрения ГКА или приостановлен.");
-        const requiresDiscordLink = requireDiscordLink && user.role !== citizenRole && !user.discord_id;
-        if (requiresDiscordLink &&
-            !["/api/discord/status", "/api/discord/link", "/api/discord/unlink", "/api/auth/logout"].includes(pathname) &&
-            !pathname.startsWith("/api/notifications")) {
-          throw new HttpError(403, "Для доступа сотрудника сначала привяжите Discord к аккаунту.");
-        }
 
         if (pathname === "/api/rp-practice/completions" && req.method === "GET") {
           if (user.role === citizenRole) throw new HttpError(403, "RP-практика доступна только сотрудникам Коллегии.");
@@ -2477,7 +2470,7 @@ export function createPortalServer(options = {}) {
             configured: Boolean(discord.clientId && discord.clientSecret && discord.redirectUri),
             botConfigured: Boolean(discord.botToken && discord.guildId),
             botCanDm: Boolean(discord.botToken),
-            linkRequired: requiresDiscordLink,
+            linkRequired: false,
             linked: Boolean(user.discord_id),
             username: user.discord_username || "",
             avatarUrl: user.discord_avatar_url || "",
@@ -5823,7 +5816,6 @@ export async function startPortal(options = {}) {
   try {
     server = createPortalServer({
       db,
-      requireDiscordLink: options.requireDiscordLink === true,
       discordClientId: options.discordClientId,
       discordClientSecret: options.discordClientSecret,
       discordRoleIds: roleIds,
@@ -5989,7 +5981,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   } else {
     const portal = await startPortal({
       dbPath,
-      requireDiscordLink: process.env.REQUIRE_DISCORD_LINK === "true",
       startBot: process.env.DISABLE_DISCORD_BOT !== "1"
     });
     let shuttingDown = false;

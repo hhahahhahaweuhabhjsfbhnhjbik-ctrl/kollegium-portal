@@ -302,9 +302,7 @@ async function enterSession(session) {
   $("#pending-screen").classList.add("hidden");
   $("#app-shell").classList.remove("hidden");
   applyRoleVisibility();
-  const requestedView = currentUser.role !== "Гражданин" && currentUser.discordLinked === false
-    ? "awards"
-    : viewsByPath.get(window.location.pathname) || "dashboard";
+  const requestedView = viewsByPath.get(window.location.pathname) || "dashboard";
   await navigate(viewIsAllowed(requestedView) ? requestedView : "dashboard");
   try {
     await loadNotifications();

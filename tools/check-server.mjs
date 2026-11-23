@@ -16,7 +16,6 @@ const check = (condition, message) => { if (!condition) problems.push(message); 
 const webhookCalls = [];
 const server = createPortalServer({
   dbPath: ":memory:",
-  requireDiscordLink: false,
   cookieSecure: false,
   webhookApplications: "https://discord.com/api/webhooks/123456789012345678/test-token",
   webhookExams: "https://discord.com/api/webhooks/223456789012345678/test-token",
