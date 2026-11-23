@@ -136,6 +136,9 @@ test("desktop server serves the portal and shuts down cleanly", async () => {
     assert.equal(memo.headers.get("x-frame-options"), "SAMEORIGIN");
     assert.match(memo.headers.get("content-security-policy"), /frame-ancestors 'self'/);
     assert.match(await memo.text(), /Памятка адвоката/);
+    const dockerfile = await readFile(new URL("./Dockerfile", import.meta.url), "utf8");
+    assert.match(dockerfile, /COPY [^\r\n]*\bpamyatka_advokata\.html\b[^\r\n]*\.\//);
+    assert.match(dockerfile, /^COPY photozot \.\/photozot$/m);
     const health = await fetch(`http://127.0.0.1:${portal.port}/api/health`);
     assert.deepEqual(await health.json(), { ok: true, apiVersion: 4, maintenance: false });
 

@@ -5,11 +5,12 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-COPY advokate.html server.mjs webhooks.mjs discord-bot.mjs ./
+COPY advokate.html pamyatka_advokata.html server.mjs webhooks.mjs discord-bot.mjs ./
 COPY assets ./assets
 COPY data/laws ./data/laws
 COPY desktop ./desktop
 COPY integrations ./integrations
+COPY photozot ./photozot
 COPY web ./web
 
 ENV HOST=0.0.0.0
