@@ -703,6 +703,9 @@
                 <p style="font-size: 12.5px; color: var(--text-muted);">Состав, кадровые решения и одобрение новых сотрудников</p>
               </div>
               <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button class="btn head-only hidden" type="button" data-action="purge-all-members">
+                  Удалить все аккаунты, кроме моего
+                </button>
                 <button class="btn btn-gold head-only hidden" type="button" data-action="start-new-week">
                   <svg class="icon icon-sm"><use href="/web/icons-sprite.svg#icon-13_calendar_schedule"></use></svg> Новая неделя
                 </button>
@@ -737,20 +740,21 @@
           <div class="grid-12">
             <div class="card col-span-5">
               <h2>Сдать отчёт</h2>
-              <p class="text-muted">Отправляйте подтверждённые вызовы с доказательством. Судебные документы учитываются автоматически после одобрения ссылки ГКА или ЗГКА.</p>
+              <p class="text-muted">Отчёт о вызове требует фото-доказательство. Для отчёта о залоге укажите его номер и описание — скриншот не нужен.</p>
               <form id="activity-report-form" class="activity-report-form">
                 <label>Тип события
                   <select class="input" id="activity-report-type" required>
                     <option value="call">Вызов</option>
+                    <option value="bail">Залог</option>
                   </select>
                 </label>
                 <label>Дата события<input class="input" id="activity-report-date" type="date" required></label>
-                <label>Номер вызова<input class="input" id="activity-report-reference" maxlength="300" required placeholder="Номер вызова"></label>
+                <label><span id="activity-report-reference-label">Номер вызова</span><input class="input" id="activity-report-reference" maxlength="300" required placeholder="Номер вызова"></label>
                 <label>Описание<textarea class="input" id="activity-report-details" minlength="4" maxlength="2000" rows="4" required placeholder="Кратко опишите событие"></textarea></label>
-                <label>Фото-доказательство
+                <label id="activity-report-photo-field">Фото-доказательство
                   <input class="input" id="activity-report-photo" type="file" accept="image/jpeg,image/png,image/webp">
                 </label>
-                <p class="activity-report-upload-hint">Можно выбрать файл или вставить скриншот через Ctrl+V. JPG, PNG или WebP, до 2 МБ.</p>
+                <p class="activity-report-upload-hint" id="activity-report-upload-hint">Можно выбрать файл или вставить скриншот через Ctrl+V. JPG, PNG или WebP, до 2 МБ.</p>
                 <div id="activity-report-photo-preview" class="activity-report-photo-preview hidden" aria-live="polite"></div>
                 <button class="btn btn-gold" type="submit">Отправить на одобрение</button>
               </form>

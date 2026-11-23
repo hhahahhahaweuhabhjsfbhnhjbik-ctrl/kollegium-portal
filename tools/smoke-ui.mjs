@@ -145,6 +145,7 @@ const responses = {
 
 const problems = [];
 const requested = [];
+const activityReportBodies = [];
 const completedRpCaseIds = new Set();
 const audioTones = [];
 const virtualConsole = new VirtualConsole();
@@ -196,6 +197,9 @@ window.fetch = async (input, options = {}) => {
   const url = new URL(typeof input === "string" ? input : input.url, "http://127.0.0.1:3000");
   const method = options.method || "GET";
   requested.push(`${method} ${url.pathname}`);
+  if (url.pathname === "/api/activity-reports" && method === "POST") {
+    activityReportBodies.push(JSON.parse(options.body));
+  }
   let payload = responses[url.pathname];
   if (url.pathname === "/api/rp-practice/completions") {
     payload = { completedCaseIds: [...completedRpCaseIds] };
@@ -261,8 +265,8 @@ check(css.includes(".rp-phone-conversation .ifruit-messages::-webkit-scrollbar-t
 check([...document.querySelectorAll("#lawsuit-template option")].map((option) => option.value).join(",") ===
   "lawsuit-supreme,lawsuit-federal,motion-supreme,motion-federal,rehabilitation,appeal",
 "В форме иска должны остаться шесть поддерживаемых видов документов.");
-check([...document.querySelectorAll("#activity-report-type option")].map((option) => option.value).join(",") === "call",
-"В ручной отчётности должен остаться только отчёт о вызове.");
+check([...document.querySelectorAll("#activity-report-type option")].map((option) => option.value).join(",") === "call,bail",
+"В ручной отчётности должны быть вызов и залог.");
 const sidebar = document.querySelector("#sidebar");
 check(!sidebar?.querySelector(".sidebar-scroll [data-view='rating'], .sidebar-scroll [data-view='audit'], .sidebar-scroll [data-view='awards'], .sidebar-scroll [data-view='reports']") &&
   sidebar?.querySelector(".sidebar-footer [data-view='rating']") &&
@@ -512,7 +516,8 @@ check(!document.querySelector("#notification-panel")?.classList.contains("hidden
 document.querySelector('[data-action="read-all-notifications"]')?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
 await wait(10);
 check(requested.includes("POST /api/notifications/read-all"), "Команда «Прочитать все» не вызвала API.");
-document.querySelector("#activity-report-type").value = "prosecutor_complaint";
+document.querySelector("#activity-report-type").value = "call";
+document.querySelector("#activity-report-type").dispatchEvent(new window.Event("change", { bubbles: true }));
 document.querySelector("#activity-report-date").value = "2026-01-15";
 document.querySelector("#activity-report-reference").value = "PC-404";
 document.querySelector("#activity-report-details").value = "Проверка отправки жалобы.";
@@ -530,6 +535,20 @@ check(!document.querySelector("#activity-report-photo-preview")?.classList.conta
   "Вставленное через Ctrl+V фото должно сразу появиться в предпросмотре.");
 await window.submitActivityReport({ preventDefault() {} });
 check(requested.includes("POST /api/activity-reports"), "Форма отчёта не отправила отдельную запись.");
+check(activityReportBodies[0]?.reportType === "call" && activityReportBodies[0]?.photo?.name === "report.png",
+  "Отчёт о вызове должен отправлять выбранное фото.");
+document.querySelector("#activity-report-type").value = "bail";
+document.querySelector("#activity-report-type").dispatchEvent(new window.Event("change", { bubbles: true }));
+check(document.querySelector("#activity-report-reference-label")?.textContent === "Номер залога" &&
+  document.querySelector("#activity-report-photo-field")?.classList.contains("hidden") &&
+  document.querySelector("#activity-report-upload-hint")?.classList.contains("hidden"),
+"Для отчёта о залоге должны скрываться поля фото и меняться подпись номера.");
+document.querySelector("#activity-report-date").value = "2026-01-16";
+document.querySelector("#activity-report-reference").value = "BAIL-405";
+document.querySelector("#activity-report-details").value = "Залог принят и зарегистрирован.";
+await window.submitActivityReport({ preventDefault() {} });
+check(activityReportBodies[1]?.reportType === "bail" && !("photo" in activityReportBodies[1]),
+  "Отчёт о залоге должен отправляться без скриншота.");
 let confirmLogout = false;
 window.confirm = () => confirmLogout;
 await window.logout();

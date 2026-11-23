@@ -1821,6 +1821,7 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
     (user_id,report_type,occurred_at,reference,details,status,reviewed_by)
     VALUES (?,?,?,?,?,?,?)`);
   addActivityReport.run(lawyerId, "call", "2026-10-10", "CALL-101", "Подтверждённый вызов", "approved", gkaId);
+  addActivityReport.run(lawyerId, "bail", "2026-10-10", "BAIL-100", "Подтверждённый залог", "approved", gkaId);
   addActivityReport.run(lawyerId, "lawsuit", "2026-10-11", "CASE-202", "Подтверждённый иск", "approved", gkaId);
   addActivityReport.run(lawyerId, "prosecutor_complaint", "2026-10-12", "PC-303", "Подтверждённая жалоба", "approved", gkaId);
   addActivityReport.run(lawyerId, "call", "2026-10-13", "CALL-PENDING", "Ожидает решения", "pending", null);
@@ -1852,6 +1853,7 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
       documentsApproved: lawyerReport.documentsApproved,
       lawsuitsFiled: lawyerReport.lawsuitsFiled,
       callsReported: lawyerReport.callsReported,
+      bailReports: lawyerReport.bailReports,
       casesTaken: lawyerReport.casesTaken,
       casesClosed: lawyerReport.casesClosed,
       examsPassed: lawyerReport.examsPassed,
@@ -1859,9 +1861,10 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
       reprimands: lawyerReport.reprimands
     }, {
       documentsCreated: 1, documentsApproved: 1, lawsuitsFiled: 1, casesTaken: 1,
-      callsReported: 1, casesClosed: 1, examsPassed: 1, attestationsPassed: 1, reprimands: 1
+      callsReported: 1, bailReports: 1, casesClosed: 1, examsPassed: 1, attestationsPassed: 1, reprimands: 1
     });
     assert.equal(report.data.totals.callsReported, 1);
+    assert.equal(report.data.totals.bailReports, 1);
     assert.equal("lawsuitReports" in lawyerReport, false);
     assert.equal("prosecutorComplaints" in lawyerReport, false);
     assert.equal("lawsuitReports" in report.data.totals, false);
@@ -1911,11 +1914,33 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
     assert.match(webhookBodies[0].payload.embeds[0].description, /Новый вызов для проверки одобрения/);
     assert.equal(webhookBodies[0].payload.embeds[0].image.url, "attachment://call-evidence.png");
     assert.ok(webhookBodies[0].body.get("files[0]"));
+    const bailWithoutPhoto = await lawyer("/api/activity-reports", "POST", {
+      reportType: "bail",
+      occurredAt: "2026-10-25",
+      reference: "BAIL-NEW",
+      details: "Залог оформлен и внесён в журнал"
+    });
+    assert.equal(bailWithoutPhoto.status, 201);
+    assert.equal(webhookBodies.length, 2);
+    assert.equal(webhookBodies[1].payload.embeds[0].thumbnail.url, "attachment://collegium-seal.png");
+    assert.equal(webhookBodies[1].body.get("files[0]").name, "collegium-seal.png");
+    assert.equal(webhookBodies[1].body.get("files[1]"), null);
+    const bailWithPhoto = await lawyer("/api/activity-reports", "POST", {
+      reportType: "bail",
+      occurredAt: "2026-10-25",
+      reference: "BAIL-WITH-PHOTO",
+      details: "К залогу не нужен скриншот",
+      photo: { name: "not-needed.png", type: "image/png", data: "data:image/png;base64,iVBORw0KGgo=" }
+    });
+    assert.equal(bailWithPhoto.status, 400);
     const pending = await gka("/api/activity-reports");
     assert.equal(pending.data.canReview, true);
     const pendingReport = pending.data.reports.find((item) => item.id === submission.data.id);
     assert.equal(pendingReport.status, "pending");
     assert.equal(pendingReport.attachment_name, "call-evidence.png");
+    const pendingBailReport = pending.data.reports.find((item) => item.id === bailWithoutPhoto.data.id);
+    assert.equal(pendingBailReport.report_type, "bail");
+    assert.equal(pendingBailReport.attachment_name, null);
     const storedPhoto = await lawyer.raw(`/api/activity-reports/${submission.data.id}/photo`);
     assert.equal(storedPhoto.status, 200);
     assert.equal(storedPhoto.contentType, "image/png");
@@ -1931,6 +1956,9 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
     assert.equal((await gka(`/api/activity-reports/${submission.data.id}`, "PATCH", {
       status: "approved"
     })).status, 409);
+    assert.equal((await gka(`/api/activity-reports/${bailWithoutPhoto.data.id}`, "PATCH", {
+      status: "approved"
+    })).status, 200);
 
     const notificationFeed = await lawyer("/api/notifications");
     const reviewNotification = notificationFeed.data.notifications.find((item) =>
@@ -1942,6 +1970,7 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
     const updatedReport = await gka("/api/reports?period=2026-10");
     const updatedLawyerReport = updatedReport.data.rows.find((row) => row.userId === lawyerId);
     assert.equal(updatedLawyerReport.callsReported, 2);
+    assert.equal(updatedLawyerReport.bailReports, 2);
 
     assert.equal((await gka("/api/reports?period=2026-13")).status, 400);
     assert.equal((await deputy("/api/reports?period=2026-10")).status, 200);
@@ -1955,6 +1984,163 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
     assert.equal(syncRequests[0].body.token, syncToken);
     assert.equal(syncRequests[0].body.report.rows.find((row) => row.userId === lawyerId).casesClosed, 1);
     assert.equal(JSON.stringify(syncRequests[0].body.report).includes("email"), false);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+    db.close();
+  }
+});
+
+test("startup migrates activity report types without losing existing photo attachments", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "portal-report-migration-"));
+  const dbPath = path.join(directory, "portal.sqlite");
+  const initial = createPortalServer({ dbPath, cookieSecure: false });
+  const initialDb = initial.portalDb;
+  const userId = Number(initialDb.prepare(`INSERT INTO users
+    (username,password_hash,display_name,role,status)
+    VALUES ('migration-lawyer','test-hash','Тестовый адвокат','Адвокат','active')`).run().lastInsertRowid);
+  initialDb.exec(`
+    PRAGMA foreign_keys = OFF;
+    DROP TABLE activity_report_attachments;
+    DROP TABLE activity_reports;
+    CREATE TABLE activity_reports (
+      id INTEGER PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      report_type TEXT NOT NULL CHECK (report_type IN ('call','lawsuit','prosecutor_complaint')),
+      occurred_at TEXT NOT NULL,
+      reference TEXT NOT NULL,
+      details TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+      decision TEXT NOT NULL DEFAULT '',
+      reviewed_by INTEGER REFERENCES users(id),
+      reviewed_at TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE activity_report_attachments (
+      report_id INTEGER PRIMARY KEY REFERENCES activity_reports(id) ON DELETE CASCADE,
+      file_name TEXT NOT NULL,
+      content_type TEXT NOT NULL CHECK (content_type IN ('image/jpeg','image/png','image/webp')),
+      content BLOB NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  const reportId = Number(initialDb.prepare(`INSERT INTO activity_reports
+    (user_id,report_type,occurred_at,reference,details) VALUES (?,'call','2026-10-10','CALL-OLD','Старый отчёт')`)
+    .run(userId).lastInsertRowid);
+  initialDb.prepare(`INSERT INTO activity_report_attachments
+    (report_id,file_name,content_type,content) VALUES (?,'old.png','image/png',?)`)
+    .run(reportId, Buffer.from("preserved-image"));
+  initialDb.close();
+
+  const migrated = createPortalServer({ dbPath, cookieSecure: false });
+  try {
+    const schema = migrated.portalDb.prepare(`SELECT sql FROM sqlite_master
+      WHERE type = 'table' AND name = 'activity_reports'`).get().sql;
+    assert.match(schema, /'bail'/);
+    const report = migrated.portalDb.prepare("SELECT report_type, reference FROM activity_reports WHERE id = ?").get(reportId);
+    assert.equal(report.report_type, "call");
+    assert.equal(report.reference, "CALL-OLD");
+    const attachment = migrated.portalDb.prepare("SELECT file_name, content FROM activity_report_attachments WHERE report_id = ?").get(reportId);
+    assert.equal(attachment.file_name, "old.png");
+    assert.deepEqual(Buffer.from(attachment.content), Buffer.from("preserved-image"));
+    assert.deepEqual(migrated.portalDb.prepare("PRAGMA foreign_key_check").all(), []);
+  } finally {
+    migrated.portalDb.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("staff dismissal permanently removes account data and bulk cleanup preserves the current GKA", async () => {
+  const discordRequests = [];
+  const server = createPortalServer({
+    dbPath: ":memory:",
+    cookieSecure: false,
+    discordBotToken: "test-discord-bot",
+    discordGuildId: "123456789012345678",
+    discordRoleIds: {},
+    discordFetch: async (url, options) => {
+      discordRequests.push({ url, options });
+      if (url.endsWith("/users/@me/channels")) {
+        return new Response(JSON.stringify({ id: "234567890123456789" }), { status: 200 });
+      }
+      if (url.endsWith("/guilds/123456789012345678/members/345678901234567890")) {
+        return new Response(JSON.stringify({ roles: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ id: "message-id" }), { status: 200 });
+    }
+  });
+  const db = server.portalDb;
+  const password = "PermanentRemovalPassword!23";
+  const salt = randomBytes(16);
+  const hash = scryptSync(password, salt, 64, {
+    N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024
+  });
+  const passwordHash = `scrypt$${salt.toString("base64")}$${hash.toString("base64")}`;
+  const addUser = (username, displayName, role, discordId = null) => Number(db.prepare(`INSERT INTO users
+    (username,password_hash,display_name,role,status,discord_id)
+    VALUES (?,?,?,?,'active',?)`).run(username, passwordHash, displayName, role, discordId).lastInsertRowid);
+  const gkaId = addUser("removal-gka", "Глава", "ГКА");
+  addUser("removal-deputy", "Заместитель", "ЗГКА");
+  const lawyerId = addUser("removal-lawyer", "Адвокат", "Адвокат", "345678901234567890");
+  addUser("removal-citizen", "Гражданин", "Гражданин");
+  const reportId = Number(db.prepare(`INSERT INTO activity_reports
+    (user_id,report_type,occurred_at,reference,details) VALUES (?,'call','2026-10-10','CALL-REMOVE','Отчёт под удаление')`)
+    .run(lawyerId).lastInsertRowid);
+  db.prepare(`INSERT INTO activity_report_attachments
+    (report_id,file_name,content_type,content) VALUES (?,'remove.png','image/png',?)`)
+    .run(reportId, Buffer.from("remove-me"));
+  db.prepare(`INSERT INTO member_employment_history
+    (user_id,actor_id,event_type,from_role,to_role,from_status,to_status,details)
+    VALUES (?,?,'dismissed','Адвокат','Адвокат','active','suspended','Старые сведения')`)
+    .run(lawyerId, gkaId);
+  db.prepare(`INSERT INTO activity_reports
+    (user_id,report_type,occurred_at,reference,details,reviewed_by)
+    VALUES (?,'call','2026-10-11','CALL-REVIEWER','Ссылка на увольняемого',?)`)
+    .run(gkaId, lawyerId);
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const gka = await createClient(baseUrl);
+  const deputy = await createClient(baseUrl);
+  const lawyer = await createClient(baseUrl);
+  try {
+    for (const [client, username] of [
+      [gka, "removal-gka"], [deputy, "removal-deputy"], [lawyer, "removal-lawyer"]
+    ]) {
+      assert.equal((await client("/api/auth/login", "POST", { username, password })).status, 200);
+    }
+    assert.equal((await deputy("/api/members/purge-all", "POST", {
+      reason: "Обновление состава", confirmation: "УДАЛИТЬ ВСЕ"
+    })).status, 403);
+    assert.equal((await gka(`/api/members/${gkaId}/dismiss`, "POST", {
+      reason: "Не удалять текущий аккаунт"
+    })).status, 409);
+
+    const dismissed = await gka(`/api/members/${lawyerId}/dismiss`, "POST", {
+      reason: "Прекращение полномочий по решению руководства"
+    });
+    assert.equal(dismissed.status, 200);
+    assert.equal(dismissed.data.dmWarning, "");
+    assert.equal(dismissed.data.discordWarning, "");
+    const dmRequest = discordRequests.find((request) => request.url.endsWith("/channels/234567890123456789/messages"));
+    assert.ok(dmRequest);
+    assert.match(JSON.parse(dmRequest.options.body).embeds[0].description, /Прекращение полномочий/);
+    assert.equal(db.prepare("SELECT 1 FROM users WHERE id = ?").get(lawyerId), undefined);
+    assert.equal(db.prepare("SELECT 1 FROM activity_reports WHERE id = ?").get(reportId), undefined);
+    assert.equal(db.prepare("SELECT 1 FROM activity_report_attachments WHERE report_id = ?").get(reportId), undefined);
+    assert.equal(db.prepare("SELECT reviewed_by FROM activity_reports WHERE user_id = ?").get(gkaId).reviewed_by, null);
+    assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
+
+    const purged = await gka("/api/members/purge-all", "POST", {
+      reason: "Полная очистка состава",
+      confirmation: "УДАЛИТЬ ВСЕ"
+    });
+    assert.equal(purged.status, 200);
+    assert.equal(purged.data.deletedCount, 2);
+    assert.equal(db.prepare("SELECT id FROM users").get().id, gkaId);
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM users").get().count, 1);
+    assert.equal(purged.data.warnings.length, 2);
+    assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
   } finally {
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));

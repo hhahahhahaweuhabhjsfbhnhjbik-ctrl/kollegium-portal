@@ -17,7 +17,8 @@ const roles = ["Стажер КА", "Юрист", "Адвокат", "Ст.Адв
 const citizenRole = "Гражданин";
 const managementRoles = ["ГКА", "ЗГКА"];
 const activityReportTypes = Object.freeze({
-  call: "Вызов"
+  call: "Вызов",
+  bail: "Залог"
 });
 const portalPageRoutes = new Set([
   "/page/home",
@@ -259,6 +260,130 @@ function hasGkaAccess(user) {
     (user.role === "ЗГКА" && Number(user.full_gka_access) === 1);
 }
 
+function quoteSqlIdentifier(value) {
+  return `"${String(value).replaceAll('"', '""')}"`;
+}
+
+function createPermanentUserDeletion(db) {
+  const tables = db.prepare(`SELECT name FROM sqlite_master
+    WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).all().map((row) => row.name);
+  const columnInfo = new Map(tables.map((table) => [
+    table,
+    new Map(db.prepare(`PRAGMA table_info(${quoteSqlIdentifier(table)})`).all()
+      .map((column) => [column.name, column]))
+  ]));
+  const inbound = new Map(tables.map((table) => [table, []]));
+
+  for (const childTable of tables) {
+    const groups = new Map();
+    for (const foreignKey of db.prepare(`PRAGMA foreign_key_list(${quoteSqlIdentifier(childTable)})`).all()) {
+      if (!groups.has(foreignKey.id)) groups.set(foreignKey.id, []);
+      groups.get(foreignKey.id).push(foreignKey);
+    }
+    for (const group of groups.values()) {
+      group.sort((left, right) => left.seq - right.seq);
+      const parentTable = group[0].table;
+      if (!inbound.has(parentTable)) continue;
+      inbound.get(parentTable).push({
+        childTable,
+        columns: group.map(({ from, to }) => ({ child: from, parent: to })),
+        onDelete: String(group[0].on_delete).toUpperCase()
+      });
+    }
+  }
+
+  return (userId) => {
+    let removedRows = 0;
+    const visited = new Set();
+    const removeRow = (table, rowId) => {
+      const key = `${table}:${rowId}`;
+      if (visited.has(key)) return;
+      const quotedTable = quoteSqlIdentifier(table);
+      const row = db.prepare(`SELECT rowid AS __rowid, * FROM ${quotedTable} WHERE rowid = ?`).get(rowId);
+      if (!row) return;
+      visited.add(key);
+
+      for (const foreignKey of inbound.get(table) || []) {
+        const values = foreignKey.columns.map(({ parent }) => row[parent]);
+        if (values.some((value) => value === null || value === undefined)) continue;
+        const where = foreignKey.columns.map(({ child }) => `${quoteSqlIdentifier(child)} = ?`).join(" AND ");
+        const children = db.prepare(`SELECT rowid AS __rowid, * FROM ${quoteSqlIdentifier(foreignKey.childTable)}
+          WHERE ${where}`).all(...values);
+        const canNull = foreignKey.columns.every(({ child }) => {
+          const column = columnInfo.get(foreignKey.childTable)?.get(child);
+          return column && !column.notnull && !column.pk;
+        });
+
+        for (const child of children) {
+          if (foreignKey.onDelete === "SET NULL" ||
+              (["NO ACTION", "RESTRICT", "SET DEFAULT"].includes(foreignKey.onDelete) && canNull)) {
+            const assignments = foreignKey.columns.map(({ child: column }) => `${quoteSqlIdentifier(column)} = NULL`).join(", ");
+            db.prepare(`UPDATE ${quoteSqlIdentifier(foreignKey.childTable)} SET ${assignments} WHERE rowid = ?`)
+              .run(child.__rowid);
+          } else {
+            removeRow(foreignKey.childTable, child.__rowid);
+          }
+        }
+      }
+
+      const deleted = db.prepare(`DELETE FROM ${quotedTable} WHERE rowid = ?`).run(rowId);
+      removedRows += Number(deleted.changes);
+    };
+
+    removeRow("users", Number(userId));
+    return removedRows;
+  };
+}
+
+function migrateActivityReportTypes(db) {
+  const schema = db.prepare(`SELECT sql FROM sqlite_master
+    WHERE type = 'table' AND name = 'activity_reports'`).get()?.sql || "";
+  if (/\bbail\b/i.test(schema)) return;
+
+  db.exec("PRAGMA foreign_keys = OFF");
+  try {
+    db.exec("BEGIN IMMEDIATE");
+    db.exec(`
+      ALTER TABLE activity_report_attachments RENAME TO activity_report_attachments_legacy;
+      ALTER TABLE activity_reports RENAME TO activity_reports_legacy;
+      CREATE TABLE activity_reports (
+        id INTEGER PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        report_type TEXT NOT NULL CHECK (report_type IN ('call','lawsuit','prosecutor_complaint','bail')),
+        occurred_at TEXT NOT NULL,
+        reference TEXT NOT NULL,
+        details TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+        decision TEXT NOT NULL DEFAULT '',
+        reviewed_by INTEGER REFERENCES users(id),
+        reviewed_at TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      INSERT INTO activity_reports SELECT * FROM activity_reports_legacy;
+      CREATE TABLE activity_report_attachments (
+        report_id INTEGER PRIMARY KEY REFERENCES activity_reports(id) ON DELETE CASCADE,
+        file_name TEXT NOT NULL,
+        content_type TEXT NOT NULL CHECK (content_type IN ('image/jpeg','image/png','image/webp')),
+        content BLOB NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      INSERT INTO activity_report_attachments SELECT * FROM activity_report_attachments_legacy;
+      DROP TABLE activity_report_attachments_legacy;
+      DROP TABLE activity_reports_legacy;
+      CREATE INDEX activity_reports_status_idx ON activity_reports(status, occurred_at DESC);
+      CREATE INDEX activity_reports_user_idx ON activity_reports(user_id, id DESC);
+      COMMIT;
+    `);
+  } catch (error) {
+    try { db.exec("ROLLBACK"); } catch {}
+    throw error;
+  } finally {
+    db.exec("PRAGMA foreign_keys = ON");
+  }
+  const violations = db.prepare("PRAGMA foreign_key_check").all();
+  if (violations.length) throw new Error("Миграция отчётов повредила связи в базе данных.");
+}
+
 function createDatabase(dbPath) {
   const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;");
@@ -424,7 +549,7 @@ function createDatabase(dbPath) {
     CREATE TABLE IF NOT EXISTS activity_reports (
       id INTEGER PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      report_type TEXT NOT NULL CHECK (report_type IN ('call','lawsuit','prosecutor_complaint')),
+      report_type TEXT NOT NULL CHECK (report_type IN ('call','lawsuit','prosecutor_complaint','bail')),
       occurred_at TEXT NOT NULL,
       reference TEXT NOT NULL,
       details TEXT NOT NULL,
@@ -692,6 +817,7 @@ function createDatabase(dbPath) {
     CREATE INDEX IF NOT EXISTS member_employment_history_user_idx ON member_employment_history(user_id, id DESC);
     CREATE INDEX IF NOT EXISTS academy_materials_category_idx ON academy_materials(category, updated_at DESC);
   `);
+  migrateActivityReportTypes(db);
   const userColumns = db.prepare("PRAGMA table_info(users)").all();
   if (!userColumns.some((item) => item.name === "full_gka_access")) {
     db.exec("ALTER TABLE users ADD COLUMN full_gka_access INTEGER NOT NULL DEFAULT 0 CHECK (full_gka_access IN (0,1))");
@@ -1051,7 +1177,7 @@ function validateReportPeriod(value) {
 
 function buildMonthlyReport(db, period) {
   const metricKeys = [
-    "documentsCreated", "documentsApproved", "lawsuitsFiled", "callsReported",
+    "documentsCreated", "documentsApproved", "lawsuitsFiled", "callsReported", "bailReports",
     "casesTaken", "casesClosed", "examsPassed", "attestationsPassed", "reprimands"
   ];
   const allRows = db.prepare(`SELECT u.id, u.display_name, u.role, u.status,
@@ -1066,6 +1192,9 @@ function buildMonthlyReport(db, period) {
       (SELECT COUNT(*) FROM activity_reports ar
         WHERE ar.user_id = u.id AND ar.report_type = 'call' AND ar.status = 'approved'
           AND strftime('%Y-%m', ar.occurred_at) = ?) AS calls_reported,
+      (SELECT COUNT(*) FROM activity_reports ar
+        WHERE ar.user_id = u.id AND ar.report_type = 'bail' AND ar.status = 'approved'
+          AND strftime('%Y-%m', ar.occurred_at) = ?) AS bail_reports,
       (SELECT COUNT(*) FROM applications a
         WHERE a.assigned_to = u.id AND a.type IN ('citizen_help', 'citizen_complaint')
           AND strftime('%Y-%m', a.created_at) = ?) AS cases_taken,
@@ -1082,7 +1211,7 @@ function buildMonthlyReport(db, period) {
     FROM users u
     WHERE u.role != ?
     ORDER BY u.role, u.display_name`).all(
-    period, period, period, period, period, period, period, period, period,
+      period, period, period, period, period, period, period, period, period, period,
     citizenRole
   ).map((row) => ({
     userId: Number(row.id),
@@ -1093,6 +1222,7 @@ function buildMonthlyReport(db, period) {
     documentsApproved: Number(row.documents_approved),
     lawsuitsFiled: Number(row.lawsuits_filed),
     callsReported: Number(row.calls_reported),
+    bailReports: Number(row.bail_reports),
     casesTaken: Number(row.cases_taken),
     casesClosed: Number(row.cases_closed),
     examsPassed: Number(row.exams_passed),
@@ -1576,6 +1706,7 @@ function parseStoredJson(value, label) {
 export function createPortalServer(options = {}) {
   const dbPath = options.dbPath || process.env.DB_PATH || path.join(root, "data", "portal.sqlite");
   const db = options.db || createDatabase(dbPath);
+  const permanentlyDeleteUser = createPermanentUserDeletion(db);
   const requireDiscordLink = options.requireDiscordLink !== false;
   const webhooks = options.discordWebhooks || {};
   webhooks.applications ??= options.webhookApplications ?? process.env.DISCORD_WEBHOOK_APPLICATIONS ?? "";
@@ -1952,6 +2083,45 @@ export function createPortalServer(options = {}) {
       .run(syncError, nicknameWarning, memberId);
     if (syncError) console.error("Discord role synchronization failed:", syncError);
     return { syncError, nicknameWarning };
+  }
+
+  async function revokeDiscordAccess(member) {
+    if (!member.discord_id) return "";
+    if (!discord.botToken || !discord.guildId) {
+      return "Аккаунт удалён, но роли Discord не сняты: бот или сервер не настроены.";
+    }
+    if (!/^\d{15,22}$/.test(discord.guildId) || !/^\d{15,22}$/.test(member.discord_id)) {
+      return "Аккаунт удалён, но роли Discord не сняты: некорректный ID сервера или пользователя.";
+    }
+
+    const route = `/guilds/${discord.guildId}/members/${member.discord_id}`;
+    let discordMember;
+    try {
+      discordMember = await discordBotRequest("GET", route);
+    } catch (error) {
+      return `Аккаунт удалён, но не удалось снять роли Discord: ${error.message}`;
+    }
+    if (!Array.isArray(discordMember?.roles)) {
+      return "Аккаунт удалён, но Discord вернул некорректный список ролей.";
+    }
+
+    const warnings = [];
+    const managedRoleIds = [...new Set(Object.values(discordRoleIds)
+      .filter((id) => /^\d{15,22}$/.test(id)))];
+    for (const roleId of managedRoleIds) {
+      if (!discordMember.roles.includes(roleId)) continue;
+      try {
+        await discordBotRequest("DELETE", `${route}/roles/${roleId}`);
+      } catch (error) {
+        warnings.push(error.message);
+      }
+    }
+    try {
+      await discordBotRequest("PATCH", route, { nick: member.display_name });
+    } catch (error) {
+      warnings.push(`не удалось очистить ник: ${error.message}`);
+    }
+    return warnings.length ? `Аккаунт удалён, но синхронизация Discord не полностью выполнена: ${warnings.join(" · ")}` : "";
   }
 
   const canAccessTask = (user, taskId) => managementRoles.includes(user.role) ||
@@ -4180,6 +4350,87 @@ export function createPortalServer(options = {}) {
           return sendJson(res, 201, { code, expiresAt, logWarning });
         }
 
+        const memberDismissRoute = pathname.match(/^\/api\/members\/(\d+)\/dismiss$/);
+        if (memberDismissRoute && req.method === "POST") {
+          if (!managementRoles.includes(user.role)) {
+            throw new HttpError(403, "Увольнять сотрудников может только ГКА или ЗГКА.");
+          }
+          const body = requireObject(await readJson(req));
+          const memberId = Number(memberDismissRoute[1]);
+          const reason = String(body.reason || "").trim();
+          if (reason.length < 4 || reason.length > 1000) {
+            throw new HttpError(400, "Причина увольнения должна содержать от 4 до 1000 символов.");
+          }
+          if (memberId === Number(user.id)) throw new HttpError(409, "Нельзя удалить текущий аккаунт.");
+          const member = db.prepare("SELECT * FROM users WHERE id = ?").get(memberId);
+          if (!member) throw new HttpError(404, "Аккаунт не найден.");
+          if (member.role === "ГКА" && member.status === "active" && !hasGkaAccess(user) &&
+              !db.prepare("SELECT 1 FROM users WHERE id != ? AND role = 'ГКА' AND status = 'active' LIMIT 1").get(memberId)) {
+            throw new HttpError(409, "Нельзя удалить последнего активного ГКА без полного доступа управления.");
+          }
+
+          db.exec("BEGIN IMMEDIATE");
+          try {
+            permanentlyDeleteUser(memberId);
+            if (db.prepare("SELECT 1 FROM users WHERE id = ?").get(memberId)) {
+              throw new Error("Не удалось удалить аккаунт.");
+            }
+            db.exec("COMMIT");
+          } catch (error) {
+            db.exec("ROLLBACK");
+            throw error;
+          }
+
+          const dmWarning = await sendDiscordDirectMessage(
+            member.discord_id, member, member.discord_avatar_url, "Уведомление об увольнении",
+            `Ваша учётная запись портала и связанные данные окончательно удалены.\nПричина: ${reason}`,
+            { token: discord.botToken, fetchImpl: discordFetch }
+          );
+          const discordWarning = await revokeDiscordAccess(member);
+          return sendJson(res, 200, { ok: true, dmWarning, discordWarning });
+        }
+
+        if (pathname === "/api/members/purge-all" && req.method === "POST") {
+          if (!hasGkaAccess(user)) {
+            throw new HttpError(403, "Массовое удаление доступно только ГКА или ЗГКА с полным доступом.");
+          }
+          const body = requireObject(await readJson(req));
+          const reason = String(body.reason || "").trim();
+          if (reason.length < 4 || reason.length > 1000) {
+            throw new HttpError(400, "Укажите общую причину длиной от 4 до 1000 символов.");
+          }
+          if (body.confirmation !== "УДАЛИТЬ ВСЕ") {
+            throw new HttpError(400, "Для подтверждения введите «УДАЛИТЬ ВСЕ».");
+          }
+          const members = db.prepare("SELECT * FROM users WHERE id != ? ORDER BY id").all(user.id);
+          if (!members.length) return sendJson(res, 200, { deletedCount: 0, warnings: [] });
+
+          db.exec("BEGIN IMMEDIATE");
+          try {
+            for (const member of members) permanentlyDeleteUser(member.id);
+            const remaining = db.prepare("SELECT COUNT(*) AS count FROM users WHERE id != ?").get(user.id).count;
+            if (Number(remaining) !== 0) throw new Error("Не удалось удалить все выбранные аккаунты.");
+            db.exec("COMMIT");
+          } catch (error) {
+            db.exec("ROLLBACK");
+            throw error;
+          }
+
+          const warnings = [];
+          for (const member of members) {
+            const dmWarning = await sendDiscordDirectMessage(
+              member.discord_id, member, member.discord_avatar_url, "Уведомление об увольнении",
+              `Ваша учётная запись портала и связанные данные окончательно удалены.\nПричина: ${reason}`,
+              { token: discord.botToken, fetchImpl: discordFetch }
+            );
+            const discordWarning = await revokeDiscordAccess(member);
+            if (dmWarning || discordWarning) {
+              warnings.push({ displayName: member.display_name, dmWarning, discordWarning });
+            }
+          }
+          return sendJson(res, 200, { deletedCount: members.length, warnings });
+        }
+
         const memberRoute = pathname.match(/^\/api\/members\/(\d+)$/);
         if (memberRoute && req.method === "PATCH") {
           if (!hasGkaAccess(user)) throw new HttpError(403, "Изменять роли и статус аккаунта может только ГКА.");
@@ -4731,14 +4982,14 @@ export function createPortalServer(options = {}) {
               FROM activity_reports r JOIN users u ON u.id = r.user_id
               LEFT JOIN activity_report_attachments a ON a.report_id = r.id
               LEFT JOIN users reviewer ON reviewer.id = r.reviewed_by
-              WHERE r.report_type = 'call'
+              WHERE r.report_type IN ('call', 'bail')
               ORDER BY CASE r.status WHEN 'pending' THEN 0 ELSE 1 END, r.id DESC LIMIT 200`).all()
             : db.prepare(`SELECT r.*, a.file_name AS attachment_name, u.display_name AS reporter_name, u.role AS reporter_role,
                 reviewer.display_name AS reviewer_name
               FROM activity_reports r JOIN users u ON u.id = r.user_id
               LEFT JOIN activity_report_attachments a ON a.report_id = r.id
               LEFT JOIN users reviewer ON reviewer.id = r.reviewed_by
-              WHERE r.user_id = ? AND r.report_type = 'call' ORDER BY r.id DESC LIMIT 100`).all(user.id);
+              WHERE r.user_id = ? AND r.report_type IN ('call', 'bail') ORDER BY r.id DESC LIMIT 100`).all(user.id);
           return sendJson(res, 200, { reports, canReview: hasGkaAccess(user) });
         }
 
@@ -4780,15 +5031,19 @@ export function createPortalServer(options = {}) {
             throw new HttpError(400, "Укажите корректную дату события.");
           }
           if (reference.length < 2 || reference.length > 300) {
-            throw new HttpError(400, "Укажите номер вызова/дела или ссылку (от 2 до 300 символов).");
+            throw new HttpError(400, "Укажите номер вызова, залога или ссылку (от 2 до 300 символов).");
           }
           if (details.length < 4 || details.length > 2000) {
             throw new HttpError(400, "Описание должно содержать от 4 до 2000 символов.");
           }
-          if (!body.photo) throw new HttpError(400, "Добавьте фото-доказательство к отчёту.");
-          const [photo] = parseApplicationAttachments([body.photo]);
-          if (!photo.contentType.startsWith("image/")) {
-            throw new HttpError(400, "К отчёту можно приложить только изображение.");
+          if (reportType === "call" && !body.photo) throw new HttpError(400, "Добавьте фото-доказательство к отчёту о вызове.");
+          if (reportType === "bail" && body.photo) throw new HttpError(400, "К отчёту о залоге скриншот не прикрепляется.");
+          let photo = null;
+          if (body.photo) {
+            [photo] = parseApplicationAttachments([body.photo]);
+            if (!photo.contentType.startsWith("image/")) {
+              throw new HttpError(400, "К отчёту можно приложить только изображение.");
+            }
           }
           db.exec("BEGIN");
           let reportId;
@@ -4797,9 +5052,11 @@ export function createPortalServer(options = {}) {
               (user_id, report_type, occurred_at, reference, details) VALUES (?, ?, ?, ?, ?)`)
               .run(user.id, reportType, occurredAt, reference, details);
             reportId = Number(created.lastInsertRowid);
-            db.prepare(`INSERT INTO activity_report_attachments
-              (report_id, file_name, content_type, content) VALUES (?, ?, ?, ?)`)
-              .run(reportId, photo.name, photo.contentType, photo.content);
+            if (photo) {
+              db.prepare(`INSERT INTO activity_report_attachments
+                (report_id, file_name, content_type, content) VALUES (?, ?, ?, ?)`)
+                .run(reportId, photo.name, photo.contentType, photo.content);
+            }
             db.exec("COMMIT");
           } catch (error) {
             db.exec("ROLLBACK");
@@ -4820,7 +5077,7 @@ export function createPortalServer(options = {}) {
                 { name: "Автор", value: `${user.display_name} · ${user.role}`, inline: true },
                 { name: "Номер или ссылка", value: reference }
               ],
-              { name: photo.name, contentType: photo.contentType, content: photo.content })
+              photo ? { name: photo.name, contentType: photo.contentType, content: photo.content } : null)
             : "Webhook журнала Discord не настроен; отчёт сохранён на сайте.";
           return sendJson(res, 201, { id: reportId, status: "pending", warning: webhookWarning });
         }
@@ -5082,11 +5339,13 @@ function assertCsrf(req, session) {
   if (!safeEqual(req.headers["x-csrf-token"], session.csrf_token)) throw new HttpError(403, "CSRF-токен отсутствует или недействителен. Перезагрузите страницу и войдите снова.");
 }
 
-async function sendDiscordDirectMessage(discordUserId, account, avatarUrl, customTitle = "", customDescription = "") {
-  const token = process.env.DISCORD_BOT_TOKEN || "";
-  if (!/^[\w.-]+$/.test(token) || !/^\d{15,22}$/.test(discordUserId)) return;
+async function sendDiscordDirectMessage(discordUserId, account, avatarUrl, customTitle = "", customDescription = "", options = {}) {
+  const token = options.token ?? process.env.DISCORD_BOT_TOKEN ?? "";
+  const fetchImpl = options.fetchImpl || globalThis.fetch;
+  if (!/^[\w.-]+$/.test(token)) return "Discord-бот не настроен на сервере.";
+  if (!/^\d{15,22}$/.test(discordUserId || "")) return "У аккаунта не привязан Discord.";
   try {
-    const channelResponse = await (globalThis.fetch)("https://discord.com/api/v10/users/@me/channels", {
+    const channelResponse = await fetchImpl("https://discord.com/api/v10/users/@me/channels", {
       method: "POST",
       headers: {
         authorization: `Bot ${token}`,
@@ -5095,10 +5354,12 @@ async function sendDiscordDirectMessage(discordUserId, account, avatarUrl, custo
       body: JSON.stringify({ recipient_id: discordUserId }),
       signal: AbortSignal.timeout(8000)
     });
-    if (!channelResponse.ok) return;
+    if (!channelResponse.ok) {
+      return `Discord отказал в создании ЛС (HTTP ${channelResponse.status}).`;
+    }
     const channel = await channelResponse.json();
-    if (!channel.id) return;
-    await (globalThis.fetch)(`https://discord.com/api/v10/channels/${channel.id}/messages`, {
+    if (!channel.id) return "Discord не вернул канал личных сообщений.";
+    const messageResponse = await fetchImpl(`https://discord.com/api/v10/channels/${channel.id}/messages`, {
       method: "POST",
       headers: {
         authorization: `Bot ${token}`,
@@ -5121,8 +5382,11 @@ async function sendDiscordDirectMessage(discordUserId, account, avatarUrl, custo
       }),
       signal: AbortSignal.timeout(8000)
     });
+    if (!messageResponse.ok) return `Discord отказал в отправке ЛС (HTTP ${messageResponse.status}).`;
+    return "";
   } catch (error) {
     console.error("Discord direct notification could not be delivered:", error.message);
+    return `Не удалось отправить ЛС в Discord: ${error.message}`;
   }
 }
 

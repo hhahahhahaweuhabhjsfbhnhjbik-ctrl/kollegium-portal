@@ -54,6 +54,7 @@ const reportMetrics = [
   ["documentsApproved", "Одобрено документов"],
   ["lawsuitsFiled", "Опубликовано исков"],
   ["callsReported", "Одобрено отчётов о вызовах"],
+  ["bailReports", "Одобрено отчётов о залогах"],
   ["casesTaken", "Принято обращений"],
   ["casesClosed", "Закрыто обращений"],
   ["examsPassed", "Сдано экзаменов"],
@@ -82,7 +83,8 @@ let currentView = "dashboard";
 let discordDmEnabled = false;
 let discordSettings = null;
 const activityReportLabels = {
-  call: "Вызов"
+  call: "Вызов",
+  bail: "Залог"
 };
 const viewPaths = {
   dashboard: "/page/home",
@@ -1655,12 +1657,14 @@ async function loadAudit() {
       <td>${counts.get(Number(member.id)) || 0}</td>
       <td>${Number(member.document_count || 0)}</td>
       <td>${Number(member.lawsuit_count || 0)}</td>
-      <td>${(currentUser.role === "ГКА" || currentUser.hasFullGkaAccess) && Number(member.id) !== Number(currentUser.id) ? `<div class="member-controls">
-        <select class="input" data-member-role="${Number(member.id)}" data-original-role="${escapeHtml(member.role)}" aria-label="Должность: ${escapeHtml(member.display_name)}">
-          ${roles.map((role) => `<option value="${escapeHtml(role)}"${role === member.role ? " selected" : ""}>${escapeHtml(role)}</option>`).join("")}
-        </select>
-        <button class="btn" type="button" data-action="update-member-role" data-id="${Number(member.id)}" disabled>Сохранить</button>
-        <button class="btn" type="button" data-action="update-member-status" data-id="${Number(member.id)}" data-status="${member.status === "active" ? "suspended" : "active"}">${member.status === "pending" ? "Одобрить" : member.status === "suspended" ? "Восстановить" : "Приостановить"}</button>
+      <td>${(managerRoles.includes(currentUser.role) || currentUser.hasFullGkaAccess) && Number(member.id) !== Number(currentUser.id) ? `<div class="member-controls">
+        ${currentUser.role === "ГКА" || currentUser.hasFullGkaAccess ? `
+          <select class="input" data-member-role="${Number(member.id)}" data-original-role="${escapeHtml(member.role)}" aria-label="Должность: ${escapeHtml(member.display_name)}">
+            ${roles.map((role) => `<option value="${escapeHtml(role)}"${role === member.role ? " selected" : ""}>${escapeHtml(role)}</option>`).join("")}
+          </select>
+          <button class="btn" type="button" data-action="update-member-role" data-id="${Number(member.id)}" disabled>Сохранить</button>
+          <button class="btn" type="button" data-action="update-member-status" data-id="${Number(member.id)}" data-status="${member.status === "active" ? "suspended" : "active"}">${member.status === "pending" ? "Одобрить" : member.status === "suspended" ? "Восстановить" : "Приостановить"}</button>` : ""}
+        ${managerRoles.includes(currentUser.role) ? `<button class="btn" type="button" data-action="dismiss-member" data-id="${Number(member.id)}">Уволить и удалить</button>` : ""}
       </div>` : "—"}</td>
     </tr>`
   ).join("") : `<tr><td colspan="6">${emptyState("Состав коллегии пуст.")}</td></tr>`;
@@ -1687,6 +1691,51 @@ async function updateMemberStatus(button) {
   });
   const warnings = [result.discordWarning, result.nicknameWarning, result.logWarning].filter(Boolean);
   notify(warnings.length ? `Доступ сотрудника обновлён. ${warnings.join(" ")}` : "Доступ сотрудника обновлён.");
+  await loadAudit();
+}
+
+async function dismissMember(button) {
+  const reason = window.prompt("Укажите причину увольнения (от 4 до 1000 символов):", "")?.trim() || "";
+  if (reason.length < 4 || reason.length > 1000) {
+    notify("Причина увольнения должна содержать от 4 до 1000 символов.");
+    return;
+  }
+  if (!window.confirm("Аккаунт и связанные с ним данные будут удалены без возможности восстановления. Продолжить?")) return;
+  const result = await api(`/api/members/${encodeURIComponent(button.dataset.id)}/dismiss`, {
+    method: "POST",
+    body: { reason }
+  });
+  const warnings = [result.dmWarning, result.discordWarning].filter(Boolean);
+  notify(warnings.length
+    ? `Аккаунт удалён. ${warnings.join(" ")}`
+    : "Аккаунт и связанные данные удалены. Уведомление отправлено в Discord.");
+  await loadAudit();
+}
+
+async function purgeAllMembers() {
+  if (currentUser.role !== "ГКА" && !currentUser.hasFullGkaAccess) {
+    notify("Массовое удаление доступно только руководителю с полным доступом.");
+    return;
+  }
+  const reason = window.prompt("Укажите общую причину удаления аккаунтов (от 4 до 1000 символов):", "")?.trim() || "";
+  if (reason.length < 4 || reason.length > 1000) {
+    notify("Причина должна содержать от 4 до 1000 символов.");
+    return;
+  }
+  if (!window.confirm("Будут безвозвратно удалены все аккаунты и данные, кроме вашего текущего аккаунта. Продолжить?")) return;
+  const confirmation = window.prompt("Для подтверждения введите: УДАЛИТЬ ВСЕ", "")?.trim() || "";
+  if (confirmation !== "УДАЛИТЬ ВСЕ") {
+    notify("Массовое удаление отменено: подтверждение не совпало.");
+    return;
+  }
+  const result = await api("/api/members/purge-all", {
+    method: "POST",
+    body: { reason, confirmation }
+  });
+  const deliveryWarnings = (result.warnings || []).length;
+  notify(deliveryWarnings
+    ? `Удалено аккаунтов: ${Number(result.deletedCount)}. Для ${deliveryWarnings} аккаунтов не удалось отправить уведомление или снять Discord-роли.`
+    : `Удалено аккаунтов: ${Number(result.deletedCount)}. Ваш текущий аккаунт сохранён.`);
   await loadAudit();
 }
 
@@ -1798,6 +1847,15 @@ function renderActivityReportPhoto() {
   preview.classList.remove("hidden");
 }
 
+function updateActivityReportFields() {
+  const isBailReport = $("#activity-report-type").value === "bail";
+  $("#activity-report-reference").placeholder = isBailReport ? "Номер залога" : "Номер вызова";
+  $("#activity-report-reference-label").textContent = isBailReport ? "Номер залога" : "Номер вызова";
+  $("#activity-report-photo-field").classList.toggle("hidden", isBailReport);
+  $("#activity-report-upload-hint").classList.toggle("hidden", isBailReport);
+  if (isBailReport) clearActivityReportPhoto();
+}
+
 function setActivityReportPhoto(file) {
   if (!file) return;
   if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
@@ -1854,25 +1912,27 @@ async function loadReports() {
 
 async function submitActivityReport(event) {
   event.preventDefault();
-  const photo = activityReportPhoto;
-  if (!photo) throw new Error("Добавьте фото-доказательство к отчёту.");
-  const photoData = await readActivityReportPhoto(photo);
+  const reportType = $("#activity-report-type").value;
+  const photo = reportType === "call" ? activityReportPhoto : null;
+  if (reportType === "call" && !photo) throw new Error("Добавьте фото-доказательство к отчёту о вызове.");
+  const photoData = photo ? await readActivityReportPhoto(photo) : null;
   const result = await api("/api/activity-reports", {
     method: "POST",
     body: {
-      reportType: $("#activity-report-type").value,
+      reportType,
       occurredAt: $("#activity-report-date").value,
       reference: $("#activity-report-reference").value.trim(),
       details: $("#activity-report-details").value.trim(),
-      photo: {
+      ...(photo ? { photo: {
         name: photo.name,
         type: photo.type,
         data: photoData
-      }
+      } } : {})
     }
   });
   $("#activity-report-form").reset();
   clearActivityReportPhoto();
+  updateActivityReportFields();
   $("#activity-report-date").value = localDateValue();
   notify(result.warning
     ? `Отчёт сохранён. ${result.warning}`
@@ -2020,6 +2080,8 @@ async function handleAction(button) {
   else if (action === "load-reports") await loadReports();
   else if (action === "update-member-role") await updateMemberRole(button);
   else if (action === "update-member-status") await updateMemberStatus(button);
+  else if (action === "dismiss-member") await dismissMember(button);
+  else if (action === "purge-all-members") await purgeAllMembers();
   else if (action === "view-document") await viewDocument(button.dataset.id);
   else if (action === "lawsuit-history") await viewLawsuitHistory(button.dataset.id);
   else if (action === "review-lawsuit") await reviewLawsuit(button);
@@ -2118,6 +2180,10 @@ document.addEventListener("click", (event) => {
   }
 });
 document.addEventListener("change", (event) => {
+  if (event.target.closest("#activity-report-type")) {
+    updateActivityReportFields();
+    return;
+  }
   const photoInput = event.target.closest("#activity-report-photo");
   if (photoInput) {
     try {

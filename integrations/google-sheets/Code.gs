@@ -35,7 +35,8 @@ function doPost(event) {
       "Период", "ID", "Сотрудник", "Роль", "Документов создано", "Документов одобрено",
       "Исков подано", "Обращений взято", "Обращений закрыто", "Экзаменов сдано",
       "Переаттестаций пройдено", "Выговоров", "Отчётов о вызовах одобрено",
-      "Отчётов об исках одобрено", "Жалоб в прокуратуру одобрено"
+      "Архив: отчётов об исках одобрено", "Архив: жалоб в прокуратуру одобрено",
+      "Отчётов о залогах одобрено"
     ];
     const monthlySheet = getSheet(spreadsheet, "Отчётность", reportHeaders);
     upsertMonthlyRows(monthlySheet, reportHeaders, report);
@@ -61,6 +62,13 @@ function getSheet(spreadsheet, name, headers) {
   }
   const lastColumn = sheet.getLastColumn();
   const currentHeaders = sheet.getRange(1, 1, 1, Math.max(lastColumn, headers.length)).getValues()[0].map(String);
+  if (name === "Отчётность" &&
+      currentHeaders[13] === "Отчётов об исках одобрено" &&
+      currentHeaders[14] === "Жалоб в прокуратуру одобрено") {
+    currentHeaders[13] = "Архив: отчётов об исках одобрено";
+    currentHeaders[14] = "Архив: жалоб в прокуратуру одобрено";
+    sheet.getRange(1, 14, 1, 2).setValues([[currentHeaders[13], currentHeaders[14]]]);
+  }
   const comparedHeaders = Math.min(lastColumn, headers.length);
   if (headers.slice(0, comparedHeaders).some((header, index) => currentHeaders[index] !== header)) {
     throw new Error("Unexpected columns in sheet: " + name);
@@ -87,7 +95,11 @@ function upsertMonthlyRows(sheet, headers, report) {
     ? sheet.getRange(2, 1, lastRow - 1, headers.length).getValues()
     : [];
   const rowByKey = new Map();
-  existing.forEach((row, index) => rowByKey.set(String(row[0]) + ":" + String(row[1]), index + 2));
+  existing.forEach((row, index) => rowByKey.set(String(row[0]) + ":" + String(row[1]), {
+    rowNumber: index + 2,
+    archivedLawsuits: Number(row[13] || 0),
+    archivedComplaints: Number(row[14] || 0)
+  }));
   const additions = [];
 
   report.rows.forEach((item) => {
@@ -95,11 +107,14 @@ function upsertMonthlyRows(sheet, headers, report) {
       String(report.period), Number(item.userId), safeText(item.displayName), safeText(item.role),
       Number(item.documentsCreated), Number(item.documentsApproved), Number(item.lawsuitsFiled),
       Number(item.casesTaken), Number(item.casesClosed), Number(item.examsPassed),
-      Number(item.attestationsPassed), Number(item.reprimands), Number(item.callsReported)
+      Number(item.attestationsPassed), Number(item.reprimands), Number(item.callsReported),
+      rowByKey.get(String(report.period) + ":" + String(item.userId))?.archivedLawsuits || 0,
+      rowByKey.get(String(report.period) + ":" + String(item.userId))?.archivedComplaints || 0,
+      Number(item.bailReports)
     ];
     const key = String(report.period) + ":" + String(item.userId);
-    const rowNumber = rowByKey.get(key);
-    if (rowNumber) sheet.getRange(rowNumber, 1, 1, headers.length).setValues([values]);
+    const row = rowByKey.get(key);
+    if (row) sheet.getRange(row.rowNumber, 1, 1, headers.length).setValues([values]);
     else additions.push(values);
   });
 
