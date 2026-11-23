@@ -921,13 +921,15 @@ test("Discord is optional for staff portal access and remains available to link"
 });
 
 test("Discord avatar is saved when an account is linked", async () => {
+  const welcomeEmbeds = [];
   const server = createPortalServer({
     dbPath: ":memory:",
     cookieSecure: false,
     discordClientId: "test-client",
     discordClientSecret: "test-secret",
     discordRedirectUri: "http://127.0.0.1:3000/api/discord/callback",
-    discordFetch: async (url) => {
+    discordBotToken: "mock-bot-token",
+    discordFetch: async (url, options = {}) => {
       if (url.endsWith("/oauth2/token")) {
         return new Response(JSON.stringify({ access_token: "mock-access-token" }), { status: 200 });
       }
@@ -935,6 +937,13 @@ test("Discord avatar is saved when an account is linked", async () => {
         return new Response(JSON.stringify({
           id: "123456789012345678", username: "test-discord", avatar: "avatar-hash"
         }), { status: 200 });
+      }
+      if (url.endsWith("/users/@me/channels")) {
+        return new Response(JSON.stringify({ id: "mock-dm-channel" }), { status: 200 });
+      }
+      if (url.endsWith("/channels/mock-dm-channel/messages")) {
+        welcomeEmbeds.push(...JSON.parse(options.body).embeds);
+        return new Response(JSON.stringify({ id: "mock-dm-message" }), { status: 200 });
       }
       throw new Error("Unexpected Discord API request.");
     }
@@ -967,6 +976,10 @@ test("Discord avatar is saved when an account is linked", async () => {
     const profile = await account("/api/auth/me");
     assert.equal(profile.data.user.discordAvatarUrl,
       "https://cdn.discordapp.com/avatars/123456789012345678/avatar-hash.png?size=128");
+    assert.equal(welcomeEmbeds.length, 1);
+    assert.equal(welcomeEmbeds[0].title, "Добро пожаловать в Коллегию!");
+    assert.match(welcomeEmbeds[0].description, /Привет, Профиль!/);
+    assert.equal(welcomeEmbeds[0].thumbnail.url, profile.data.user.discordAvatarUrl);
     assert.equal((await account("/api/profile")).status, 200);
   } finally {
     server.closeAllConnections();

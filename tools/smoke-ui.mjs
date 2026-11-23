@@ -35,7 +35,8 @@ const user = {
   displayName: "Александр Волков",
   role: "ГКА",
   status: "active",
-  discordLinked: false
+  discordLinked: true,
+  discordAvatarUrl: "https://cdn.discordapp.com/avatars/123456789012345678/avatar-hash.png?size=128"
 };
 const profile = {
   id: 1,
@@ -277,6 +278,9 @@ for (let attempt = 0; attempt < 100; attempt += 1) {
 const check = (condition, message) => { if (!condition) problems.push(message); };
 check(!document.querySelector("#app-shell")?.classList.contains("hidden"), "Портал не открылся после авторизации.");
 check(document.querySelector("#active-user-name")?.textContent === user.displayName, "Имя активного пользователя не показано.");
+check(document.querySelector("#user-avatar img")?.getAttribute("src") === user.discordAvatarUrl &&
+  document.querySelector("#welcome-avatar img")?.getAttribute("src") === user.discordAvatarUrl,
+"Discord-аватар должен отображаться в шапке и приветственном блоке.");
 check(document.querySelector("#welcome-calls")?.textContent === "7", "Подтверждённые вызовы профиля не загрузились.");
 check(document.querySelector("#kpiCalls")?.textContent === "6" &&
   document.querySelector("#kpiActivityTitle")?.textContent === "Активность за 7 дней",
@@ -501,10 +505,16 @@ for (const [route, view] of [
   ["/page/reports", "reports"]
 ]) {
   dom.reconfigure({ url: `http://127.0.0.1:3000${route}` });
-  await window.enterSession({ user, csrfToken: "test-csrf" });
+  await window.enterSession({
+    user: { ...user, discordLinked: false, discordAvatarUrl: "" },
+    csrfToken: "test-csrf"
+  });
   check(document.querySelector(`#view-${view}`)?.classList.contains("active"),
     `Прямой маршрут ${route} должен открывать раздел «${view}» даже без привязки Discord.`);
 }
+check(!document.querySelector("#user-avatar img") &&
+  document.querySelector("#user-avatar")?.textContent === "АВ",
+"Если Discord не привязан, аватар должен возвращаться к инициалам.");
 const approveButton = document.querySelector('#auditTableBody [data-action="update-member-status"]');
 check(approveButton?.textContent.trim() === "Одобрить" && approveButton.dataset.status === "active",
   "ГКА должен одобрять новые аккаунты из кадрового аудита.");

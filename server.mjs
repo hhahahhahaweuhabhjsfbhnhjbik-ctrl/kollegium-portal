@@ -2278,8 +2278,10 @@ export function createPortalServer(options = {}) {
           if (consumed.changes !== 1) throw new HttpError(400, "Ссылка Discord уже использована.");
           await syncDiscordMember(targetUserId);
           const user = publicUser(db, targetUserId);
-          await sendPortalDirectMessage(targetUserId, user, avatarUrl,
-            "Discord успешно привязан", `Аккаунт **${user.display_name}** привязан к порталу Коллегии адвокатов.`);
+          const welcomeWarning = await sendPortalDirectMessage(targetUserId, user, avatarUrl,
+            "Добро пожаловать в Коллегию!",
+            `Привет, ${user.display_name}! Ваш Discord подключён к аккаунту портала Коллегии адвокатов. Теперь вы можете получать личные уведомления бота. Настройки сообщений доступны в профиле.`);
+          if (welcomeWarning) console.error("Discord link welcome DM failed:", welcomeWarning);
           await deliverWebhook(webhooks.logs, "Discord привязан к аккаунту", `${user.display_name} (${user.role}) привязал Discord ${identity.username}.`);
           res.statusCode = 303;
           res.setHeader("location", "/?discord=linked");

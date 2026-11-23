@@ -211,6 +211,24 @@ function userInitials(name) {
     .map((part) => part.charAt(0).toLocaleUpperCase("ru-RU")).join("") || "—";
 }
 
+function renderUserAvatar(element, user) {
+  const initials = userInitials(user.displayName);
+  const avatarUrl = String(user.discordAvatarUrl || "");
+  const isDiscordCdnUrl = /^https:\/\/cdn\.discordapp\.com\/(?:avatars\/\d+\/[\w-]+\.(?:png|gif|webp)|embed\/avatars\/\d+\.png)(?:\?size=\d{2,4})?$/.test(avatarUrl);
+  if (!isDiscordCdnUrl) {
+    element.textContent = initials;
+    return;
+  }
+  const image = document.createElement("img");
+  image.src = avatarUrl;
+  image.alt = "";
+  image.decoding = "async";
+  image.addEventListener("error", () => {
+    element.textContent = initials;
+  }, { once: true });
+  element.replaceChildren(image);
+}
+
 function displayDate(value) {
   const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
   return match ? `${match[3]}.${match[2]}.${match[1]}` : "—";
@@ -249,10 +267,10 @@ function applyRoleVisibility() {
   $("#active-user-name").textContent = currentUser.displayName;
   $("#active-user-role").textContent = displayRole(currentUser);
   $("#access-role").textContent = displayRole(currentUser);
-  $("#user-avatar").textContent = userInitials(currentUser.displayName);
+  renderUserAvatar($("#user-avatar"), currentUser);
   $("#welcome-name").textContent = currentUser.displayName;
   $("#welcome-role").textContent = displayRole(currentUser);
-  $("#welcome-avatar").textContent = userInitials(currentUser.displayName);
+  renderUserAvatar($("#welcome-avatar"), currentUser);
   $("#login-open").classList.add("hidden");
   $("#logout-button").classList.remove("hidden");
 
@@ -1685,6 +1703,10 @@ async function unlinkDiscord() {
   if (!window.confirm("Отвязать текущий Discord от аккаунта? После этого можно будет подключить другой.")) return;
   const result = await api("/api/discord/unlink", { method: "POST", body: {} });
   currentUser.discordLinked = false;
+  currentUser.discordUsername = "";
+  currentUser.discordAvatarUrl = "";
+  renderUserAvatar($("#user-avatar"), currentUser);
+  renderUserAvatar($("#welcome-avatar"), currentUser);
   await loadDiscordSettings();
   notify(result.discordWarning
     ? `Discord отвязан. ${result.discordWarning}`
