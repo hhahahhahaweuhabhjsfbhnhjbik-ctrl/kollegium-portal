@@ -1025,7 +1025,7 @@ function formatWeeklyActivitySummary(summary) {
   const chunks = [];
   let chunk = header;
   for (const line of staffLines) {
-    if (chunk.length + line.length + 2 > 3500 && chunk !== header) {
+    if (chunk.length + line.length + 2 > 2800 && chunk !== header) {
       chunks.push(chunk);
       chunk = `${header}(продолжение)\n`;
     }
@@ -1806,6 +1806,7 @@ export function createPortalServer(options = {}) {
     ?? "";
   webhooks.calls ??= options.webhookCalls ?? process.env.DISCORD_WEBHOOK_CALLS ?? "";
   webhooks.bails ??= options.webhookBails ?? process.env.DISCORD_WEBHOOK_BAILS ?? "";
+  webhooks.weeklyReports ??= options.webhookWeeklyReports ?? process.env.DISCORD_WEBHOOK_WEEKLY_REPORTS ?? "";
   webhooks.logs ??= options.webhookLogs ?? process.env.DISCORD_WEBHOOK_LOGS ?? "";
   webhooks.health ??= options.webhookHealth ?? process.env.DISCORD_WEBHOOK_HEALTH ?? "";
   const webhookFetch = options.webhookFetch || globalThis.fetch;
@@ -5300,29 +5301,26 @@ export function createPortalServer(options = {}) {
           const body = requireObject(await readJson(req));
           if (body.confirmed !== true) throw new HttpError(400, "Подтвердите запуск новой недели.");
           const { activitySummary, ...run } = createWeeklyReset(db, user.id);
-          const recipients = db.prepare(`SELECT id, username, display_name, role, discord_id, discord_avatar_url
-            FROM users WHERE status = 'active' AND (lower(username) = lower(?) OR role = 'ГКА')
-            ORDER BY id`).all("yyte");
           const warnings = [];
-          if (!recipients.some((recipient) => recipient.username.toLowerCase() === "yyte")) {
-            warnings.push("Активный аккаунт yyte для ЛС отчёта не найден.");
-          }
-          if (!recipients.some((recipient) => recipient.role === "ГКА")) {
-            warnings.push("Активный аккаунт ГКА для ЛС отчёта не найден.");
-          }
-          const messages = formatWeeklyActivitySummary(activitySummary);
-          for (const recipient of recipients) {
+          if (!webhooks.weeklyReports) {
+            warnings.push("Webhook отчёта новой недели не настроен.");
+          } else {
+            const messages = formatWeeklyActivitySummary(activitySummary);
             for (const [index, description] of messages.entries()) {
               const suffix = messages.length > 1 ? ` · ${index + 1}/${messages.length}` : "";
-              const warning = await sendDiscordDirectMessage(
-                recipient.discord_id,
-                recipient,
-                recipient.discord_avatar_url,
-                `Итоги недели${suffix}`,
-                description,
-                { token: discord.botToken, fetchImpl: discordFetch }
+              const warning = await deliverWebhook(webhooks.weeklyReports, `Итоги недели${suffix}`, description);
+              if (warning) {
+                warnings.push(warning);
+                break;
+              }
+            }
+            if (!warnings.length) {
+              const warning = await deliverWebhook(
+                webhooks.weeklyReports,
+                "──── НОВАЯ НЕДЕЛЯ НАЧАТА ────",
+                "В новом недельном периоде счётчики вызовов, исков и залогов начинаются с нуля. История и общий счёт сохранены в профилях на портале."
               );
-              if (warning) warnings.push(`${recipient.display_name}: ${warning}`);
+              if (warning) warnings.push(warning);
             }
           }
           return sendJson(res, 201, { run, discordWarnings: warnings });

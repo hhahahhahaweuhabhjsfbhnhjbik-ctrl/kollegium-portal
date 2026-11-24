@@ -92,7 +92,12 @@ if (configuredRoles === roleKeys.length) ok("Роли Коллегии", `зад
 else if (configuredRoles === 0) warn("Роли Коллегии", "не заданы — бот создаст их при первом запуске.");
 else bad("Роли Коллегии", `заданы ${configuredRoles} из ${roleKeys.length}; остальные бот создаст сам.`);
 
-const webhookKeys = ["DISCORD_WEBHOOK_APPLICATIONS", "DISCORD_WEBHOOK_EXAMS", "DISCORD_WEBHOOK_LOGS"];
+const webhookKeys = [
+  "DISCORD_WEBHOOK_APPLICATIONS",
+  "DISCORD_WEBHOOK_EXAMS",
+  "DISCORD_WEBHOOK_LOGS",
+  "DISCORD_WEBHOOK_WEEKLY_REPORTS"
+];
 for (const key of webhookKeys) {
   const url = value(key);
   if (!url) {

@@ -2290,8 +2290,8 @@ async function startNewWeek() {
   const result = await api("/api/weekly-reset", { method: "POST", body: { confirmed: true } });
   const warnings = result.discordWarnings || [];
   notify(warnings.length
-    ? `Новая неделя запущена, архив создан, но отчёт не доставлен всем получателям: ${warnings.join(" ")}`
-    : "Новая неделя запущена, архив создан. Итоги отправлены в ЛС yyte и активного ГКА.");
+    ? `Новая неделя запущена, архив создан, но отчёт не доставлен в Discord: ${warnings.join(" ")}`
+    : "Новая неделя запущена, архив создан. Итоги опубликованы в канале Discord.");
   if (result.run?.counts) await loadAudit();
 }
 

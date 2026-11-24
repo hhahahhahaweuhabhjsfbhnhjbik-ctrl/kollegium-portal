@@ -2407,29 +2407,26 @@ test("cadre deletion supports citizens and staff while bulk cleanup preserves th
 });
 
 test("GKA weekly reset archives only selected completed data and can restore it", async () => {
-  const dmMessages = [];
+  const webhookMessages = [];
+  const directMessages = [];
+  const weeklyWebhookUrl = "https://discord.com/api/webhooks/323456789012345678/weekly-test-token";
   const server = createPortalServer({
     dbPath: ":memory:",
     cookieSecure: false,
     discordBotToken: "weekly-summary-test-bot",
+    webhookWeeklyReports: weeklyWebhookUrl,
+    webhookFetch: async (url, options) => {
+      webhookMessages.push({
+        url: String(url),
+        payload: JSON.parse(options.body.get("payload_json"))
+      });
+      return new Response(null, { status: 204 });
+    },
     discordFetch: async (url, options) => {
-      const requestUrl = new URL(url);
-      const body = JSON.parse(options.body);
-      if (requestUrl.pathname === "/api/v10/users/@me/channels") {
-        return new Response(JSON.stringify({ id: `dm-${body.recipient_id}` }), {
-          status: 200, headers: { "content-type": "application/json" }
-        });
-      }
-      if (requestUrl.pathname.endsWith("/messages")) {
-        dmMessages.push({
-          channelId: requestUrl.pathname.split("/").slice(-2)[0],
-          payload: body
-        });
-        return new Response(JSON.stringify({ id: "weekly-summary-message" }), {
-          status: 200, headers: { "content-type": "application/json" }
-        });
-      }
-      throw new Error(`Unexpected Discord request: ${requestUrl.pathname}`);
+      directMessages.push({ url: String(url), body: options.body });
+      return new Response(JSON.stringify({ id: "unexpected-dm" }), {
+        status: 200, headers: { "content-type": "application/json" }
+      });
     }
   });
   const db = server.portalDb;
@@ -2519,15 +2516,18 @@ test("GKA weekly reset archives only selected completed data and can restore it"
     const archived = await gka("/api/weekly-reset", "POST", { confirmed: true });
     assert.equal(archived.status, 201);
     assert.deepEqual(archived.data.discordWarnings, []);
-    assert.equal(dmMessages.length, 2);
-    assert.deepEqual(new Set(dmMessages.map((message) => message.channelId)), new Set([
-      "dm-123456789012345678", "dm-234567890123456789"
-    ]));
-    for (const message of dmMessages) {
-      assert.match(message.payload.embeds[0].title, /Итоги недели/);
-      assert.match(message.payload.embeds[0].description, /Вызовы: 1 · Иски: 1 · Залоги: 1/);
-      assert.match(message.payload.embeds[0].description, /Всего: вызовов — 1, исков — 1, залогов — 1/);
-    }
+    assert.equal(webhookMessages.length, 2);
+    assert.equal(directMessages.length, 0);
+    assert.ok(webhookMessages.every((message) => message.url === weeklyWebhookUrl));
+    const weeklySummary = webhookMessages[0].payload.embeds[0];
+    assert.match(weeklySummary.title, /Итоги недели/);
+    assert.match(weeklySummary.description, /weekly-lawyer/);
+    assert.match(weeklySummary.description, /Вызовы: 1 · Иски: 1 · Залоги: 1/);
+    assert.match(weeklySummary.description, /Всего: вызовов — 1, исков — 1, залогов — 1/);
+    const resetAnnouncement = webhookMessages[1].payload.embeds[0];
+    assert.match(resetAnnouncement.title, /НОВАЯ НЕДЕЛЯ НАЧАТА/);
+    assert.match(resetAnnouncement.description, /счётчики вызовов, исков и залогов начинаются с нуля/);
+    assert.match(resetAnnouncement.description, /сохранены в профилях на портале/);
     const runId = archived.data.run.id;
     assert.deepEqual(archived.data.run.counts, preview.data.counts);
     assert.equal(db.prepare("SELECT archived_at FROM applications WHERE id = ?").get(finalizedApplicationId).archived_at !== null, true);
@@ -2560,8 +2560,9 @@ test("GKA weekly reset archives only selected completed data and can restore it"
 
     const secondRun = await gka("/api/weekly-reset", "POST", { confirmed: true });
     assert.deepEqual(secondRun.data.run.counts, { calendar: 0, applications: 0, absences: 0, reprimands: 0 });
-    assert.equal(dmMessages.length, 4);
-    assert.match(dmMessages[2].payload.embeds[0].description, /Всего: вызовов — 0, исков — 0, залогов — 0/);
+    assert.equal(webhookMessages.length, 4);
+    assert.equal(directMessages.length, 0);
+    assert.match(webhookMessages[2].payload.embeds[0].description, /Всего: вызовов — 0, исков — 0, залогов — 0/);
     const restored = await gka(`/api/weekly-reset/${runId}/restore`, "POST", {});
     assert.equal(restored.status, 200);
     assert.deepEqual(restored.data.run.counts, preview.data.counts);
