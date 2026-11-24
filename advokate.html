@@ -758,7 +758,7 @@
           <div class="grid-12">
             <div class="card col-span-5">
               <h2>Сдать отчёт</h2>
-              <p class="text-muted">Отчёт о вызове требует фото-доказательство. Для отчёта о залоге укажите его номер и описание — скриншот не нужен.</p>
+              <p class="text-muted">Номер отчёта присваивается автоматически. Фото-доказательство требуется только для вызова.</p>
               <form id="activity-report-form" class="activity-report-form">
                 <label>Тип события
                   <select class="input" id="activity-report-type" required>
@@ -767,8 +767,8 @@
                   </select>
                 </label>
                 <label>Дата события<input class="input" id="activity-report-date" type="date" required></label>
-                <label><span id="activity-report-reference-label">Номер вызова</span><input class="input" id="activity-report-reference" maxlength="300" required placeholder="Номер вызова"></label>
-                <label>Описание<textarea class="input" id="activity-report-details" minlength="4" maxlength="2000" rows="4" required placeholder="Кратко опишите событие"></textarea></label>
+                <p class="text-muted">Нумерация будет назначена автоматически после отправки.</p>
+                <label>Описание<textarea class="input" id="activity-report-details" minlength="4" maxlength="2000" rows="4" required placeholder="Дефф / Недефф / Смягчил — добавьте пояснение при необходимости"></textarea></label>
                 <label id="activity-report-photo-field">Фото-доказательство
                   <input class="input" id="activity-report-photo" type="file" accept="image/jpeg,image/png,image/webp">
                 </label>

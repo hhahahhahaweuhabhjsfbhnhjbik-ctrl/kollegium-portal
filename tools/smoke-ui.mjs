@@ -624,7 +624,6 @@ check(requested.includes("POST /api/notifications/read-all"), "Команда «
 document.querySelector("#activity-report-type").value = "call";
 document.querySelector("#activity-report-type").dispatchEvent(new window.Event("change", { bubbles: true }));
 document.querySelector("#activity-report-date").value = "2026-01-15";
-document.querySelector("#activity-report-reference").value = "PC-404";
 document.querySelector("#activity-report-details").value = "Проверка отправки жалобы.";
 const reportImage = new window.File([
   new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])
@@ -645,12 +644,12 @@ check(activityReportBodies[0]?.reportType === "call" && activityReportBodies[0]?
   "Отчёт о вызове должен отправлять выбранное фото.");
 document.querySelector("#activity-report-type").value = "bail";
 document.querySelector("#activity-report-type").dispatchEvent(new window.Event("change", { bubbles: true }));
-check(document.querySelector("#activity-report-reference-label")?.textContent === "Номер залога" &&
+check(!document.querySelector("#activity-report-reference") &&
+  document.querySelector("#activity-report-form")?.textContent.includes("Нумерация будет назначена автоматически") &&
   document.querySelector("#activity-report-photo-field")?.classList.contains("hidden") &&
   document.querySelector("#activity-report-upload-hint")?.classList.contains("hidden"),
-"Для отчёта о залоге должны скрываться поля фото и меняться подпись номера.");
+"Номер отчёта должен назначаться автоматически, а для залога не нужны поля фото.");
 document.querySelector("#activity-report-date").value = "2026-01-16";
-document.querySelector("#activity-report-reference").value = "BAIL-405";
 document.querySelector("#activity-report-details").value = "Залог принят и зарегистрирован.";
 await window.submitActivityReport({ preventDefault() {} });
 check(activityReportBodies[1]?.reportType === "bail" && !("photo" in activityReportBodies[1]),

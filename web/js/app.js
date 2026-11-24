@@ -1967,13 +1967,13 @@ async function loadAudit() {
       <td>${Number(member.document_count || 0)}</td>
       <td>${Number(member.lawsuit_count || 0)}</td>
       <td>${(managerRoles.includes(currentUser.role) || currentUser.hasFullGkaAccess) && Number(member.id) !== Number(currentUser.id) ? `<div class="member-controls">
-        ${currentUser.role === "ГКА" || currentUser.hasFullGkaAccess ? `
+        ${member.role !== "Гражданин" && (currentUser.role === "ГКА" || currentUser.hasFullGkaAccess) ? `
           <select class="input" data-member-role="${Number(member.id)}" data-original-role="${escapeHtml(member.role)}" aria-label="Должность: ${escapeHtml(member.display_name)}">
             ${roles.map((role) => `<option value="${escapeHtml(role)}"${role === member.role ? " selected" : ""}>${escapeHtml(role)}</option>`).join("")}
           </select>
           <button class="btn" type="button" data-action="update-member-role" data-id="${Number(member.id)}" disabled>Сохранить</button>
           <button class="btn" type="button" data-action="update-member-status" data-id="${Number(member.id)}" data-status="${member.status === "active" ? "suspended" : "active"}">${member.status === "pending" ? "Одобрить" : member.status === "suspended" ? "Восстановить" : "Приостановить"}</button>` : ""}
-        ${managerRoles.includes(currentUser.role) ? `<button class="btn" type="button" data-action="dismiss-member" data-id="${Number(member.id)}">Уволить и удалить</button>` : ""}
+        ${member.role === "Гражданин" && managerRoles.includes(currentUser.role) ? `<button class="btn" type="button" data-action="dismiss-member" data-id="${Number(member.id)}">Удалить гражданина</button>` : ""}
       </div>` : "—"}</td>
     </tr>`
   ).join("") : `<tr><td colspan="6">${emptyState("Состав коллегии пуст.")}</td></tr>`;
@@ -2004,20 +2004,20 @@ async function updateMemberStatus(button) {
 }
 
 async function dismissMember(button) {
-  const reason = window.prompt("Укажите причину увольнения (от 4 до 1000 символов):", "")?.trim() || "";
+  const reason = window.prompt("Укажите причину удаления гражданского аккаунта (от 4 до 1000 символов):", "")?.trim() || "";
   if (reason.length < 4 || reason.length > 1000) {
-    notify("Причина увольнения должна содержать от 4 до 1000 символов.");
+    notify("Причина должна содержать от 4 до 1000 символов.");
     return;
   }
-  if (!window.confirm("Аккаунт и связанные с ним данные будут удалены без возможности восстановления. Продолжить?")) return;
+  if (!window.confirm("Гражданский аккаунт и связанные с ним данные будут удалены без возможности восстановления. Продолжить?")) return;
   const result = await api(`/api/members/${encodeURIComponent(button.dataset.id)}/dismiss`, {
     method: "POST",
     body: { reason }
   });
   const warnings = [result.dmWarning, result.discordWarning].filter(Boolean);
   notify(warnings.length
-    ? `Аккаунт удалён. ${warnings.join(" ")}`
-    : "Аккаунт и связанные данные удалены. Уведомление отправлено в Discord.");
+    ? `Гражданский аккаунт удалён. ${warnings.join(" ")}`
+    : "Гражданский аккаунт и связанные данные удалены.");
   await loadAudit();
 }
 
@@ -2174,8 +2174,6 @@ function renderActivityReportPhoto() {
 
 function updateActivityReportFields() {
   const isBailReport = $("#activity-report-type").value === "bail";
-  $("#activity-report-reference").placeholder = isBailReport ? "Номер залога" : "Номер вызова";
-  $("#activity-report-reference-label").textContent = isBailReport ? "Номер залога" : "Номер вызова";
   $("#activity-report-photo-field").classList.toggle("hidden", isBailReport);
   $("#activity-report-upload-hint").classList.toggle("hidden", isBailReport);
   if (isBailReport) clearActivityReportPhoto();
@@ -2250,7 +2248,6 @@ async function submitActivityReport(event) {
     body: {
       reportType,
       occurredAt: $("#activity-report-date").value,
-      reference: $("#activity-report-reference").value.trim(),
       details: $("#activity-report-details").value.trim(),
       ...(photo ? { photo: {
         name: photo.name,
@@ -2291,7 +2288,10 @@ async function startNewWeek() {
   const counts = Object.entries(preview.counts || {}).map(([key, value]) => `${key}: ${value}`).join(", ");
   if (!window.confirm(`Запустить новую неделю? В архив будут перенесены: ${counts || "данные отчётного периода"}.`)) return;
   const result = await api("/api/weekly-reset", { method: "POST", body: { confirmed: true } });
-  notify("Новая неделя запущена. Архив создан и доступен для восстановления.");
+  const warnings = result.discordWarnings || [];
+  notify(warnings.length
+    ? `Новая неделя запущена, архив создан, но отчёт не доставлен всем получателям: ${warnings.join(" ")}`
+    : "Новая неделя запущена, архив создан. Итоги отправлены в ЛС yyte и активного ГКА.");
   if (result.run?.counts) await loadAudit();
 }
 

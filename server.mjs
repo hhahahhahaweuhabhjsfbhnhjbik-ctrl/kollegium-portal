@@ -976,10 +976,74 @@ function getWeeklyResetPreview(db, now = new Date()) {
   };
 }
 
+function buildWeeklyActivitySummary(db, periodStart, periodEnd) {
+  const rows = db.prepare(`SELECT u.id, u.display_name, u.role,
+      (SELECT COUNT(*) FROM activity_reports ar
+        WHERE ar.user_id = u.id AND ar.report_type = 'call' AND ar.status = 'approved'
+          AND julianday(ar.created_at) >= julianday(?) AND julianday(ar.created_at) < julianday(?)) AS calls,
+      (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
+        WHERE l.user_id = u.id AND d.forum_status = 'approved'
+          AND julianday(d.forum_reviewed_at) >= julianday(?) AND julianday(d.forum_reviewed_at) < julianday(?)) AS lawsuits,
+      (SELECT COUNT(*) FROM activity_reports ar
+        WHERE ar.user_id = u.id AND ar.report_type = 'bail' AND ar.status = 'approved'
+          AND julianday(ar.created_at) >= julianday(?) AND julianday(ar.created_at) < julianday(?)) AS bails
+    FROM users u WHERE u.role != ?
+    ORDER BY u.role, u.display_name`).all(
+    periodStart, periodEnd, periodStart, periodEnd, periodStart, periodEnd, citizenRole
+  ).map((row) => ({
+    userId: Number(row.id),
+    displayName: row.display_name,
+    role: row.role,
+    calls: Number(row.calls),
+    lawsuits: Number(row.lawsuits),
+    bails: Number(row.bails)
+  }));
+  return {
+    periodStart,
+    periodEnd,
+    rows,
+    totals: rows.reduce((totals, row) => ({
+      calls: totals.calls + row.calls,
+      lawsuits: totals.lawsuits + row.lawsuits,
+      bails: totals.bails + row.bails
+    }), { calls: 0, lawsuits: 0, bails: 0 })
+  };
+}
+
+function formatWeeklyActivitySummary(summary) {
+  const escapeMarkdown = (value) => String(value || "").replace(/[\\*_`~|]/g, "\\$&");
+  const header = [
+    `Период: ${summary.periodStart.slice(0, 10)} — ${summary.periodEnd.slice(0, 10)}`,
+    `Всего: вызовов — ${summary.totals.calls}, исков — ${summary.totals.lawsuits}, залогов — ${summary.totals.bails}`,
+    ""
+  ].join("\n");
+  const staffLines = summary.rows.map((row) =>
+    `**${escapeMarkdown(row.displayName)} · ${escapeMarkdown(row.role)}**\nВызовы: ${row.calls} · Иски: ${row.lawsuits} · Залоги: ${row.bails}`
+  );
+  if (!staffLines.length) staffLines.push("Сотрудников в отчёте нет.");
+
+  const chunks = [];
+  let chunk = header;
+  for (const line of staffLines) {
+    if (chunk.length + line.length + 2 > 3500 && chunk !== header) {
+      chunks.push(chunk);
+      chunk = `${header}(продолжение)\n`;
+    }
+    chunk += `${line}\n\n`;
+  }
+  chunks.push(chunk.trim());
+  return chunks;
+}
+
 function createWeeklyReset(db, actorId, now = new Date()) {
   const archivedAt = now.toISOString();
   db.exec("BEGIN IMMEDIATE");
   try {
+    const previousRun = db.prepare(`SELECT archived_at FROM weekly_reset_runs
+      WHERE restored_at IS NULL ORDER BY archived_at DESC, id DESC LIMIT 1`).get();
+    const periodStart = previousRun?.archived_at
+      || new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const activitySummary = buildWeeklyActivitySummary(db, periodStart, archivedAt);
     const run = db.prepare(`INSERT INTO weekly_reset_runs (created_by, archived_at)
       VALUES (?, ?)`).run(actorId, archivedAt);
     const runId = Number(run.lastInsertRowid);
@@ -1002,7 +1066,7 @@ function createWeeklyReset(db, actorId, now = new Date()) {
     db.prepare("UPDATE weekly_reset_runs SET counts_json = ? WHERE id = ?")
       .run(JSON.stringify(updates), runId);
     db.exec("COMMIT");
-    return { id: runId, archivedAt, counts: updates };
+    return { id: runId, archivedAt, counts: updates, activitySummary };
   } catch (error) {
     try {
       db.exec("ROLLBACK");
@@ -1411,30 +1475,35 @@ function getRatingWeights(db) {
 function buildAttorneyRanking(db, period) {
   const periodDays = { week: 7, month: 30, all: 0 };
   if (!Object.hasOwn(periodDays, period)) throw new HttpError(400, "Период рейтинга должен быть week, month или all.");
+  const previousWeek = period === "week"
+    ? db.prepare(`SELECT archived_at FROM weekly_reset_runs
+      WHERE restored_at IS NULL ORDER BY archived_at DESC, id DESC LIMIT 1`).get()
+    : null;
   const periodStart = periodDays[period]
-    ? new Date(Date.now() - periodDays[period] * 24 * 60 * 60 * 1000).toISOString().slice(0, 19).replace("T", " ")
+    ? previousWeek?.archived_at
+      || new Date(Date.now() - periodDays[period] * 24 * 60 * 60 * 1000).toISOString().slice(0, 19).replace("T", " ")
     : null;
   const weights = getRatingWeights(db);
   const attorneys = db.prepare(`SELECT u.id, u.display_name, u.role, u.discord_username, u.discord_avatar_url,
       (SELECT COUNT(*) FROM documents d WHERE d.user_id = u.id AND d.forum_status = 'approved'
-        AND (? IS NULL OR datetime(d.forum_reviewed_at) >= datetime(?))) AS document_count,
+        AND (? IS NULL OR julianday(d.forum_reviewed_at) >= julianday(?))) AS document_count,
       (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
         WHERE l.user_id = u.id AND d.forum_status = 'approved'
-          AND (? IS NULL OR datetime(l.created_at) >= datetime(?))) AS lawsuit_count,
+          AND (? IS NULL OR julianday(l.created_at) >= julianday(?))) AS lawsuit_count,
       (SELECT COUNT(*) FROM applications a WHERE a.assigned_to = u.id
         AND a.type IN ('citizen_help','citizen_complaint')
-          AND (? IS NULL OR datetime(a.reviewed_at) >= datetime(?))) AS cases_handled,
+          AND (? IS NULL OR julianday(a.reviewed_at) >= julianday(?))) AS cases_handled,
       (SELECT COUNT(*) FROM applications a WHERE a.assigned_to = u.id
         AND a.type IN ('citizen_help','citizen_complaint') AND a.completed_at IS NOT NULL
-          AND (? IS NULL OR datetime(a.completed_at) >= datetime(?))) AS cases_closed,
+          AND (? IS NULL OR julianday(a.completed_at) >= julianday(?))) AS cases_closed,
       (SELECT COUNT(DISTINCT h.task_id) FROM task_history h
         JOIN task_assignees ta ON ta.task_id = h.task_id
         WHERE ta.user_id = u.id AND h.to_status = 'completed'
-          AND (? IS NULL OR datetime(h.created_at) >= datetime(?))) AS completed_tasks,
+          AND (? IS NULL OR julianday(h.created_at) >= julianday(?))) AS completed_tasks,
       COUNT(r.id) AS review_count, COALESCE(AVG(r.rating), 0) AS average_rating,
       COALESCE(SUM(r.rating), 0) AS review_points
     FROM users u LEFT JOIN lawyer_reviews r ON r.lawyer_id = u.id
-      AND (? IS NULL OR datetime(r.created_at) >= datetime(?))
+      AND (? IS NULL OR julianday(r.created_at) >= julianday(?))
     WHERE u.status = 'active' AND u.role IN ('Адвокат', 'Ст.Адвокат')
     GROUP BY u.id`).all(...Array(12).fill(periodStart))
     .map((attorney) => {
@@ -1735,6 +1804,8 @@ export function createPortalServer(options = {}) {
   webhooks.attorneyInterview ??= options.webhookAttorneyInterview
     ?? process.env.DISCORD_WEBHOOK_ATTORNEY_INTERVIEW
     ?? "";
+  webhooks.calls ??= options.webhookCalls ?? process.env.DISCORD_WEBHOOK_CALLS ?? "";
+  webhooks.bails ??= options.webhookBails ?? process.env.DISCORD_WEBHOOK_BAILS ?? "";
   webhooks.logs ??= options.webhookLogs ?? process.env.DISCORD_WEBHOOK_LOGS ?? "";
   webhooks.health ??= options.webhookHealth ?? process.env.DISCORD_WEBHOOK_HEALTH ?? "";
   const webhookFetch = options.webhookFetch || globalThis.fetch;
@@ -4637,9 +4708,8 @@ export function createPortalServer(options = {}) {
           if (memberId === Number(user.id)) throw new HttpError(409, "Нельзя удалить текущий аккаунт.");
           const member = db.prepare("SELECT * FROM users WHERE id = ?").get(memberId);
           if (!member) throw new HttpError(404, "Аккаунт не найден.");
-          if (member.role === "ГКА" && member.status === "active" && !hasGkaAccess(user) &&
-              !db.prepare("SELECT 1 FROM users WHERE id != ? AND role = 'ГКА' AND status = 'active' LIMIT 1").get(memberId)) {
-            throw new HttpError(409, "Нельзя удалить последнего активного ГКА без полного доступа управления.");
+          if (member.role !== citizenRole) {
+            throw new HttpError(409, "В кадровом разделе можно удалять только аккаунты граждан.");
           }
 
           db.exec("BEGIN IMMEDIATE");
@@ -5228,7 +5298,33 @@ export function createPortalServer(options = {}) {
           if (!hasGkaAccess(user)) throw new HttpError(403, "Новую неделю может запускать только ГКА.");
           const body = requireObject(await readJson(req));
           if (body.confirmed !== true) throw new HttpError(400, "Подтвердите запуск новой недели.");
-          return sendJson(res, 201, { run: createWeeklyReset(db, user.id) });
+          const { activitySummary, ...run } = createWeeklyReset(db, user.id);
+          const recipients = db.prepare(`SELECT id, username, display_name, role, discord_id, discord_avatar_url
+            FROM users WHERE status = 'active' AND (lower(username) = lower(?) OR role = 'ГКА')
+            ORDER BY id`).all("yyte");
+          const warnings = [];
+          if (!recipients.some((recipient) => recipient.username.toLowerCase() === "yyte")) {
+            warnings.push("Активный аккаунт yyte для ЛС отчёта не найден.");
+          }
+          if (!recipients.some((recipient) => recipient.role === "ГКА")) {
+            warnings.push("Активный аккаунт ГКА для ЛС отчёта не найден.");
+          }
+          const messages = formatWeeklyActivitySummary(activitySummary);
+          for (const recipient of recipients) {
+            for (const [index, description] of messages.entries()) {
+              const suffix = messages.length > 1 ? ` · ${index + 1}/${messages.length}` : "";
+              const warning = await sendDiscordDirectMessage(
+                recipient.discord_id,
+                recipient,
+                recipient.discord_avatar_url,
+                `Итоги недели${suffix}`,
+                description,
+                { token: discord.botToken, fetchImpl: discordFetch }
+              );
+              if (warning) warnings.push(`${recipient.display_name}: ${warning}`);
+            }
+          }
+          return sendJson(res, 201, { run, discordWarnings: warnings });
         }
         const weeklyResetRestore = pathname.match(/^\/api\/weekly-reset\/(\d+)\/restore$/);
         if (weeklyResetRestore && req.method === "POST") {
@@ -5292,7 +5388,6 @@ export function createPortalServer(options = {}) {
           const body = await readJson(req, 22 * 1024 * 1024);
           const reportType = String(body.reportType || "");
           const occurredAt = String(body.occurredAt || "");
-          const reference = String(body.reference || "").trim();
           const details = String(body.details || "").trim();
           const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(occurredAt)
             ? new Date(`${occurredAt}T00:00:00Z`)
@@ -5302,9 +5397,6 @@ export function createPortalServer(options = {}) {
           }
           if (!parsedDate || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== occurredAt) {
             throw new HttpError(400, "Укажите корректную дату события.");
-          }
-          if (reference.length < 2 || reference.length > 300) {
-            throw new HttpError(400, "Укажите номер вызова, залога или ссылку (от 2 до 300 символов).");
           }
           if (details.length < 4 || details.length > 2000) {
             throw new HttpError(400, "Описание должно содержать от 4 до 2000 символов.");
@@ -5323,11 +5415,14 @@ export function createPortalServer(options = {}) {
           }
           db.exec("BEGIN");
           let reportId;
+          let reference;
           try {
             const created = db.prepare(`INSERT INTO activity_reports
               (user_id, report_type, occurred_at, reference, details) VALUES (?, ?, ?, ?, ?)`)
-              .run(user.id, reportType, occurredAt, reference, details);
+              .run(user.id, reportType, occurredAt, "", details);
             reportId = Number(created.lastInsertRowid);
+            reference = `${reportType === "call" ? "Вызов" : "Залог"} №${reportId}`;
+            db.prepare("UPDATE activity_reports SET reference = ? WHERE id = ?").run(reference, reportId);
             if (photo) {
               db.prepare(`INSERT INTO activity_report_attachments
                 (report_id, file_name, content_type, content) VALUES (?, ?, ?, ?)`)
@@ -5344,8 +5439,10 @@ export function createPortalServer(options = {}) {
             body: `${user.display_name} отправил отчёт «${reference}» на одобрение.`,
             href: "/page/reports"
           }, user.id);
-          const webhookWarning = webhooks.logs
-            ? await deliverWebhook(webhooks.logs, "Новый отчёт сотрудника",
+          const reportWebhook = reportType === "call" ? webhooks.calls : webhooks.bails;
+          const reportWebhookLabel = reportType === "call" ? "вызовов" : "залогов";
+          const webhookWarning = reportWebhook
+            ? await deliverWebhook(reportWebhook, "Новый отчёт сотрудника",
               `${user.display_name} отправил отчёт «${reference}» на одобрение.\n\n${details}`,
               [
                 { name: "Тип", value: activityReportTypes[reportType], inline: true },
@@ -5354,7 +5451,7 @@ export function createPortalServer(options = {}) {
                 { name: "Номер или ссылка", value: reference }
               ],
               photo ? { name: photo.name, contentType: photo.contentType, content: photo.content } : null)
-            : "Webhook журнала Discord не настроен; отчёт сохранён на сайте.";
+            : `Webhook отчётов о ${reportWebhookLabel} не настроен; отчёт сохранён на сайте.`;
           return sendJson(res, 201, { id: reportId, status: "pending", warning: webhookWarning });
         }
 
@@ -5969,6 +6066,8 @@ export async function startPortal(options = {}) {
     applications: process.env.DISCORD_WEBHOOK_APPLICATIONS || "",
     help: process.env.DISCORD_WEBHOOK_HELP || "",
     exams: process.env.DISCORD_WEBHOOK_EXAMS || "",
+    calls: process.env.DISCORD_WEBHOOK_CALLS || "",
+    bails: process.env.DISCORD_WEBHOOK_BAILS || "",
     logs: process.env.DISCORD_WEBHOOK_LOGS || "",
     health: process.env.DISCORD_WEBHOOK_HEALTH || ""
   };

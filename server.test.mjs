@@ -1903,12 +1903,17 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
   const syncRequests = [];
   const webhookBodies = [];
   const syncToken = "private-report-token-".padEnd(40, "x");
+  const callsWebhook = "https://discord.com/api/webhooks/123456789012345678/calls-test-token";
+  const bailsWebhook = "https://discord.com/api/webhooks/123456789012345678/bails-test-token";
   const server = createPortalServer({
     dbPath: ":memory:",
     cookieSecure: false,
     webhookLogs: "https://discord.com/api/webhooks/123456789012345678/test-token",
-    webhookFetch: async (_url, options) => {
+    webhookCalls: callsWebhook,
+    webhookBails: bailsWebhook,
+    webhookFetch: async (url, options) => {
       webhookBodies.push({
+        url: String(url),
         payload: JSON.parse(options.body.get("payload_json")),
         body: options.body
       });
@@ -2038,8 +2043,7 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
     const submission = await lawyer("/api/activity-reports", "POST", {
       reportType: "call",
       occurredAt: "2026-10-25",
-      reference: "CALL-NEW",
-      details: "Новый вызов для проверки одобрения",
+      details: "Дефф — помог по вызову и зафиксировал результат",
       photo: {
         name: "call-evidence.png",
         type: "image/png",
@@ -2050,17 +2054,18 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
     assert.equal(submission.data.status, "pending");
     assert.equal(submission.data.warning, "");
     assert.equal(webhookBodies.length, 1);
-    assert.match(webhookBodies[0].payload.embeds[0].description, /Новый вызов для проверки одобрения/);
+    assert.equal(webhookBodies[0].url, callsWebhook);
+    assert.match(webhookBodies[0].payload.embeds[0].description, /Дефф/);
     assert.equal(webhookBodies[0].payload.embeds[0].image.url, "attachment://call-evidence.png");
     assert.ok(webhookBodies[0].body.get("files[0]"));
     const bailWithoutPhoto = await lawyer("/api/activity-reports", "POST", {
       reportType: "bail",
       occurredAt: "2026-10-25",
-      reference: "BAIL-NEW",
-      details: "Залог оформлен и внесён в журнал"
+      details: "Смягчил — добился более мягкой меры для доверителя"
     });
     assert.equal(bailWithoutPhoto.status, 201);
     assert.equal(webhookBodies.length, 2);
+    assert.equal(webhookBodies[1].url, bailsWebhook);
     assert.equal(webhookBodies[1].payload.embeds[0].thumbnail.url, "attachment://collegium-seal.png");
     assert.equal(webhookBodies[1].body.get("files[0]").name, "collegium-seal.png");
     assert.equal(webhookBodies[1].body.get("files[1]"), null);
@@ -2077,9 +2082,11 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
     const pendingReport = pending.data.reports.find((item) => item.id === submission.data.id);
     assert.equal(pendingReport.status, "pending");
     assert.equal(pendingReport.attachment_name, "call-evidence.png");
+    assert.match(pendingReport.reference, /^Вызов №\d+$/);
     const pendingBailReport = pending.data.reports.find((item) => item.id === bailWithoutPhoto.data.id);
     assert.equal(pendingBailReport.report_type, "bail");
     assert.equal(pendingBailReport.attachment_name, null);
+    assert.match(pendingBailReport.reference, /^Залог №\d+$/);
     const storedPhoto = await lawyer.raw(`/api/activity-reports/${submission.data.id}/photo`);
     assert.equal(storedPhoto.status, 200);
     assert.equal(storedPhoto.contentType, "image/png");
@@ -2296,7 +2303,7 @@ test("startup migrates activity report types without losing existing photo attac
   }
 });
 
-test("staff dismissal permanently removes account data and bulk cleanup preserves the current GKA", async () => {
+test("cadre deletion is restricted to citizens and bulk cleanup preserves the current GKA", async () => {
   const discordRequests = [];
   const server = createPortalServer({
     dbPath: ":memory:",
@@ -2327,22 +2334,22 @@ test("staff dismissal permanently removes account data and bulk cleanup preserve
     VALUES (?,?,?,?,'active',?)`).run(username, passwordHash, displayName, role, discordId).lastInsertRowid);
   const gkaId = addUser("removal-gka", "Глава", "ГКА");
   addUser("removal-deputy", "Заместитель", "ЗГКА");
-  const lawyerId = addUser("removal-lawyer", "Адвокат", "Адвокат", "345678901234567890");
-  addUser("removal-citizen", "Гражданин", "Гражданин");
+  const lawyerId = addUser("removal-lawyer", "Адвокат", "Адвокат");
+  const citizenId = addUser("removal-citizen", "Гражданин", "Гражданин", "345678901234567890");
   const reportId = Number(db.prepare(`INSERT INTO activity_reports
     (user_id,report_type,occurred_at,reference,details) VALUES (?,'call','2026-10-10','CALL-REMOVE','Отчёт под удаление')`)
-    .run(lawyerId).lastInsertRowid);
+    .run(citizenId).lastInsertRowid);
   db.prepare(`INSERT INTO activity_report_attachments
     (report_id,file_name,content_type,content) VALUES (?,'remove.png','image/png',?)`)
     .run(reportId, Buffer.from("remove-me"));
   db.prepare(`INSERT INTO member_employment_history
     (user_id,actor_id,event_type,from_role,to_role,from_status,to_status,details)
     VALUES (?,?,'dismissed','Адвокат','Адвокат','active','suspended','Старые сведения')`)
-    .run(lawyerId, gkaId);
+    .run(citizenId, gkaId);
   db.prepare(`INSERT INTO activity_reports
     (user_id,report_type,occurred_at,reference,details,reviewed_by)
     VALUES (?,'call','2026-10-11','CALL-REVIEWER','Ссылка на увольняемого',?)`)
-    .run(gkaId, lawyerId);
+    .run(gkaId, citizenId);
 
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -2361,17 +2368,21 @@ test("staff dismissal permanently removes account data and bulk cleanup preserve
     assert.equal((await gka(`/api/members/${gkaId}/dismiss`, "POST", {
       reason: "Не удалять текущий аккаунт"
     })).status, 409);
+    assert.equal((await gka(`/api/members/${lawyerId}/dismiss`, "POST", {
+      reason: "Удаление работника запрещено"
+    })).status, 409);
 
-    const dismissed = await gka(`/api/members/${lawyerId}/dismiss`, "POST", {
-      reason: "Прекращение полномочий по решению руководства"
+    const dismissed = await gka(`/api/members/${citizenId}/dismiss`, "POST", {
+      reason: "Удаление гражданского аккаунта по запросу"
     });
     assert.equal(dismissed.status, 200);
     assert.equal(dismissed.data.dmWarning, "");
     assert.equal(dismissed.data.discordWarning, "");
     const dmRequest = discordRequests.find((request) => request.url.endsWith("/channels/234567890123456789/messages"));
     assert.ok(dmRequest);
-    assert.match(JSON.parse(dmRequest.options.body).embeds[0].description, /Прекращение полномочий/);
-    assert.equal(db.prepare("SELECT 1 FROM users WHERE id = ?").get(lawyerId), undefined);
+    assert.match(JSON.parse(dmRequest.options.body).embeds[0].description, /Удаление гражданского аккаунта/);
+    assert.equal(db.prepare("SELECT username FROM users WHERE id = ?").get(lawyerId).username, "removal-lawyer");
+    assert.equal(db.prepare("SELECT 1 FROM users WHERE id = ?").get(citizenId), undefined);
     assert.equal(db.prepare("SELECT 1 FROM activity_reports WHERE id = ?").get(reportId), undefined);
     assert.equal(db.prepare("SELECT 1 FROM activity_report_attachments WHERE report_id = ?").get(reportId), undefined);
     assert.equal(db.prepare("SELECT reviewed_by FROM activity_reports WHERE user_id = ?").get(gkaId).reviewed_by, null);
@@ -2395,7 +2406,31 @@ test("staff dismissal permanently removes account data and bulk cleanup preserve
 });
 
 test("GKA weekly reset archives only selected completed data and can restore it", async () => {
-  const server = createPortalServer({ dbPath: ":memory:", cookieSecure: false });
+  const dmMessages = [];
+  const server = createPortalServer({
+    dbPath: ":memory:",
+    cookieSecure: false,
+    discordBotToken: "weekly-summary-test-bot",
+    discordFetch: async (url, options) => {
+      const requestUrl = new URL(url);
+      const body = JSON.parse(options.body);
+      if (requestUrl.pathname === "/api/v10/users/@me/channels") {
+        return new Response(JSON.stringify({ id: `dm-${body.recipient_id}` }), {
+          status: 200, headers: { "content-type": "application/json" }
+        });
+      }
+      if (requestUrl.pathname.endsWith("/messages")) {
+        dmMessages.push({
+          channelId: requestUrl.pathname.split("/").slice(-2)[0],
+          payload: body
+        });
+        return new Response(JSON.stringify({ id: "weekly-summary-message" }), {
+          status: 200, headers: { "content-type": "application/json" }
+        });
+      }
+      throw new Error(`Unexpected Discord request: ${requestUrl.pathname}`);
+    }
+  });
   const db = server.portalDb;
   const password = "WeeklyArchiveTestPassword!23";
   const salt = randomBytes(16);
@@ -2403,12 +2438,26 @@ test("GKA weekly reset archives only selected completed data and can restore it"
     N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024
   });
   const passwordHash = `scrypt$${salt.toString("base64")}$${hash.toString("base64")}`;
-  const addUser = (username, role) => Number(db.prepare(
-    "INSERT INTO users (username,password_hash,display_name,role,status) VALUES (?,?,?,?,?)"
-  ).run(username, passwordHash, username, role, "active").lastInsertRowid);
-  const gkaId = addUser("weekly-gka", "ГКА");
-  const deputyId = addUser("weekly-deputy", "ЗГКА");
-  const lawyerId = addUser("weekly-lawyer", "Юрист");
+  const addUser = (username, role, discordId = null) => Number(db.prepare(
+    "INSERT INTO users (username,password_hash,display_name,role,status,discord_id) VALUES (?,?,?,?,?,?)"
+  ).run(username, passwordHash, username, role, "active", discordId).lastInsertRowid);
+  const gkaId = addUser("weekly-gka", "ГКА", "123456789012345678");
+  const deputyId = addUser("yyte", "ЗГКА", "234567890123456789");
+  const lawyerId = addUser("weekly-lawyer", "Адвокат");
+  const activityTimestamp = new Date().toISOString();
+  const activityDate = activityTimestamp.slice(0, 10);
+  const addWeeklyReport = db.prepare(`INSERT INTO activity_reports
+    (user_id,report_type,occurred_at,reference,details,status,reviewed_by,created_at)
+    VALUES (?,?,?,?,?,?,?,?)`);
+  addWeeklyReport.run(lawyerId, "call", activityDate, "CALL-WEEK", "Дефф", "approved", gkaId, activityTimestamp);
+  addWeeklyReport.run(lawyerId, "bail", activityDate, "BAIL-WEEK", "Смягчил", "approved", gkaId, activityTimestamp);
+  addWeeklyReport.run(lawyerId, "call", activityDate, "CALL-PENDING-WEEK", "Недефф", "pending", null, activityTimestamp);
+  const weeklyLawsuitDocumentId = Number(db.prepare(`INSERT INTO documents
+    (user_id,template,title,bbcode,forum_status,forum_reviewed_at,created_at)
+    VALUES (?,'lawsuit-supreme','Недельный иск','Текст','approved',?,?)`)
+    .run(lawyerId, activityTimestamp, activityTimestamp).lastInsertRowid);
+  db.prepare("INSERT INTO lawsuits (user_id,document_id,title,court,created_at) VALUES (?,?,?,?,?)")
+    .run(lawyerId, weeklyLawsuitDocumentId, "Недельный иск", "Верховный суд", activityTimestamp);
   const finalizedApplicationId = Number(db.prepare(`INSERT INTO applications
     (user_id,type,details,status,created_at) VALUES (?,'promotion','Завершённая заявка','approved','2000-01-01 10:00:00')`)
     .run(lawyerId).lastInsertRowid);
@@ -2452,25 +2501,45 @@ test("GKA weekly reset archives only selected completed data and can restore it"
   const deputy = await createClient(baseUrl);
   try {
     assert.equal((await gka("/api/auth/login", "POST", { username: "weekly-gka", password })).status, 200);
-    assert.equal((await deputy("/api/auth/login", "POST", { username: "weekly-deputy", password })).status, 200);
+    assert.equal((await deputy("/api/auth/login", "POST", { username: "yyte", password })).status, 200);
     assert.equal((await deputy("/api/weekly-reset/preview")).status, 403);
     assert.equal((await deputy("/api/weekly-reset", "POST", { confirmed: true })).status, 403);
     assert.equal((await gka("/api/weekly-reset", "POST", {})).status, 400);
 
     const preview = await gka("/api/weekly-reset/preview");
     assert.deepEqual(preview.data.counts, { calendar: 1, applications: 1, absences: 1, reprimands: 1 });
+    const rankingBeforeReset = await gka("/api/attorneys?period=week");
+    const weeklyAttorneyBeforeReset = rankingBeforeReset.data.attorneys.find((item) => item.id === lawyerId);
+    assert.equal(weeklyAttorneyBeforeReset.lawsuit_count, 1);
     const protectedCounts = Object.fromEntries([
       "users", "achievements", "user_achievements", "user_awards", "lawyer_reviews"
     ].map((table) => [table, db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count]));
 
     const archived = await gka("/api/weekly-reset", "POST", { confirmed: true });
     assert.equal(archived.status, 201);
+    assert.deepEqual(archived.data.discordWarnings, []);
+    assert.equal(dmMessages.length, 2);
+    assert.deepEqual(new Set(dmMessages.map((message) => message.channelId)), new Set([
+      "dm-123456789012345678", "dm-234567890123456789"
+    ]));
+    for (const message of dmMessages) {
+      assert.match(message.payload.embeds[0].title, /Итоги недели/);
+      assert.match(message.payload.embeds[0].description, /Вызовы: 1 · Иски: 1 · Залоги: 1/);
+      assert.match(message.payload.embeds[0].description, /Всего: вызовов — 1, исков — 1, залогов — 1/);
+    }
     const runId = archived.data.run.id;
     assert.deepEqual(archived.data.run.counts, preview.data.counts);
     assert.equal(db.prepare("SELECT archived_at FROM applications WHERE id = ?").get(finalizedApplicationId).archived_at !== null, true);
     assert.equal(db.prepare("SELECT archived_at FROM applications WHERE id = ?").get(citizenApplicationId).archived_at, null);
     assert.equal(db.prepare("SELECT archived_at FROM calendar_events WHERE id = ?").get(completedEventId).archived_at !== null, true);
     assert.equal(db.prepare("SELECT archived_at FROM reprimands WHERE id = ?").get(reprimandId).archived_at !== null, true);
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM activity_reports WHERE user_id = ?").get(lawyerId).count, 3);
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM lawsuits WHERE user_id = ?").get(lawyerId).count, 1);
+    const rankingAfterReset = await gka("/api/attorneys?period=week");
+    const weeklyAttorneyAfterReset = rankingAfterReset.data.attorneys.find((item) => item.id === lawyerId);
+    assert.equal(weeklyAttorneyAfterReset.lawsuit_count, 0);
+    const allTimeRanking = await gka("/api/attorneys?period=all");
+    assert.equal(allTimeRanking.data.attorneys.find((item) => item.id === lawyerId).lawsuit_count, 1);
     assert.deepEqual(Object.fromEntries(Object.keys(protectedCounts).map((table) => [
       table, db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count
     ])), protectedCounts);
@@ -2490,6 +2559,8 @@ test("GKA weekly reset archives only selected completed data and can restore it"
 
     const secondRun = await gka("/api/weekly-reset", "POST", { confirmed: true });
     assert.deepEqual(secondRun.data.run.counts, { calendar: 0, applications: 0, absences: 0, reprimands: 0 });
+    assert.equal(dmMessages.length, 4);
+    assert.match(dmMessages[2].payload.embeds[0].description, /Всего: вызовов — 0, исков — 0, залогов — 0/);
     const restored = await gka(`/api/weekly-reset/${runId}/restore`, "POST", {});
     assert.equal(restored.status, 200);
     assert.deepEqual(restored.data.run.counts, preview.data.counts);
