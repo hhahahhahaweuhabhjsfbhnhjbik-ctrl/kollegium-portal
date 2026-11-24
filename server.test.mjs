@@ -572,6 +572,117 @@ test("self-service promotion requires study, test and interview readiness after 
   }
 });
 
+test("AK UK PK seals create staged promotion requests and reset after decisions", async () => {
+  const examPayloads = [];
+  const server = createPortalServer({
+    dbPath: ":memory:",
+    cookieSecure: false,
+    webhookExams: "https://discord.com/api/webhooks/123456789012345678/test-token",
+    webhookLawyerTest: "https://discord.com/api/webhooks/123456789012345678/test-token",
+    webhookFetch: async (_url, options) => {
+      const body = options.body;
+      examPayloads.push(body instanceof FormData
+        ? JSON.parse(body.get("payload_json"))
+        : JSON.parse(body));
+      return new Response(null, { status: 204 });
+    }
+  });
+  const db = server.portalDb;
+  const salt = randomBytes(16);
+  const hash = scryptSync("CareerLawBundlePassword!23", salt, 64, {
+    N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024
+  });
+  const passwordHash = `scrypt$${salt.toString("base64")}$${hash.toString("base64")}`;
+  db.prepare("INSERT INTO users (username,password_hash,display_name,role,status) VALUES (?,?,?,?,?)")
+    .run("bundle-head", passwordHash, "Глава", "ГКА", "active");
+  db.prepare("INSERT INTO users (username,password_hash,display_name,role,status) VALUES (?,?,?,?,?)")
+    .run("bundle-trainee", passwordHash, "Стажёр", "Стажер КА", "active");
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const head = await createClient(baseUrl);
+  const candidate = await createClient(baseUrl);
+
+  try {
+    for (const [client, username] of [[head, "bundle-head"], [candidate, "bundle-trainee"]]) {
+      assert.equal((await client("/api/auth/login", "POST", {
+        username, password: "CareerLawBundlePassword!23"
+      })).status, 200);
+    }
+    assert.deepEqual((await candidate("/api/exams/law-progress")).data.passedSubjects, []);
+    const wrongAttempt = await candidate("/api/exams", "POST", {
+      subject: "ak", answers: [0, 0, 0, 0, 0]
+    });
+    assert.equal(wrongAttempt.data.passed, false);
+    const wrongAnswersEmbed = examPayloads.find((payload) =>
+      payload.embeds[0].title === "Результат проверки знаний: 2/5").embeds[0];
+    assert.equal(wrongAnswersEmbed.fields.filter((field) => field.name.startsWith("Вопрос ")).length, 3);
+    assert.deepEqual((await candidate("/api/exams/law-progress")).data.passedSubjects, []);
+
+    const completeTests = async () => {
+      for (const [subject, answers] of [
+        ["ak", [1, 0, 1, 0, 1]],
+        ["uk", [1, 2, 0, 0, 1]],
+        ["pk", [1, 0, 0, 1, 0]]
+      ]) {
+        const current = await candidate(`/api/exams/current?subject=${subject}`);
+        assert.equal(current.status, 200);
+        const result = await candidate("/api/exams", "POST", { subject, answers });
+        assert.equal(result.data.passed, true);
+      }
+    };
+
+    await completeTests();
+    assert.equal((await candidate("/api/exams/law-progress")).data.passedSubjects.length, 3);
+    const firstRequest = (await candidate("/api/applications")).data.applications
+      .find((item) => Array.isArray(item.promotion_data?.lawTests));
+    assert.ok(firstRequest);
+    assert.equal(firstRequest.requested_role, "Юрист");
+    assert.equal((await candidate(`/api/exams/current?subject=ak`)).status, 409);
+    assert.equal((await head(`/api/applications/${firstRequest.id}/review`, "PATCH", {
+      status: "rejected", note: "Нужно исправить отчёт.", criteria: {}
+    })).status, 200);
+    assert.deepEqual((await candidate("/api/exams/law-progress")).data.passedSubjects, []);
+
+    await completeTests();
+    const traineeRequest = (await candidate("/api/applications")).data.applications
+      .find((item) => Array.isArray(item.promotion_data?.lawTests) && item.status === "pending");
+    assert.ok(traineeRequest);
+    assert.equal((await head(`/api/applications/${traineeRequest.id}/review`, "PATCH", {
+      status: "approved", criteria: { headApproved: true }
+    })).status, 200);
+    assert.equal((await candidate("/api/auth/me")).data.user.role, "Юрист");
+    assert.deepEqual((await candidate("/api/exams/law-progress")).data.passedSubjects, []);
+
+    assert.equal((await head("/api/promotion-requirements", "PATCH", {
+      lawyerCallsRequired: 2
+    })).status, 200);
+    await completeTests();
+    const lawyerRequest = (await candidate("/api/applications")).data.applications
+      .find((item) => Array.isArray(item.promotion_data?.lawTests) && item.status === "pending");
+    assert.ok(lawyerRequest);
+    assert.equal(lawyerRequest.requested_role, "Адвокат");
+    assert.equal((await candidate(`/api/applications/${lawyerRequest.id}/interview`, "PATCH", {
+      status: "ready"
+    })).status, 409);
+    assert.equal((await candidate(`/api/applications/${lawyerRequest.id}/promotion-data`, "PATCH", {
+      completedCalls: 2, trialLawsuitReference: "Пробный иск № 12"
+    })).status, 200);
+    assert.equal((await candidate(`/api/applications/${lawyerRequest.id}/interview`, "PATCH", {
+      status: "ready"
+    })).status, 200);
+    assert.equal((await head(`/api/applications/${lawyerRequest.id}/review`, "PATCH", {
+      status: "approved",
+      criteria: { callsVerified: true, trialLawsuitVerified: true, interviewPassed: true }
+    })).status, 200);
+    assert.equal((await candidate("/api/auth/me")).data.user.role, "Адвокат");
+    assert.deepEqual((await candidate("/api/exams/law-progress")).data.passedSubjects, []);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+    db.close();
+  }
+});
+
 test("promotion stages enforce attendance, call counts, exam review and GKA approval", async () => {
   const server = createPortalServer({ dbPath: ":memory:", cookieSecure: false });
   const db = server.portalDb;

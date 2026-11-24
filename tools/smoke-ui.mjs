@@ -14,6 +14,7 @@ const read = (relative) => readFile(path.join(root, relative), "utf8");
 const moduleFiles = [
   "web/js/data/rp-practice.js",
   "web/js/data/rp-interviews.js",
+  "web/js/data/rp-interviews-extra.js",
   "web/js/data/config.js",
   "web/js/core/dom.js",
   "web/js/app.js"
@@ -100,6 +101,13 @@ const responses = {
   "/api/activity-reports/101": { ok: true, status: "approved" },
   "/api/auth/logout": { ok: true },
   "/api/applications": { applications: [] },
+  "/api/exams/law-progress": {
+    available: false,
+    stageRole: "ГКА",
+    passedSubjects: [],
+    lawyerCallsRequired: 0,
+    message: "Тесты доступны сотрудникам на карьерном этапе."
+  },
   "/api/exams/history": {
     exams: [
       {
@@ -359,8 +367,9 @@ check(!practiceNav?.classList.contains("hidden") && !practiceNav?.disabled &&
 check(document.querySelectorAll(".rp-practice-controls [data-level]").length === 3 &&
   Boolean(document.querySelector("#rp-practice-content")),
   "Раздел «Практика (РП)» должен содержать три кнопки уровней и область кейсов.");
-check(![...document.querySelectorAll("#law-test-subject option")].some((option) => option.value.startsWith("rp_")),
-  "RP-ситуации не должны отображаться в списке экзаменов.");
+check(!document.querySelector("#law-test-subject") &&
+  document.querySelector("#law-exam-buttons") && document.querySelector(".law-exam-grid"),
+"Тесты по кодексам должны отображаться кнопками без выпадающего списка.");
 for (const view of views) {
   await window.navigate(view);
   await wait(25);
@@ -409,7 +418,7 @@ document.querySelector('[data-action="open-rp-phone"]')?.dispatchEvent(
 );
 await wait(10);
 check(!document.querySelector("#rp-phone-dialog")?.classList.contains("hidden") &&
-  document.querySelectorAll("#rp-phone-case-picker .rp-phone-scenario").length === 2 &&
+  document.querySelectorAll("#rp-phone-case-picker .rp-phone-scenario").length === 4 &&
   document.querySelector("#rp-phone-title")?.textContent === "AI Case" &&
   document.querySelector('.rp-phone-status-icons svg[aria-label="Wi-Fi"]') &&
   document.querySelector(".rp-phone-battery"),
@@ -447,7 +456,9 @@ document.querySelector('#rp-phone-choices [data-index="0"]')?.dispatchEvent(
   new window.MouseEvent("click", { bubbles: true })
 );
 await wait(10);
-check(document.querySelector("#rp-phone-choices")?.textContent.includes("Пройти диалог ещё раз") &&
+check(document.querySelector("#rp-phone-choices")?.textContent.includes("Следующий кейс") &&
+  document.querySelector("#rp-phone-choices")?.textContent.includes("Повторить диалог") &&
+  document.querySelector(".rp-phone-end-actions .rp-phone-repeat") &&
   document.querySelector("#rp-phone-messages")?.textContent.includes("доверитель освобождён"),
 "Интерактивный сценарий должен завершаться развязкой и отдельными действиями.");
 document.querySelector("#rp-phone-sound-toggle")?.dispatchEvent(

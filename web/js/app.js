@@ -1,15 +1,15 @@
 import { $, $$, escapeHtml } from "./core/dom.js";
 import {
   applicationTypes,
-  careerGuides,
-  examTracks,
   lawExamSubjects,
   lawMeta,
-  promotion,
   rpPracticeCases,
   roles
 } from "./data/config.js";
 import { rpInterviewCases } from "./data/rp-interviews.js";
+import { rpInterviewExtraCases } from "./data/rp-interviews-extra.js";
+
+rpInterviewCases.push(...rpInterviewExtraCases);
 
 const managerRoles = ["ГКА", "ЗГКА"];
 const documentRoles = ["Юрист", "Адвокат", "Ст.Адвокат", ...managerRoles];
@@ -73,6 +73,8 @@ let rpPhoneSession = null;
 let rpPhoneReturnFocus = null;
 let rpPhoneSoundEnabled = true;
 let rpPhoneAudioContext = null;
+let activeStampDrag = null;
+let lawExamJustPassed = "";
 let loadedLaws = [];
 let photozotPhotos = [];
 let activePhotozotGroup = "";
@@ -274,17 +276,6 @@ function applyRoleVisibility() {
   $("#login-open").classList.add("hidden");
   $("#logout-button").classList.remove("hidden");
 
-  const careerTitle = promotion[currentUser.role];
-  $("#career-exam-title").textContent = careerTitle
-    ? `${currentUser.role} → ${careerTitle}`
-    : "Проверка знаний";
-  $("#career-exam-description").textContent = examTracks[currentUser.role]
-    ? careerGuides[currentUser.role]?.summary || "Подготовьтесь к экзамену и подтвердите готовность перед началом."
-    : "Для вашей должности карьерный экзамен не предусмотрен. Можно пройти тест по законодательству.";
-  $("#career-preparation").innerHTML = (careerGuides[currentUser.role]?.points || [])
-    .map((point) => `<li>${escapeHtml(point)}</li>`).join("");
-  $("#btnTest1").classList.toggle("hidden", !examTracks[currentUser.role]);
-  $("#test2LockIcon").classList.add("hidden");
 }
 
 function showAuth(message = "") {
@@ -943,7 +934,9 @@ async function reviewForumLink(button) {
 
 function renderAppeals(applications) {
   const appeals = applications.filter((item) => ["citizen_help", "citizen_complaint"].includes(item.type));
-  $("#appealsList").innerHTML = appeals.length ? appeals.map((item) => {
+  const careerApplications = applications.filter((item) =>
+    item.type === "exam" && Array.isArray(item.promotion_data?.lawTests));
+  const appealCards = appeals.map((item) => {
     const actions = [`<button class="btn" type="button" data-action="application-details" data-id="${Number(item.id)}">Подробнее</button>`];
     if (["ГКА", "ЗГКА", "Адвокат", "Ст.Адвокат"].includes(currentUser.role)) {
       if (!item.assigned_to && !item.completed_at) {
@@ -961,7 +954,31 @@ function renderAppeals(applications) {
       <div class="meta text-muted">${escapeHtml(item.created_at || "")}${item.assigned_name ? ` · Исполнитель: ${escapeHtml(item.assigned_name)}` : ""}${item.requested_lawyer_name ? ` · Адвокат: ${escapeHtml(item.requested_lawyer_name)}` : ""}</div>
       <div class="table-actions" style="margin-top:10px">${actions.join("")}</div>
     </article>`;
-  }).join("") : emptyState("Обращений пока нет.");
+  });
+  const promotionCards = careerApplications.map((item) => {
+    const data = item.promotion_data || {};
+    const actions = managerRoles.includes(currentUser.role) && item.status === "pending"
+      ? `<button class="btn btn-gold" type="button" data-action="review-career-promotion" data-id="${Number(item.id)}" data-status="approved">Одобрить повышение</button>
+         <button class="btn" type="button" data-action="review-career-promotion" data-id="${Number(item.id)}" data-status="rejected">Отклонить</button>`
+      : "";
+    return `<article class="laws-item career-promotion-application">
+      <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <h3>Заявка #${Number(item.id)} · ${escapeHtml(item.display_name || "Сотрудник")}: ${escapeHtml(item.stage_role)} → ${escapeHtml(item.requested_role || "")}</h3>
+        ${statusBadge(item.status)}
+      </div>
+      <p>${escapeHtml(item.result || item.details || "Сданы тесты по АК, УК и ПК.")}</p>
+      <div class="meta text-muted">
+        ${item.stage_role === "Юрист"
+          ? `Вызовы: ${Number(data.completedCalls || 0)} / ${Number(data.requiredCalls || 0)} · Пробный иск: ${escapeHtml(data.trialLawsuitReference || "не указан")} · Обзвон: ${item.interview_status === "ready" ? "готов" : "ожидает"}`
+          : "Три обязательных теста сданы."}
+      </div>
+      ${actions ? `<div class="table-actions" style="margin-top:10px">${actions}</div>` : ""}
+    </article>`;
+  });
+  const sections = [];
+  if (appealCards.length) sections.push(`<div class="appeal-list-section"><h3>Обращения граждан</h3>${appealCards.join("")}</div>`);
+  if (promotionCards.length) sections.push(`<div class="appeal-list-section"><h3>${managerRoles.includes(currentUser.role) ? "Заявки на повышение" : "Мои этапы повышения"}</h3>${promotionCards.join("")}</div>`);
+  $("#appealsList").innerHTML = sections.length ? sections.join("") : emptyState("Обращений и заявок на повышение пока нет.");
 }
 
 async function loadAppeals() {
@@ -1210,40 +1227,121 @@ function renderExamHistory(exams) {
 }
 
 async function loadTests() {
-  const hasCareerExam = Boolean(examTracks[currentUser.role]);
-  $("#career-exam-title").textContent = hasCareerExam
-    ? "Проверка карьерного этапа"
-    : "Карьерный экзамен не требуется";
-  $("#career-exam-description").textContent = hasCareerExam
-    ? "Пройдите экзамен для текущего этапа и следите за готовностью к обзвону."
-    : "Для вашей должности карьерный экзамен не предусмотрен. Можно пройти тест по законодательству или потренироваться на RP-кейсах.";
-  $("#btnTest1").classList.toggle("hidden", !hasCareerExam);
-  $("#career-preparation").classList.toggle("hidden", !hasCareerExam);
-  $("#career-quick-links-label").textContent = hasCareerExam
-    ? "Быстрые переходы:"
-    : "Для вашей должности доступно:";
-  const [data, history] = await Promise.all([
+  const [applications, history, progress] = await Promise.all([
     api("/api/applications"),
-    api("/api/exams/history")
+    api("/api/exams/history"),
+    api("/api/exams/law-progress")
   ]);
   renderExamHistory(history.exams);
-  const exam = (data.applications || []).find((item) =>
-    item.type === "exam" && item.career_flow && item.stage_role === currentUser.role &&
-    item.status === "pending" && String(item.result || "").toLocaleLowerCase("ru").includes("пройдена"));
-  const canRequestInterview = Boolean(exam && ["Стажер КА", "Юрист", "Адвокат"].includes(currentUser.role));
+  renderLawExamButtons(progress);
+  const careerApplication = (applications.applications || [])
+    .filter((item) => item.type === "exam" && Array.isArray(item.promotion_data?.lawTests) &&
+      item.stage_role === currentUser.role)
+    .sort((left, right) => Number(right.id) - Number(left.id))[0];
+  const canRequestInterview = Boolean(careerApplication && careerApplication.status === "pending" &&
+    careerApplication.stage_role === "Юрист");
   $("#interview-actions").classList.toggle("hidden", !canRequestInterview);
   if (canRequestInterview) {
-    const ready = exam.interview_status === "ready";
+    const ready = careerApplication.interview_status === "ready";
+    const promotionData = careerApplication.promotion_data || {};
+    const hasPromotionReport = Number(promotionData.completedCalls) >= Number(progress.lawyerCallsRequired || 0) &&
+      Boolean(promotionData.trialLawsuitReference);
     $("#interview-status").textContent = ready
-      ? "Вы отметили готовность. Ожидайте связи с руководством для обзвона."
-      : "Экзамен пройден. После отметки готовности руководство сможет назначить обзвон.";
-    $("#interview-toggle").dataset.id = String(exam.id);
+      ? "Готовность отмечена. Руководство увидит заявку и сможет принять решение после обзвона."
+      : hasPromotionReport
+        ? "Все три теста сданы, отчёт заполнен. Отметьте готовность к обзвону."
+        : "Все три теста сданы. Сначала заполните данные о вызовах и пробном иске.";
+    $("#interview-toggle").dataset.id = String(careerApplication.id);
     $("#interview-toggle").dataset.status = ready ? "ready" : "waiting";
-    $("#interview-toggle").textContent = ready ? "Отложить обзвон" : "Отметить готовность к обзвону";
+    $("#interview-toggle").disabled = !ready && !hasPromotionReport;
+    $("#interview-toggle").textContent = ready
+      ? "Отложить обзвон"
+      : hasPromotionReport ? "Отметить готовность к обзвону" : "Сначала заполните отчёт";
+  }
+  const report = $("#law-promotion-report");
+  const canSubmitReport = Boolean(canRequestInterview && currentUser.role === "Юрист");
+  report.classList.toggle("hidden", !canSubmitReport);
+  if (canSubmitReport) {
+    const saved = careerApplication.promotion_data || {};
+    $("#law-promotion-report-hint").textContent =
+      `Для перехода требуется не менее ${Number(progress.lawyerCallsRequired || 0)} вызовов и пробный иск.`;
+    $("#law-promotion-form").dataset.applicationId = String(careerApplication.id);
+    $("#law-promotion-calls").value = saved.completedCalls || "";
+    $("#law-promotion-lawsuit").value = saved.trialLawsuitReference || "";
+  }
+  const status = $("#law-career-application-status");
+  const completedCount = (progress.passedSubjects || []).length;
+  const isPromotionRole = ["Стажер КА", "Юрист"].includes(currentUser.role);
+  if (careerApplication?.status === "pending") {
+    status.textContent = currentUser.role === "Стажер КА"
+      ? "Заявка на повышение до юриста создана автоматически. Ожидайте решения ГКА/ЗГКА."
+      : "Заявка на повышение до адвоката создана автоматически. После заполнения отчёта отметьте готовность к обзвону.";
+    status.classList.remove("hidden");
+  } else if (careerApplication?.status === "rejected") {
+    status.textContent = careerApplication.result || "Заявка отклонена. Тесты этого этапа снова доступны.";
+    status.classList.remove("hidden");
+  } else if (isPromotionRole && completedCount === 3) {
+    status.textContent = "Три теста сданы. Заявка на повышение формируется.";
+    status.classList.remove("hidden");
+  } else {
+    status.classList.add("hidden");
   }
 }
 
+const lawExamTracks = [
+  { subject: "ak", label: "Административный", short: "АК" },
+  { subject: "uk", label: "Уголовный", short: "УК" },
+  { subject: "pk", label: "Процессуальный", short: "ПК" }
+];
+
+function renderLawExamButtons(progress) {
+  const container = $("#law-exam-buttons");
+  $("#law-exam-role").textContent = currentUser.role;
+  if (!progress.available) {
+    container.innerHTML = `<p class="rp-practice-empty">${escapeHtml(progress.message || "Тесты по АК, УК и ПК доступны стажёрам, юристам и адвокатам.")}</p>`;
+    $("#law-exam-progress-note").textContent = "";
+    return;
+  }
+  const passed = new Set(progress.passedSubjects || []);
+  container.innerHTML = lawExamTracks.map(({ subject, label, short }, index) => {
+    const completed = passed.has(subject);
+    const storageKey = `law-exam-stamp:${currentUser.id}:${progress.stageRole}:${subject}`;
+    const savedAngle = localStorage.getItem(storageKey);
+    let angle = savedAngle === null ? Number.NaN : Number(savedAngle);
+    if (!Number.isFinite(angle) || angle < -179 || angle > 179) {
+      angle = Math.round(Math.random() * 36 - 18);
+      localStorage.setItem(storageKey, String(angle));
+    }
+    return `<article class="law-exam-card${completed ? " is-completed" : ""}">
+      <div class="law-exam-card-heading"><span class="law-exam-number">${String(index + 1).padStart(2, "0")}</span>
+        <strong>${label}</strong><span class="badge ${completed ? "badge-gold" : "badge-info"}">${completed ? "СДАН" : short}</span></div>
+      ${completed
+        ? `<div class="law-exam-stamp${lawExamJustPassed === subject ? " is-dropping" : ""}" data-stamp-subject="${subject}"
+            data-stamp-stage="${escapeHtml(progress.stageRole)}" data-stamp-angle="${angle}" role="img"
+            aria-label="Тест ${label} сдан. Потяните печать, чтобы повернуть её." title="Потяните печать, чтобы повернуть">
+            <img src="/assets/exam-passed-stamp.png" alt="ПРОЙДЕНО" style="--stamp-angle:${angle}deg">
+          </div>`
+        : `<button class="btn btn-gold" type="button" data-action="start-law-exam" data-subject="${subject}">
+            Начать тест ${short} <span aria-hidden="true">→</span>
+          </button>`}
+    </article>`;
+  }).join("");
+  $$(".law-exam-stamp.is-dropping", container).forEach((stamp) => {
+    stamp.querySelector("img").addEventListener("animationend", () => stamp.classList.remove("is-dropping"), { once: true });
+  });
+  lawExamJustPassed = "";
+  const remaining = lawExamTracks.filter(({ subject }) => !passed.has(subject)).map(({ short }) => short);
+  $("#law-exam-progress-note").textContent = remaining.length
+    ? `Сдано ${passed.size} из 3. Осталось: ${remaining.join(", ")}.`
+    : currentUser.role === "Адвокат"
+      ? "Все тесты текущего этапа пройдены. Адвокат — последняя ступень с доступом к этим экзаменам."
+      : "Все три теста сданы. Заявка на следующую ступень создана автоматически.";
+}
+
 async function startExam(subject = "") {
+  if (subject && !lawExamTracks.some((track) => track.subject === subject)) {
+    throw new Error("Выберите экзамен по АК, УК или ПК.");
+  }
   if (!subject) {
     if (!window.confirm("Подтверждаете, что ознакомились с материалами подготовки к экзамену?")) return;
     await api("/api/exams/start", { method: "POST", body: { studyConfirmed: true } });
@@ -1290,9 +1388,11 @@ async function submitQuiz(event) {
   const examTitle = quizSession.subject
     ? lawExamSubjects[quizSession.subject] || "Тест по законодательству"
     : `Проверка знаний · ${quizSession.track}`;
+  const completedLawSubject = quizSession.subject;
   const result = await api("/api/exams", { method: "POST", body });
   $("#quiz-dialog").classList.add("hidden");
   quizSession = null;
+  if (result.passed && completedLawSubject) lawExamJustPassed = completedLawSubject;
   if (result.user) {
     await enterSession({ user: result.user, csrfToken });
   }
@@ -1303,7 +1403,11 @@ async function submitQuiz(event) {
   $("#exam-latest-result").classList.remove("hidden");
   await loadTests();
   if (currentView === "tests") $("#exam-latest-result").scrollIntoView({ behavior: "smooth", block: "center" });
-  const nextStep = result.interviewRequired ? " Следующий шаг — отметка готовности и обзвон с руководством." : "";
+  const nextStep = result.applicationCreated
+    ? result.interviewRequired
+      ? " Заявка создана: заполните отчёт и отметьте готовность к обзвону."
+      : " Заявка на повышение создана автоматически."
+    : "";
   notify(`Результат: ${result.score}/${result.total}. ${result.passed ? "Тест сдан." : "Тест не сдан."}${nextStep}`);
 }
 
@@ -1315,6 +1419,86 @@ async function toggleInterview(button) {
   });
   notify(status === "ready" ? "Готовность к обзвону отмечена." : "Обзвон отложен.");
   await loadTests();
+}
+
+async function submitLawPromotionData(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const applicationId = Number(form.dataset.applicationId);
+  const completedCalls = Number($("#law-promotion-calls").value);
+  const trialLawsuitReference = $("#law-promotion-lawsuit").value.trim();
+  if (!applicationId) throw new Error("Заявка на повышение не найдена.");
+  await api(`/api/applications/${encodeURIComponent(applicationId)}/promotion-data`, {
+    method: "PATCH",
+    body: { completedCalls, trialLawsuitReference }
+  });
+  notify("Данные для заявки на повышение сохранены.");
+  await loadTests();
+}
+
+function beginStampRotation(event) {
+  const stamp = event.target.closest("[data-stamp-subject]");
+  if (!stamp || !currentUser || event.button !== 0) return;
+  event.preventDefault();
+  const bounds = stamp.getBoundingClientRect();
+  const pointerAngle = Math.atan2(event.clientY - bounds.top - bounds.height / 2,
+    event.clientX - bounds.left - bounds.width / 2) * 180 / Math.PI;
+  const angle = Number(stamp.dataset.stampAngle);
+  activeStampDrag = {
+    stamp,
+    pointerId: event.pointerId,
+    startPointerAngle: pointerAngle,
+    startStampAngle: Number.isFinite(angle) ? angle : 0
+  };
+  stamp.setPointerCapture(event.pointerId);
+}
+
+function rotateStamp(event) {
+  if (!activeStampDrag || activeStampDrag.pointerId !== event.pointerId) return;
+  const { stamp } = activeStampDrag;
+  const bounds = stamp.getBoundingClientRect();
+  const pointerAngle = Math.atan2(event.clientY - bounds.top - bounds.height / 2,
+    event.clientX - bounds.left - bounds.width / 2) * 180 / Math.PI;
+  const turn = ((pointerAngle - activeStampDrag.startPointerAngle + 540) % 360) - 180;
+  const angle = Math.max(-179, Math.min(179, activeStampDrag.startStampAngle + turn));
+  stamp.dataset.stampAngle = String(Math.round(angle));
+  stamp.querySelector("img").style.setProperty("--stamp-angle", `${angle}deg`);
+}
+
+function finishStampRotation(event) {
+  if (!activeStampDrag || activeStampDrag.pointerId !== event.pointerId) return;
+  const { stamp } = activeStampDrag;
+  const key = `law-exam-stamp:${currentUser.id}:${stamp.dataset.stampStage}:${stamp.dataset.stampSubject}`;
+  localStorage.setItem(key, stamp.dataset.stampAngle);
+  activeStampDrag = null;
+}
+
+async function reviewCareerPromotion(button) {
+  const status = button.dataset.status;
+  let note = "";
+  if (status === "rejected") {
+    note = window.prompt("Укажите причину отклонения заявки:", "")?.trim() || "";
+    if (note.length < 4) {
+      notify("Укажите причину отклонения длиной не менее 4 символов.");
+      return;
+    }
+  } else if (!window.confirm("Подтвердить результаты тестов и одобрить повышение?")) {
+    return;
+  }
+  const application = (await api("/api/applications")).applications
+    .find((item) => Number(item.id) === Number(button.dataset.id));
+  if (!application) throw new Error("Заявка на повышение больше недоступна.");
+  const criteria = status === "approved" && application.stage_role === "Юрист"
+    ? { callsVerified: true, trialLawsuitVerified: true, interviewPassed: true }
+    : status === "approved" && application.stage_role === "Стажер КА"
+      ? { headApproved: true }
+      : {};
+  await api(`/api/applications/${encodeURIComponent(button.dataset.id)}/review`, {
+    method: "PATCH",
+    body: { status, note, criteria }
+  });
+  notify(status === "approved" ? "Повышение одобрено." : "Заявка отклонена, тесты этапа снова доступны.");
+  await loadAppeals();
 }
 
 const rpPracticeLevelNames = {
@@ -1545,6 +1729,16 @@ function answerRpPhoneChoice(index) {
   renderRpPhone();
 }
 
+function startNextRpPhoneCase() {
+  const currentIndex = rpInterviewCases.findIndex((item) => item.id === rpPhoneSession?.caseId);
+  if (currentIndex < 0 || !rpInterviewCases.length) {
+    showRpPhonePicker();
+    return;
+  }
+  const next = rpInterviewCases[(currentIndex + 1) % rpInterviewCases.length];
+  startRpPhoneCase(next.id);
+}
+
 function renderRpPhone() {
   const picker = $("#rp-phone-case-picker");
   const conversation = $("#rp-phone-conversation");
@@ -1596,8 +1790,10 @@ function renderRpPhone() {
     ? `<div class="rp-phone-debrief-card"><strong>Разбор выбранного ответа</strong><p>${escapeHtml(session.lastDebrief)}</p></div>`
     : "";
   $("#rp-phone-choices").innerHTML = session.finished
-    ? `<button class="btn btn-gold" type="button" data-action="restart-rp-phone">Пройти диалог ещё раз</button>
-       <button class="btn" type="button" data-action="rp-phone-back">Выбрать другой сценарий</button>`
+    ? `<div class="rp-phone-end-actions">
+         <button class="btn btn-gold" type="button" data-action="next-rp-phone-case">Следующий кейс</button>
+         <button class="rp-phone-repeat" type="button" data-action="restart-rp-phone">Повторить диалог</button>
+       </div>`
     : node.choices.map((choice, index) => `<button class="choice-reply-btn" type="button"
         data-action="answer-rp-phone" data-index="${index}"><span class="rp-reply-number">${index + 1}</span>${escapeHtml(choice.text)}</button>`
       ).join("");
@@ -2199,7 +2395,7 @@ async function handleAction(button) {
   else if (action === "toggle-lawsuit-form") $("#lawsuit-form").classList.toggle("hidden");
   else if (action === "submit-appeal") await submitAppeal();
   else if (action === "start-career-exam") await startExam();
-  else if (action === "start-law-exam") await startExam($("#law-test-subject").value);
+  else if (action === "start-law-exam") await startExam(button.dataset.subject);
   else if (action === "toggle-interview") await toggleInterview(button);
   else if (action === "start-rp-practice") startRpPractice(button.dataset.level);
   else if (action === "answer-rp-case") await answerRpPracticeCase(button);
@@ -2208,6 +2404,7 @@ async function handleAction(button) {
   else if (action === "toggle-rp-phone-sound") toggleRpPhoneSound();
   else if (action === "select-rp-phone-case") startRpPhoneCase(button.dataset.caseId);
   else if (action === "answer-rp-phone") answerRpPhoneChoice(Number(button.dataset.index));
+  else if (action === "next-rp-phone-case") startNextRpPhoneCase();
   else if (action === "rp-phone-back") showRpPhonePicker();
   else if (action === "restart-rp-phone") startRpPhoneCase(rpPhoneSession?.caseId);
   else if (action === "copy-lawsuit-bbcode") await copyLawsuitBbcode();
@@ -2222,6 +2419,7 @@ async function handleAction(button) {
   else if (action === "lawsuit-history") await viewLawsuitHistory(button.dataset.id);
   else if (action === "review-lawsuit") await reviewLawsuit(button);
   else if (action === "review-forum-link") await reviewForumLink(button);
+  else if (action === "review-career-promotion") await reviewCareerPromotion(button);
   else if (["application-details", "assign-appeal", "close-appeal"].includes(action)) await handleAppealAction(button);
   else if (action === "select-attorney") await selectAttorney(button.dataset.id);
   else if (action === "attorney-profile") await viewAttorneyProfile(button.dataset.id);
@@ -2369,6 +2567,12 @@ $$("[data-laws-tab]").forEach((button) => {
 });
 $("#lawsuit-template").addEventListener("change", renderLawsuitFields);
 $("#lawsuit-form").addEventListener("input", renderLawsuitPreview);
+$("#law-promotion-form").addEventListener("submit", (event) =>
+  submitLawPromotionData(event).catch((error) => notify(error.message)));
+document.addEventListener("pointerdown", beginStampRotation);
+document.addEventListener("pointermove", rotateStamp);
+document.addEventListener("pointerup", finishStampRotation);
+document.addEventListener("pointercancel", finishStampRotation);
 $("#rating-period").addEventListener("change", () => {
   if (currentUser && currentView === "rating") loadRating().catch((error) => notify(error.message));
 });

@@ -16,6 +16,8 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 const roles = ["Стажер КА", "Юрист", "Адвокат", "Ст.Адвокат", "ЗГКА", "ГКА"];
 const citizenRole = "Гражданин";
 const managementRoles = ["ГКА", "ЗГКА"];
+const careerLawExamRoles = ["Стажер КА", "Юрист", "Адвокат"];
+const careerLawExamSubjects = ["ak", "uk", "pk"];
 const activityReportTypes = Object.freeze({
   call: "Вызов",
   bail: "Залог"
@@ -616,6 +618,14 @@ function createDatabase(dbPath) {
       passed INTEGER NOT NULL,
       answers_json TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS career_law_exam_passes (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      stage_role TEXT NOT NULL,
+      subject TEXT NOT NULL CHECK (subject IN ('ak','uk','pk')),
+      exam_result_id INTEGER NOT NULL REFERENCES exam_results(id) ON DELETE CASCADE,
+      completed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, stage_role, subject)
     );
     CREATE TABLE IF NOT EXISTS attestations (
       id INTEGER PRIMARY KEY,
@@ -3251,13 +3261,30 @@ export function createPortalServer(options = {}) {
             throw new HttpError(404, "Этап повышения не найден.");
           }
           if (item.stage_role === "Стажер КА") throw new HttpError(409, "Стажёру не требуется обзвон.");
-          if (item.status !== "pending" ||
-              !db.prepare("SELECT passed FROM exam_results WHERE application_id = ? ORDER BY id DESC LIMIT 1").get(item.id)?.passed) {
+          const promotionData = parseStoredJson(item.promotion_data_json, "отчёт о повышении");
+          const lawBundle = Array.isArray(promotionData.lawTests) &&
+            careerLawExamSubjects.every((subject) => promotionData.lawTests.includes(subject));
+          const careerTestsPassed = lawBundle
+            ? careerLawExamSubjects.every((subject) =>
+              db.prepare(`SELECT 1 FROM career_law_exam_passes
+                WHERE user_id = ? AND stage_role = ? AND subject = ?`)
+                .get(item.user_id, item.stage_role, subject))
+            : Boolean(db.prepare("SELECT passed FROM exam_results WHERE application_id = ? ORDER BY id DESC LIMIT 1")
+              .get(item.id)?.passed);
+          if (item.status !== "pending" || !careerTestsPassed) {
             throw new HttpError(409, "Сначала успешно сдайте тест.");
           }
           const body = await readJson(req);
           if (!["ready", "waiting"].includes(body.status)) {
             throw new HttpError(400, "Выберите готовность к обзвону или ожидание.");
+          }
+          if (lawBundle && body.status === "ready") {
+            const requiredCalls = Number(db.prepare("SELECT lawyer_calls_required FROM promotion_settings WHERE id = 1")
+              .get().lawyer_calls_required);
+            if (!requiredCalls || Number(promotionData.completedCalls) < requiredCalls ||
+                !promotionData.trialLawsuitReference) {
+              throw new HttpError(409, "Сначала сохраните норму вызовов и пробный иск в отчёте.");
+            }
           }
           if (item.interview_status !== body.status) {
             db.prepare(`UPDATE applications SET interview_status = ?,
@@ -3289,12 +3316,22 @@ export function createPortalServer(options = {}) {
         const promotionDataRoute = pathname.match(/^\/api\/applications\/(\d+)\/promotion-data$/);
         if (promotionDataRoute && req.method === "PATCH") {
           const item = db.prepare("SELECT * FROM applications WHERE id = ?").get(Number(promotionDataRoute[1]));
+          const itemPromotionData = item
+            ? parseStoredJson(item.promotion_data_json, "отчёт по этапу повышения")
+            : {};
+          const lawBundle = Array.isArray(itemPromotionData.lawTests) &&
+            careerLawExamSubjects.every((subject) => itemPromotionData.lawTests.includes(subject));
           if (!item || item.user_id !== user.id || item.type !== "exam" ||
-              !item.career_flow || item.stage_role !== "Юрист") {
+              !item.career_flow || item.stage_role !== "Юрист" ||
+              !(lawBundle || Number(item.career_flow) === 1)) {
             throw new HttpError(404, "Отчёт по этапу повышения не найден.");
           }
-          if (item.status !== "pending" ||
-              !db.prepare("SELECT passed FROM exam_results WHERE application_id = ? ORDER BY id DESC LIMIT 1").get(item.id)?.passed) {
+          const passedCurrentLawTests = lawBundle && careerLawExamSubjects.every((subject) =>
+            db.prepare(`SELECT 1 FROM career_law_exam_passes
+              WHERE user_id = ? AND stage_role = ? AND subject = ?`).get(item.user_id, item.stage_role, subject));
+          const passedCareerTest = !lawBundle &&
+            db.prepare("SELECT passed FROM exam_results WHERE application_id = ? ORDER BY id DESC LIMIT 1").get(item.id)?.passed;
+          if (item.status !== "pending" || !(passedCurrentLawTests || passedCareerTest)) {
             throw new HttpError(409, "Сначала успешно сдайте тест.");
           }
           const body = await readJson(req);
@@ -3629,6 +3666,9 @@ export function createPortalServer(options = {}) {
           }
           const criteria = body.criteria && typeof body.criteria === "object" && !Array.isArray(body.criteria)
             ? body.criteria : {};
+          const itemPromotionData = parseStoredJson(item.promotion_data_json, "отчёт о повышении");
+          const lawBundle = item.type === "exam" && Array.isArray(itemPromotionData.lawTests) &&
+            careerLawExamSubjects.every((subject) => itemPromotionData.lawTests.includes(subject));
           const requireCriteria = (names) => {
             const missing = names.filter((name) => criteria[name] !== true);
             if (missing.length) throw new HttpError(400, "Перед одобрением подтвердите все пункты проверки.");
@@ -3651,54 +3691,96 @@ export function createPortalServer(options = {}) {
           }
           if (body.status === "approved" && item.type === "exam") {
             const member = db.prepare("SELECT role FROM users WHERE id = ?").get(item.user_id);
-            const exam = db.prepare(`SELECT passed, score FROM exam_results
-              WHERE user_id = ? AND track = ? AND application_id = ? ORDER BY id DESC LIMIT 1`)
-              .get(item.user_id, item.stage_role || member.role, item.id);
-            if (!exam?.passed) throw new HttpError(409, "Проверку знаний нельзя одобрить без успешно сданного теста.");
-            const promotionData = parseStoredJson(item.promotion_data_json, "отчёт о повышении");
             const stageRole = item.stage_role || member.role;
-            if (item.career_flow && item.interview_status !== "ready") {
-              throw new HttpError(409, "Перед одобрением участник должен отметить готовность и пройти обзвон.");
-            }
-            if (stageRole === "Стажер КА") {
-              requireCriteria(item.career_flow
-                ? ["interviewPassed", "headApproved"]
-                : ["lectureVerified"]);
-              if (item.career_flow && !promotionData.lectureAttended) {
-                throw new HttpError(409, "В заявке не подтверждено прохождение обязательного этапа.");
+            if (lawBundle) {
+              const stageTests = db.prepare(`SELECT subject FROM career_law_exam_passes
+                WHERE user_id = ? AND stage_role = ?`).all(item.user_id, stageRole).map((entry) => entry.subject);
+              if (member.role !== stageRole || careerLawExamSubjects.some((subject) => !stageTests.includes(subject)) ||
+                  item.requested_role !== nextRank[stageRole]) {
+                throw new HttpError(409, "Заявка больше не соответствует текущей ступени или не все три теста сданы.");
               }
-              if (!item.career_flow) requireCriteria(["lectureVerified"]);
+              if (stageRole === "Стажер КА") {
+                requireCriteria(["headApproved"]);
+              } else if (stageRole === "Юрист") {
+                if (item.interview_status !== "ready") {
+                  throw new HttpError(409, "Перед одобрением участник должен пройти обзвон и отметить готовность.");
+                }
+                requireCriteria(["callsVerified", "trialLawsuitVerified", "interviewPassed"]);
+                const requiredCalls = Number(db.prepare("SELECT lawyer_calls_required FROM promotion_settings WHERE id = 1")
+                  .get().lawyer_calls_required);
+                if (!requiredCalls || Number(itemPromotionData.completedCalls) < requiredCalls ||
+                    !itemPromotionData.trialLawsuitReference) {
+                  throw new HttpError(409, "Не выполнены заявленные условия перехода юриста в адвокаты.");
+                }
+              } else {
+                throw new HttpError(409, "Повышение по комплекту тестов доступно только со ступени стажёра или юриста.");
+              }
               const target = nextRank[stageRole];
               db.prepare("UPDATE users SET role = ? WHERE id = ?").run(target, item.user_id);
               recordEmploymentEvent(db, {
                 userId: item.user_id, actorId: user.id, fromRole: member.role, toRole: target,
-                fromStatus: "active", toStatus: "active", details: "Повышение после одобрения экзамена."
+                fromStatus: "active", toStatus: "active", details: "Повышение после сдачи АК, УК и ПК."
               });
               roleChanged = true;
-              resultText = `Проверка знаний одобрена. Роль изменена на ${target}.`;
-            } else if (stageRole === "Юрист") {
-              requireCriteria(item.career_flow
-                ? ["callsVerified", "trialLawsuitVerified", "interviewPassed"]
-                : ["callsVerified", "trialLawsuitVerified"]);
-              const currentRequiredCalls = Number(db.prepare("SELECT lawyer_calls_required FROM promotion_settings WHERE id = 1")
-                .get().lawyer_calls_required);
-              if (!currentRequiredCalls || Number(promotionData.completedCalls) < currentRequiredCalls ||
-                  !promotionData.trialLawsuitReference) {
-                throw new HttpError(409, "Не выполнены заявленные условия перехода юриста в адвокаты.");
-              }
-              const target = nextRank[member.role];
-              db.prepare("UPDATE users SET role = ? WHERE id = ?").run(target, item.user_id);
-              recordEmploymentEvent(db, {
-                userId: item.user_id, actorId: user.id, fromRole: member.role, toRole: target,
-                fromStatus: "active", toStatus: "active", details: "Повышение после одобрения экзамена."
-              });
-              roleChanged = true;
-              resultText = `Экзамен и требования одобрены. Роль изменена на ${target}.`;
+              reviewData = { stage: stageRole, criteria };
+              resultText = `Повышение одобрено. Роль изменена на ${target}.`;
             } else {
-              if (item.career_flow) requireCriteria(["interviewPassed"]);
-              resultText = "Проверка знаний одобрена. Для повышения до старшего адвоката подайте отдельный отчёт с подтверждениями.";
+              const exam = db.prepare(`SELECT passed, score FROM exam_results
+                WHERE user_id = ? AND track = ? AND application_id = ? ORDER BY id DESC LIMIT 1`)
+                .get(item.user_id, stageRole, item.id);
+              if (!exam?.passed) throw new HttpError(409, "Проверку знаний нельзя одобрить без успешно сданного теста.");
+              const promotionData = itemPromotionData;
+              if (item.career_flow && item.interview_status !== "ready") {
+                throw new HttpError(409, "Перед одобрением участник должен отметить готовность и пройти обзвон.");
+              }
+              if (stageRole === "Стажер КА") {
+                requireCriteria(item.career_flow
+                  ? ["interviewPassed", "headApproved"]
+                  : ["lectureVerified"]);
+                if (item.career_flow && !promotionData.lectureAttended) {
+                  throw new HttpError(409, "В заявке не подтверждено прохождение обязательного этапа.");
+                }
+                if (!item.career_flow) requireCriteria(["lectureVerified"]);
+                const target = nextRank[stageRole];
+                db.prepare("UPDATE users SET role = ? WHERE id = ?").run(target, item.user_id);
+                recordEmploymentEvent(db, {
+                  userId: item.user_id, actorId: user.id, fromRole: member.role, toRole: target,
+                  fromStatus: "active", toStatus: "active", details: "Повышение после одобрения экзамена."
+                });
+                roleChanged = true;
+                resultText = `Проверка знаний одобрена. Роль изменена на ${target}.`;
+              } else if (stageRole === "Юрист") {
+                requireCriteria(item.career_flow
+                  ? ["callsVerified", "trialLawsuitVerified", "interviewPassed"]
+                  : ["callsVerified", "trialLawsuitVerified"]);
+                const currentRequiredCalls = Number(db.prepare("SELECT lawyer_calls_required FROM promotion_settings WHERE id = 1")
+                  .get().lawyer_calls_required);
+                if (!currentRequiredCalls || Number(promotionData.completedCalls) < currentRequiredCalls ||
+                    !promotionData.trialLawsuitReference) {
+                  throw new HttpError(409, "Не выполнены заявленные условия перехода юриста в адвокаты.");
+                }
+                const target = nextRank[member.role];
+                db.prepare("UPDATE users SET role = ? WHERE id = ?").run(target, item.user_id);
+                recordEmploymentEvent(db, {
+                  userId: item.user_id, actorId: user.id, fromRole: member.role, toRole: target,
+                  fromStatus: "active", toStatus: "active", details: "Повышение после одобрения экзамена."
+                });
+                roleChanged = true;
+                resultText = `Экзамен и требования одобрены. Роль изменена на ${target}.`;
+              } else {
+                if (item.career_flow) requireCriteria(["interviewPassed"]);
+                resultText = "Проверка знаний одобрена. Для повышения до старшего адвоката подайте отдельный отчёт с подтверждениями.";
+              }
+              reviewData = { stage: stageRole, criteria };
             }
-            reviewData = { stage: stageRole, criteria };
+          }
+          if (body.status === "rejected" && lawBundle) {
+            db.prepare("DELETE FROM career_law_exam_passes WHERE user_id = ? AND stage_role = ?")
+              .run(item.user_id, item.stage_role);
+            const note = String(body.note || "").trim();
+            resultText = note
+              ? `Заявка на повышение отклонена: ${note}`
+              : "Заявка на повышение отклонена. Тесты текущей ступени снова доступны.";
           }
           if (body.status === "approved" && item.type === "promotion") {
             const target = item.requested_role;
@@ -3791,6 +3873,24 @@ export function createPortalServer(options = {}) {
           return sendJson(res, 200, { exams });
         }
 
+        if (pathname === "/api/exams/law-progress" && req.method === "GET") {
+          if (user.role === citizenRole) throw new HttpError(403, "Тесты по законодательству доступны только сотрудникам Коллегии.");
+          const available = careerLawExamRoles.includes(user.role);
+          const passedSubjects = available
+            ? db.prepare(`SELECT subject FROM career_law_exam_passes
+                WHERE user_id = ? AND stage_role = ? ORDER BY completed_at`)
+              .all(user.id, user.role).map((item) => item.subject)
+            : [];
+          const settings = db.prepare("SELECT lawyer_calls_required FROM promotion_settings WHERE id = 1").get();
+          return sendJson(res, 200, {
+            available,
+            stageRole: user.role,
+            passedSubjects,
+            lawyerCallsRequired: Number(settings.lawyer_calls_required),
+            message: available ? "" : "Экзамены по АК, УК и ПК доступны стажёрам, юристам и адвокатам."
+          });
+        }
+
         if (pathname === "/api/exams/current" && req.method === "GET") {
           const attestationId = Number(requestUrl.searchParams.get("attestationId") || 0);
           const subject = String(requestUrl.searchParams.get("subject") || "");
@@ -3798,6 +3898,15 @@ export function createPortalServer(options = {}) {
             if (user.role === citizenRole) throw new HttpError(403, "Тесты по законодательству доступны только сотрудникам Коллегии.");
             const questions = Object.hasOwn(lawExamBank, subject) ? lawExamBank[subject] : null;
             if (!questions) throw new HttpError(400, "Выберите один из доступных тестов по законодательству.");
+            if (careerLawExamSubjects.includes(subject)) {
+              if (!careerLawExamRoles.includes(user.role)) {
+                throw new HttpError(403, "Тесты по АК, УК и ПК доступны только стажёрам, юристам и адвокатам.");
+              }
+              if (db.prepare(`SELECT 1 FROM career_law_exam_passes
+                  WHERE user_id = ? AND stage_role = ? AND subject = ?`).get(user.id, user.role, subject)) {
+                throw new HttpError(409, "Этот тест уже сдан на текущей ступени.");
+              }
+            }
             return sendJson(res, 200, {
               track: lawExamTitles[subject],
               subject,
@@ -3848,6 +3957,15 @@ export function createPortalServer(options = {}) {
             if (attestationId) throw new HttpError(400, "Тест по законодательству нельзя привязать к переаттестации.");
             questions = Object.hasOwn(lawExamBank, subject) ? lawExamBank[subject] : null;
             if (!questions) throw new HttpError(400, "Выберите один из доступных тестов по законодательству.");
+            if (careerLawExamSubjects.includes(subject)) {
+              if (!careerLawExamRoles.includes(user.role)) {
+                throw new HttpError(403, "Тесты по АК, УК и ПК доступны только стажёрам, юристам и адвокатам.");
+              }
+              if (db.prepare(`SELECT 1 FROM career_law_exam_passes
+                  WHERE user_id = ? AND stage_role = ? AND subject = ?`).get(user.id, user.role, subject)) {
+                throw new HttpError(409, "Этот тест уже сдан на текущей ступени.");
+              }
+            }
             track = `law:${subject}`;
           } else if (attestationId) {
             attestation = db.prepare("SELECT * FROM attestations WHERE id = ?").get(attestationId);
@@ -3881,10 +3999,44 @@ export function createPortalServer(options = {}) {
               correct: answers[index] === question.correct
             }))
           };
-          db.prepare(`INSERT INTO exam_results
+          const savedExam = db.prepare(`INSERT INTO exam_results
             (user_id, application_id, track, score, passed, answers_json) VALUES (?, ?, ?, ?, ?, ?)`)
             .run(attestation ? attestation.user_id : user.id, application ? application.id : null,
               track, score, passed ? 1 : 0, JSON.stringify(answerReview));
+          let careerApplicationId = null;
+          let careerApplicationCreated = false;
+          if (isCodeTest && passed && careerLawExamSubjects.includes(subject)) {
+            db.prepare(`INSERT INTO career_law_exam_passes
+              (user_id, stage_role, subject, exam_result_id) VALUES (?, ?, ?, ?)`)
+              .run(user.id, user.role, subject, Number(savedExam.lastInsertRowid));
+            const completedSubjects = db.prepare(`SELECT subject FROM career_law_exam_passes
+              WHERE user_id = ? AND stage_role = ?`).all(user.id, user.role).map((item) => item.subject);
+            if (completedSubjects.length === careerLawExamSubjects.length &&
+                ["Стажер КА", "Юрист"].includes(user.role)) {
+              const existing = db.prepare(`SELECT id, promotion_data_json FROM applications
+                WHERE user_id = ? AND type = 'exam' AND stage_role = ? AND career_flow = 1 AND status = 'pending'
+                  ORDER BY id DESC`).all(user.id, user.role).find((item) =>
+                  Array.isArray(parseStoredJson(item.promotion_data_json, "отчёт о повышении").lawTests));
+              if (existing) {
+                careerApplicationId = Number(existing.id);
+              } else {
+                const promotionData = { lawTests: careerLawExamSubjects };
+                const created = db.prepare(`INSERT INTO applications
+                  (user_id, type, requested_role, stage_role, study_read_at, interview_status,
+                    career_flow, details, promotion_data_json)
+                  VALUES (?, 'exam', ?, ?, CURRENT_TIMESTAMP, ?, 1, ?, ?)`)
+                  .run(user.id, nextRank[user.role], user.role,
+                    user.role === "Стажер КА" ? "not_required" : "waiting",
+                    "Автоматическая заявка: сданы экзамены по АК, УК и ПК.",
+                    JSON.stringify(promotionData));
+                careerApplicationId = Number(created.lastInsertRowid);
+                careerApplicationCreated = true;
+                db.prepare(`INSERT INTO application_history (application_id, actor_id, event_type, details)
+                  VALUES (?, ?, 'created', ?)`)
+                  .run(careerApplicationId, user.id, `Автоматическая заявка на повышение до ${nextRank[user.role]}: сданы АК, УК и ПК.`);
+              }
+            }
+          }
           if (attestation) {
             db.prepare("UPDATE attestations SET score = ?, status = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?")
               .run(score, passed ? "passed" : "failed", attestation.id);
@@ -3894,9 +4046,24 @@ export function createPortalServer(options = {}) {
           }
           const answerFields = questions.map((question, index) => ({
             name: `Вопрос ${index + 1}`,
-            value: `${question.q}\nОтвет: ${question.a[answers[index]] || "не выбран"}\nВерно: ${answers[index] === question.correct ? "да" : "нет"}`,
+            value: `${question.q}\nВаш ответ: ${question.a[answers[index]]}\nПравильный ответ: ${question.a[question.correct]}`,
             inline: false
-          })).slice(0, 20);
+          })).filter((_, index) => answers[index] !== questions[index].correct).slice(0, 20);
+          if (careerApplicationCreated) {
+            await deliverWebhook(webhooks.applications, "Автоматическая заявка на повышение",
+              `${user.display_name} (${user.role}) сдал тесты по АК, УК и ПК. Заявка №${careerApplicationId} ожидает решения руководства.`,
+              [
+                { name: "Участник", value: user.display_name, inline: true },
+                { name: "Переход", value: `${user.role} → ${nextRank[user.role]}`, inline: true },
+                { name: "Заявка", value: `#${careerApplicationId}`, inline: true }
+              ]);
+            await notifyPortalRoles(managementRoles, {
+              type: "application",
+              title: "Заявка на повышение",
+              body: `${user.display_name} сдал АК, УК и ПК. Заявка №${careerApplicationId} ожидает решения.`,
+              href: "/page/appeals"
+            }, user.id);
+          }
           await deliverWebhook(
             webhooks.exams,
             `Результат проверки знаний: ${score}/${questions.length}`,
@@ -3921,6 +4088,7 @@ export function createPortalServer(options = {}) {
           let nicknameWarning = "";
           let interviewStatus = "not_required";
           let promotedUser = null;
+          if (careerApplicationCreated && user.role === "Юрист") interviewStatus = "waiting";
           if (application?.career_flow && passed) {
             if (application.stage_role === "Стажер КА") {
               interviewStatus = "waiting";
@@ -3942,8 +4110,10 @@ export function createPortalServer(options = {}) {
           }
           return sendJson(res, 200, {
             score, total: questions.length, passed, subject,
-            interviewRequired: Boolean(application?.career_flow && passed),
-            interviewStatus, applicationId: application?.id || null,
+            applicationCreated: careerApplicationCreated,
+            interviewRequired: Boolean((application?.career_flow && passed) ||
+              (careerApplicationCreated && user.role === "Юрист")),
+            interviewStatus, applicationId: careerApplicationId || application?.id || null,
             user: promotedUser, discordWarning, nicknameWarning
           });
         }
