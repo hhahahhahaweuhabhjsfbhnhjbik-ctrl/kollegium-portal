@@ -1319,7 +1319,7 @@ function renderLawExamButtons(progress) {
         ? `<div class="law-exam-stamp${lawExamJustPassed === subject ? " is-dropping" : ""}" data-stamp-subject="${subject}"
             data-stamp-stage="${escapeHtml(progress.stageRole)}" data-stamp-angle="${angle}" role="img"
             aria-label="Тест ${label} сдан. Потяните печать, чтобы повернуть её." title="Потяните печать, чтобы повернуть">
-            <img src="/assets/exam-passed-stamp.png" alt="ПРОЙДЕНО" style="--stamp-angle:${angle}deg">
+            <img src="/assets/exam-passed-stamp.png?v=2" alt="ПРОЙДЕНО" style="--stamp-angle:${angle}deg">
           </div>`
         : `<button class="btn btn-gold" type="button" data-action="start-law-exam" data-subject="${subject}">
             Начать тест ${short} <span aria-hidden="true">→</span>
