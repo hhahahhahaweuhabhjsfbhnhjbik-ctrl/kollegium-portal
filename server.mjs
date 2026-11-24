@@ -5555,6 +5555,7 @@ export function createPortalServer(options = {}) {
         "/assets/san-andreas-seal.png": "san-andreas-seal.png",
         "/assets/collegium-main-seal.png": "collegium-main-seal.png",
         "/assets/law-association-seal.png": "law-association-seal.png",
+        "/assets/exam-passed-stamp.png": "exam-passed-stamp.png",
         "/assets/site-icon.png": "site-icon.png",
         "/assets/role-trainee.png": "role-trainee.png",
         "/assets/role-lawyer.png": "role-lawyer.png",

@@ -423,6 +423,11 @@ check(!document.querySelector("#rp-phone-dialog")?.classList.contains("hidden") 
   document.querySelector('.rp-phone-status-icons svg[aria-label="Wi-Fi"]') &&
   document.querySelector(".rp-phone-battery"),
 "Интерактивный обзвон должен открываться отдельно на весь экран с выбором сценария.");
+const rpScenarioTitles = [...document.querySelectorAll("#rp-phone-case-picker .rp-phone-scenario strong")]
+  .map((element) => element.textContent);
+check(rpScenarioTitles.includes("«Частник на ЗОТ, договор и запрет залога»") &&
+  rpScenarioTitles.includes("«Допрос, служебная тайна, запрос и неприкосновенность»"),
+"Новые RP-кейсы должны отображаться читаемым русским текстом.");
 document.querySelector('#rp-phone-case-picker [data-case-id="case_lspd_kpz"]')?.dispatchEvent(
   new window.MouseEvent("click", { bubbles: true })
 );

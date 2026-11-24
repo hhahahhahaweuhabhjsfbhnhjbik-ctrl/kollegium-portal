@@ -503,6 +503,10 @@ test("staff accounts require website approval, server-approved exams, attestatio
     assert.equal(mainSealResponse.status, 200);
     assert.equal(mainSealResponse.contentType, "image/png");
     assert.ok(mainSealResponse.bytes.length > 100_000);
+    const examStampResponse = await trainee.raw("/assets/exam-passed-stamp.png");
+    assert.equal(examStampResponse.status, 200);
+    assert.equal(examStampResponse.contentType, "image/png");
+    assert.ok(examStampResponse.bytes.length > 1_000);
   } finally {
     db.close();
   }
