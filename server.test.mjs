@@ -2303,7 +2303,7 @@ test("startup migrates activity report types without losing existing photo attac
   }
 });
 
-test("cadre deletion is restricted to citizens and bulk cleanup preserves the current GKA", async () => {
+test("cadre deletion supports citizens and staff while bulk cleanup preserves the current GKA", async () => {
   const discordRequests = [];
   const server = createPortalServer({
     dbPath: ":memory:",
@@ -2334,22 +2334,22 @@ test("cadre deletion is restricted to citizens and bulk cleanup preserves the cu
     VALUES (?,?,?,?,'active',?)`).run(username, passwordHash, displayName, role, discordId).lastInsertRowid);
   const gkaId = addUser("removal-gka", "Глава", "ГКА");
   addUser("removal-deputy", "Заместитель", "ЗГКА");
-  const lawyerId = addUser("removal-lawyer", "Адвокат", "Адвокат");
-  const citizenId = addUser("removal-citizen", "Гражданин", "Гражданин", "345678901234567890");
+  const lawyerId = addUser("removal-lawyer", "Адвокат", "Адвокат", "345678901234567890");
+  const citizenId = addUser("removal-citizen", "Гражданин", "Гражданин");
   const reportId = Number(db.prepare(`INSERT INTO activity_reports
     (user_id,report_type,occurred_at,reference,details) VALUES (?,'call','2026-10-10','CALL-REMOVE','Отчёт под удаление')`)
-    .run(citizenId).lastInsertRowid);
+    .run(lawyerId).lastInsertRowid);
   db.prepare(`INSERT INTO activity_report_attachments
     (report_id,file_name,content_type,content) VALUES (?,'remove.png','image/png',?)`)
     .run(reportId, Buffer.from("remove-me"));
   db.prepare(`INSERT INTO member_employment_history
     (user_id,actor_id,event_type,from_role,to_role,from_status,to_status,details)
     VALUES (?,?,'dismissed','Адвокат','Адвокат','active','suspended','Старые сведения')`)
-    .run(citizenId, gkaId);
+    .run(lawyerId, gkaId);
   db.prepare(`INSERT INTO activity_reports
     (user_id,report_type,occurred_at,reference,details,reviewed_by)
     VALUES (?,'call','2026-10-11','CALL-REVIEWER','Ссылка на увольняемого',?)`)
-    .run(gkaId, citizenId);
+    .run(gkaId, lawyerId);
 
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -2368,35 +2368,36 @@ test("cadre deletion is restricted to citizens and bulk cleanup preserves the cu
     assert.equal((await gka(`/api/members/${gkaId}/dismiss`, "POST", {
       reason: "Не удалять текущий аккаунт"
     })).status, 409);
-    assert.equal((await gka(`/api/members/${lawyerId}/dismiss`, "POST", {
-      reason: "Удаление работника запрещено"
-    })).status, 409);
-
-    const dismissed = await gka(`/api/members/${citizenId}/dismiss`, "POST", {
-      reason: "Удаление гражданского аккаунта по запросу"
+    const dismissed = await gka(`/api/members/${lawyerId}/dismiss`, "POST", {
+      reason: "Прекращение полномочий по решению руководства"
     });
     assert.equal(dismissed.status, 200);
     assert.equal(dismissed.data.dmWarning, "");
     assert.equal(dismissed.data.discordWarning, "");
     const dmRequest = discordRequests.find((request) => request.url.endsWith("/channels/234567890123456789/messages"));
     assert.ok(dmRequest);
-    assert.match(JSON.parse(dmRequest.options.body).embeds[0].description, /Удаление гражданского аккаунта/);
-    assert.equal(db.prepare("SELECT username FROM users WHERE id = ?").get(lawyerId).username, "removal-lawyer");
-    assert.equal(db.prepare("SELECT 1 FROM users WHERE id = ?").get(citizenId), undefined);
+    assert.match(JSON.parse(dmRequest.options.body).embeds[0].description, /Прекращение полномочий/);
+    assert.equal(db.prepare("SELECT 1 FROM users WHERE id = ?").get(lawyerId), undefined);
     assert.equal(db.prepare("SELECT 1 FROM activity_reports WHERE id = ?").get(reportId), undefined);
     assert.equal(db.prepare("SELECT 1 FROM activity_report_attachments WHERE report_id = ?").get(reportId), undefined);
     assert.equal(db.prepare("SELECT reviewed_by FROM activity_reports WHERE user_id = ?").get(gkaId).reviewed_by, null);
     assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
+
+    const deletedCitizen = await gka(`/api/members/${citizenId}/dismiss`, "POST", {
+      reason: "Удаление гражданского аккаунта по запросу"
+    });
+    assert.equal(deletedCitizen.status, 200);
+    assert.equal(db.prepare("SELECT 1 FROM users WHERE id = ?").get(citizenId), undefined);
 
     const purged = await gka("/api/members/purge-all", "POST", {
       reason: "Полная очистка состава",
       confirmation: "УДАЛИТЬ ВСЕ"
     });
     assert.equal(purged.status, 200);
-    assert.equal(purged.data.deletedCount, 2);
+    assert.equal(purged.data.deletedCount, 1);
     assert.equal(db.prepare("SELECT id FROM users").get().id, gkaId);
     assert.equal(db.prepare("SELECT COUNT(*) AS count FROM users").get().count, 1);
-    assert.equal(purged.data.warnings.length, 2);
+    assert.equal(purged.data.warnings.length, 1);
     assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
   } finally {
     server.closeAllConnections();

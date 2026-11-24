@@ -4703,13 +4703,14 @@ export function createPortalServer(options = {}) {
           const memberId = Number(memberDismissRoute[1]);
           const reason = String(body.reason || "").trim();
           if (reason.length < 4 || reason.length > 1000) {
-            throw new HttpError(400, "Причина увольнения должна содержать от 4 до 1000 символов.");
+            throw new HttpError(400, "Причина удаления должна содержать от 4 до 1000 символов.");
           }
           if (memberId === Number(user.id)) throw new HttpError(409, "Нельзя удалить текущий аккаунт.");
           const member = db.prepare("SELECT * FROM users WHERE id = ?").get(memberId);
           if (!member) throw new HttpError(404, "Аккаунт не найден.");
-          if (member.role !== citizenRole) {
-            throw new HttpError(409, "В кадровом разделе можно удалять только аккаунты граждан.");
+          if (member.role === "ГКА" && member.status === "active" && !hasGkaAccess(user) &&
+              !db.prepare("SELECT 1 FROM users WHERE id != ? AND role = 'ГКА' AND status = 'active' LIMIT 1").get(memberId)) {
+            throw new HttpError(409, "Нельзя удалить последнего активного ГКА без полного доступа управления.");
           }
 
           db.exec("BEGIN IMMEDIATE");

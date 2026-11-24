@@ -1973,7 +1973,7 @@ async function loadAudit() {
           </select>
           <button class="btn" type="button" data-action="update-member-role" data-id="${Number(member.id)}" disabled>Сохранить</button>
           <button class="btn" type="button" data-action="update-member-status" data-id="${Number(member.id)}" data-status="${member.status === "active" ? "suspended" : "active"}">${member.status === "pending" ? "Одобрить" : member.status === "suspended" ? "Восстановить" : "Приостановить"}</button>` : ""}
-        ${member.role === "Гражданин" && managerRoles.includes(currentUser.role) ? `<button class="btn" type="button" data-action="dismiss-member" data-id="${Number(member.id)}">Удалить гражданина</button>` : ""}
+        ${managerRoles.includes(currentUser.role) ? `<button class="btn" type="button" data-action="dismiss-member" data-id="${Number(member.id)}">${member.role === "Гражданин" ? "Удалить гражданина" : "Уволить и удалить"}</button>` : ""}
       </div>` : "—"}</td>
     </tr>`
   ).join("") : `<tr><td colspan="6">${emptyState("Состав коллегии пуст.")}</td></tr>`;
@@ -2004,20 +2004,20 @@ async function updateMemberStatus(button) {
 }
 
 async function dismissMember(button) {
-  const reason = window.prompt("Укажите причину удаления гражданского аккаунта (от 4 до 1000 символов):", "")?.trim() || "";
+  const reason = window.prompt("Укажите причину удаления аккаунта (от 4 до 1000 символов):", "")?.trim() || "";
   if (reason.length < 4 || reason.length > 1000) {
     notify("Причина должна содержать от 4 до 1000 символов.");
     return;
   }
-  if (!window.confirm("Гражданский аккаунт и связанные с ним данные будут удалены без возможности восстановления. Продолжить?")) return;
+  if (!window.confirm("Аккаунт и связанные с ним данные будут удалены без возможности восстановления. Продолжить?")) return;
   const result = await api(`/api/members/${encodeURIComponent(button.dataset.id)}/dismiss`, {
     method: "POST",
     body: { reason }
   });
   const warnings = [result.dmWarning, result.discordWarning].filter(Boolean);
   notify(warnings.length
-    ? `Гражданский аккаунт удалён. ${warnings.join(" ")}`
-    : "Гражданский аккаунт и связанные данные удалены.");
+    ? `Аккаунт удалён. ${warnings.join(" ")}`
+    : "Аккаунт и связанные данные удалены.");
   await loadAudit();
 }
 
