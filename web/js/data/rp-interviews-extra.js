@@ -2,7 +2,7 @@ export const rpInterviewExtraCases = [
 {
     id: 'case_lspd_private_long',
     badge: 'КЕЙС #3 • КПЗ LSPD (5 ХОДОВ)',
-    title: '«Частник на ЗОТ, договор и запрет залога»',
+    title: 'Адвокат в КПЗ: допуск, договор и залог',
     subtitle: 'Длинный разбор с офицером LSPD: допуск частного адвоката, договор, беседа, залог и видеофиксация.',
     copName: 'Сержант Miller #219',
     copDept: 'LSPD • Patrol Division',
@@ -222,7 +222,7 @@ export const rpInterviewExtraCases = [
   {
     id: 'case_fib_deep_long',
     badge: 'КЕЙС #4 • ДОПРОС FIB (5 ХОДОВ)',
-    title: '«Допрос, служебная тайна, запрос и неприкосновенность»',
+    title: 'Допрос под давлением: тайна и иммунитет',
     subtitle: 'Сложный многоэтапный допрос с агентом FIB: паузы, тайна беседы, запрос материалов и иммунитет.',
     copName: 'Спецагент Cross #077',
     copDept: 'FIB • CID',

@@ -2,7 +2,7 @@ export const rpInterviewCases = [
   {
     id: "case_lspd_kpz",
     badge: "Кейс 01 · КПЗ LSPD",
-    title: "Опоздал на две минуты — час уже на исходе",
+    title: "Часовой предел: спор о задержании",
     subtitle: "Офицер спорит о тайминге вызова и торопит оформление.",
     copName: "Офицер Steele #402",
     copDept: "LSPD · Патрульный дивизион",
@@ -126,7 +126,7 @@ export const rpInterviewCases = [
   {
     id: "case_fib_interrogation",
     badge: "Кейс 02 · ДОПРОС FIB",
-    title: "Выкладывай, о чём шептались",
+    title: "Тайна беседы: давление агента FIB",
     subtitle: "Агент FIB пытается вытянуть суть приватной беседы и затягивает допрос.",
     copName: "Агент Vance #118",
     copDept: "FIB · Следственный отдел",

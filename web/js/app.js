@@ -545,7 +545,10 @@ async function loadLawsuits() {
           : `<span class="forum-status">Ссылка ещё не добавлена</span>`;
     return `<tr>
       <td>#${Number(item.id)}</td>
-      <td class="court-label">${courtIcon ? `<svg class="icon icon-sm"><use href="/web/icons-sprite.svg#icon-${courtIcon}"></use></svg>` : ""}${escapeHtml(item.court || item.template || "—")}</td>
+      <td><span class="court-label">
+        <span class="court-label-icon">${courtIcon ? `<svg class="icon icon-sm"><use href="/web/icons-sprite.svg#icon-${courtIcon}"></use></svg>` : ""}</span>
+        <span>${escapeHtml(item.court || item.template || "—")}</span>
+      </span></td>
       <td>${escapeHtml(item.display_name || "—")}</td>
       <td><strong>${escapeHtml(item.title)}</strong><br>${publicationStatus}
         ${item.forum_url ? `<br><a href="${escapeHtml(item.forum_url)}" target="_blank" rel="noopener noreferrer">Открыть тему на форуме ↗</a>` : ""}</td>
@@ -1761,10 +1764,10 @@ function renderRpPhone() {
     $("#rp-phone-leverage").style.width = "50%";
     setRpPhoneMood("neutral", "Спокоен");
     picker.innerHTML = `<div class="rp-phone-picker-intro"><span class="badge badge-gold">AI CASE · СИМУЛЯТОР</span>
-      <h2>Выберите сценарий</h2><p>Отвечайте сотруднику, наблюдайте за его реакцией и ведите диалог к исходу. Звуковые эффекты можно отключить в шапке телефона.</p></div>
-      ${rpInterviewCases.map((scenario) => `<button class="rp-phone-scenario" type="button"
+      <h2>Выберите дело</h2><p>Каждое решение меняет ход разговора. Выберите кейс, защитите доверителя и доведите дело до нужного исхода.</p></div>
+      ${rpInterviewCases.map((scenario, index) => `<button class="rp-phone-scenario" type="button"
         data-action="select-rp-phone-case" data-case-id="${escapeHtml(scenario.id)}">
-        <span class="rp-scenario-index">${escapeHtml(scenario.badge.match(/\d+/)?.[0] || "—")}</span>
+        <span class="rp-scenario-index">${String(index + 1).padStart(2, "0")}</span>
         <span><strong>${escapeHtml(scenario.title)}</strong><small>${escapeHtml(scenario.subtitle)}</small>
           <em>${escapeHtml(scenario.copName)} · ${escapeHtml(scenario.copDept)}</em></span>
         <b aria-hidden="true">→</b>

@@ -425,9 +425,12 @@ check(!document.querySelector("#rp-phone-dialog")?.classList.contains("hidden") 
 "Интерактивный обзвон должен открываться отдельно на весь экран с выбором сценария.");
 const rpScenarioTitles = [...document.querySelectorAll("#rp-phone-case-picker .rp-phone-scenario strong")]
   .map((element) => element.textContent);
-check(rpScenarioTitles.includes("«Частник на ЗОТ, договор и запрет залога»") &&
-  rpScenarioTitles.includes("«Допрос, служебная тайна, запрос и неприкосновенность»"),
+check(rpScenarioTitles.includes("Адвокат в КПЗ: допуск, договор и залог") &&
+  rpScenarioTitles.includes("Допрос под давлением: тайна и иммунитет"),
 "Новые RP-кейсы должны отображаться читаемым русским текстом.");
+check([...document.querySelectorAll("#rp-phone-case-picker .rp-scenario-index")]
+  .map((element) => element.textContent).join(",") === "01,02,03,04",
+"Нумерация кейсов в телефоне должна быть единообразной и двузначной.");
 document.querySelector('#rp-phone-case-picker [data-case-id="case_lspd_kpz"]')?.dispatchEvent(
   new window.MouseEvent("click", { bubbles: true })
 );
