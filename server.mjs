@@ -2386,7 +2386,7 @@ export function createPortalServer(options = {}) {
     res.setHeader("x-content-type-options", "nosniff");
     res.setHeader("referrer-policy", "same-origin");
     res.setHeader("x-frame-options", "DENY");
-    res.setHeader("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://cdn.discordapp.com; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+    res.setHeader("content-security-policy", "default-src 'self'; script-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://cdn.discordapp.com; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
     try {
       const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
       const pathname = requestUrl.pathname;
@@ -5882,7 +5882,9 @@ ${mode === "lawsuit"
         return;
       }
 
-      if (req.method === "GET" && await serveFrontendAsset(res, pathname)) return;
+      if (req.method === "GET" && await serveFrontendAsset(res, pathname, {
+        searchParams: requestUrl.searchParams
+      })) return;
 
       if (req.method === "GET" && pathname === "/pamyatka_advokata.html") {
         const html = await readFile(path.join(root, "pamyatka_advokata.html"));
@@ -6064,6 +6066,7 @@ const staticContentTypes = {
   ".woff2": "font/woff2",
   ".map": "application/json; charset=utf-8"
 };
+const frontendAssetPartSize = 12 * 1024;
 
 const webhookChannelLabels = {
   applications: "Заявки и приём в Коллегию",
@@ -6077,7 +6080,10 @@ const publicWebhookChannels = ["applications", "exams", "logs"];
  * Возвращает false, если путь не относится к статике, чтобы маршрутизация
  * продолжилась обычным образом.
  */
-async function serveFrontendAsset(res, pathname, { cacheControl = "public, max-age=300" } = {}) {
+async function serveFrontendAsset(res, pathname, {
+  cacheControl = "public, max-age=300",
+  searchParams
+} = {}) {
   if (!pathname.startsWith("/web/")) return false;
   let decoded;
   try {
@@ -6100,6 +6106,26 @@ async function serveFrontendAsset(res, pathname, { cacheControl = "public, max-a
     body = await readFile(filePath);
   } catch {
     return false;
+  }
+  const partValue = relative === "js/app.js" ? searchParams?.get("part") : null;
+  if (partValue !== null) {
+    if (!/^(0|[1-9]\d*)$/.test(partValue)) return false;
+    const partIndex = Number(partValue);
+    const partCount = Math.ceil(body.length / frontendAssetPartSize);
+    if (!Number.isSafeInteger(partIndex) || partIndex >= partCount) return false;
+    // Keep each response below the transfer size where some client networks stall.
+    const start = partIndex * frontendAssetPartSize;
+    const part = body.subarray(start, Math.min(start + frontendAssetPartSize, body.length));
+    res.writeHead(200, {
+      "content-type": type,
+      "content-length": part.length,
+      "cache-control": cacheControl,
+      "x-content-type-options": "nosniff",
+      "x-asset-part-count": String(partCount),
+      "x-asset-total-length": String(body.length)
+    });
+    res.end(part);
+    return true;
   }
   res.writeHead(200, {
     "content-type": type,
