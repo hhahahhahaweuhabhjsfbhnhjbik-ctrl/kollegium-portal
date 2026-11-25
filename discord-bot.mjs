@@ -43,6 +43,11 @@ export function parseTechCommand(content) {
   return match ? (match[1] || "help").toLowerCase() : null;
 }
 
+export function parseGiveawayCommand(content) {
+  const match = /^!giveway(?:\s+(on|off|reset))?$/i.exec(String(content || "").trim());
+  return match ? (match[1] || "help").toLowerCase() : null;
+}
+
 export function canControlService({ authorId, ownerId, isAdministrator }) {
   return authorId === ownerId || isAdministrator === true;
 }
@@ -310,6 +315,7 @@ export function startDiscordBot({
   onPortalAction,
   onServiceCommand,
   onServiceRestart,
+  onGiveawayCommand,
   onPresence,
   healthUrl
 }) {
@@ -333,8 +339,9 @@ export function startDiscordBot({
     ]
   });
   client.on(Events.MessageCreate, (message) => {
-    const action = parseTechCommand(message.content);
-    if (!action || message.author.bot || message.guildId !== guildId) return;
+    const techAction = parseTechCommand(message.content);
+    const giveawayAction = parseGiveawayCommand(message.content);
+    if ((!techAction && !giveawayAction) || message.author.bot || message.guildId !== guildId) return;
 
     void (async () => {
       if (!canControlService({
@@ -349,6 +356,24 @@ export function startDiscordBot({
         return;
       }
 
+      if (giveawayAction) {
+        if (giveawayAction === "help") {
+          await message.reply({
+            content: "Команды конкурса: `!giveway on` — включить начисление, `!giveway off` — поставить на паузу, `!giveway reset` — сбросить очки.",
+            allowedMentions: { parse: [], repliedUser: false }
+          });
+          return;
+        }
+        if (!onGiveawayCommand) throw new Error("Управление конкурсом не настроено.");
+        const response = await onGiveawayCommand(giveawayAction, message.author.id);
+        await message.reply({
+          content: String(response).slice(0, 1900),
+          allowedMentions: { parse: [], repliedUser: false }
+        });
+        return;
+      }
+
+      const action = techAction;
       if (action === "help") {
         await message.reply({
           content: "Команды: `!tech on` — включить техработы, `!tech off` — выключить, `!tech restart` — перезапустить портал и бота.",

@@ -148,7 +148,7 @@ const responses = {
     members: [{
       id: 2,
       display_name: "Новый сотрудник",
-      username: "pending",
+      username: "staff.login",
       role: "Стажер КА",
       status: "pending",
       document_count: 0,
@@ -167,6 +167,22 @@ const responses = {
     trend: [{ period: "2026-01-01", members: 1, lawsuits: 2, documents: 3, requests: 1, promotions: 0, reprimands: 0 }]
   },
   "/api/attorneys": { attorneys: [attorney] },
+  "/api/giveaway": {
+    enabled: true,
+    weekStart: "2026-01-12",
+    weekEnd: "2026-01-18",
+    totalPoints: 4,
+    participantCount: 1,
+    standings: [{
+      rank: 1,
+      userId: 2,
+      displayName: "Елена Петрова",
+      role: "Адвокат",
+      points: 4,
+      calls: 2,
+      bails: 1
+    }]
+  },
   "/api/profiles/2": {
     profile: {
       id: attorney.id,
@@ -194,6 +210,7 @@ const requested = [];
 const activityReportBodies = [];
 const completedRpCaseIds = new Set();
 const audioTones = [];
+let failAttorneyRanking = false;
 let resolveAiAssistantResponse;
 const virtualConsole = new VirtualConsole();
 virtualConsole.on("jsdomError", (error) => problems.push(`jsdom: ${error.message}`));
@@ -201,6 +218,7 @@ virtualConsole.on("error", (...args) => problems.push(`console.error: ${args.joi
 
 const html = await read("advokate.html");
 const css = await read("web/css/base.css");
+const themeCss = await read("web/css/theme.css");
 if (/<(?:button|input|select|textarea)\b[^>]*\bon(?:click|input|change|submit)=/i.test(html)) {
   problems.push("В HTML остался встроенный обработчик события.");
 }
@@ -213,6 +231,8 @@ const dom = new JSDOM(html, {
 const { window } = dom;
 const { document } = window;
 window.matchMedia = () => ({ matches: false });
+window.HTMLDialogElement.prototype.showModal = function showModal() { this.setAttribute("open", ""); };
+window.HTMLDialogElement.prototype.close = function close() { this.removeAttribute("open"); };
 window.AudioContext = class {
   constructor() {
     this.currentTime = 0;
@@ -244,6 +264,9 @@ window.fetch = async (input, options = {}) => {
   const url = new URL(typeof input === "string" ? input : input.url, "http://127.0.0.1:3000");
   const method = options.method || "GET";
   requested.push(`${method} ${url.pathname}`);
+  if (url.pathname === "/api/attorneys" && failAttorneyRanking) {
+    return { ok: false, status: 503, json: async () => ({ error: "Рейтинг временно недоступен." }) };
+  }
   if (url.pathname === "/api/activity-reports" && method === "POST") {
     activityReportBodies.push(JSON.parse(options.body));
   }
@@ -294,6 +317,16 @@ check(document.querySelector("#user-avatar img")?.getAttribute("src") === user.d
   document.querySelector("#welcome-avatar img")?.getAttribute("src") === user.discordAvatarUrl,
 "Discord-аватар должен отображаться в шапке и приветственном блоке.");
 check(document.querySelector("#welcome-calls")?.textContent === "7", "Подтверждённые вызовы профиля не загрузились.");
+check(document.querySelector("#network-notice")?.open &&
+  Boolean(window.localStorage.getItem(`portal-network-notice:${user.id}`)),
+  "Сетевое уведомление должно появляться при входе на главную и сохранять время показа.");
+failAttorneyRanking = true;
+await window.navigate("dashboard");
+check(document.querySelector("#kpiCalls")?.textContent === "6" &&
+  document.querySelector("#dashboard-attorneys")?.textContent.includes("Рейтинг временно недоступен."),
+"Сбой рейтинга не должен ломать главную страницу и должен показывать понятную ошибку.");
+failAttorneyRanking = false;
+await window.navigate("dashboard");
 check(document.querySelector("#kpiCalls")?.textContent === "6" &&
   document.querySelector("#kpiActivityTitle")?.textContent === "Активность за 7 дней",
 "Сводка активности за неделю не загрузилась.");
@@ -334,8 +367,23 @@ check(!sidebar?.querySelector(".sidebar-scroll [data-view='rating'], .sidebar-sc
   sidebar?.querySelector(".sidebar-footer [data-view='rating']") &&
   sidebar?.querySelector(".sidebar-footer [data-view='audit']") &&
   sidebar?.querySelector(".sidebar-footer [data-view='awards']") &&
+  sidebar?.querySelector(".sidebar-footer [data-view='giveaway']") &&
   sidebar?.querySelector(".sidebar-footer [data-view='reports']"),
 "Рейтинги, управление и отчёты должны находиться в нижнем блоке сайдбара.");
+check(document.querySelector("#audit-search")?.closest("#view-audit") &&
+  themeCss.includes(".audit-table-wrap { max-height:") &&
+  themeCss.includes("overflow: auto"),
+"Поиск и вертикальная прокрутка должны быть размещены в кадровом аудите.");
+const networkNotice = document.querySelector("#network-notice");
+networkNotice.close();
+window.localStorage.removeItem(`portal-network-notice:${user.id}`);
+await window.navigate("rating");
+check(!networkNotice.open, "Сетевое уведомление не должно показываться вне главной страницы.");
+await window.navigate("dashboard");
+check(networkNotice.open, "Сетевое уведомление должно появиться при возвращении на главную.");
+networkNotice.close();
+await window.navigate("dashboard");
+check(!networkNotice.open, "Сетевое уведомление не должно показываться повторно в течение часа.");
 const careerButton = document.querySelector("#careerBranchBtn");
 const careerSubmenu = document.querySelector("#careerSubmenu");
 check(careerButton?.textContent.includes("Начало пути"), "Раздел обучения должен называться «Начало пути».");
@@ -379,6 +427,28 @@ for (const view of views) {
   await wait(25);
   check(document.querySelector(`#view-${view}`)?.classList.contains("active"), `Экран «${view}» не открылся.`);
 }
+await window.navigate("audit");
+const auditSearch = document.querySelector("#audit-search");
+auditSearch.value = "pending";
+auditSearch.dispatchEvent(new window.Event("input", { bubbles: true }));
+check(document.querySelectorAll("#auditTableBody tr").length === 1 &&
+  document.querySelector("#audit-member-count")?.textContent.includes("Найдено 1"),
+"Поиск кадрового аудита должен находить аккаунт по статусу.");
+auditSearch.value = "staff.login";
+auditSearch.dispatchEvent(new window.Event("input", { bubbles: true }));
+check(document.querySelectorAll("#auditTableBody tr").length === 1,
+"Поиск кадрового аудита должен находить аккаунт по логину.");
+auditSearch.value = "нет совпадений";
+auditSearch.dispatchEvent(new window.Event("input", { bubbles: true }));
+check(document.querySelector("#audit-member-count")?.textContent.includes("Найдено 0"),
+"Поиск кадрового аудита должен сообщать, если совпадений нет.");
+auditSearch.value = "";
+auditSearch.dispatchEvent(new window.Event("input", { bubbles: true }));
+await window.navigate("giveaway");
+check(requested.includes("GET /api/giveaway") &&
+  document.querySelector("#giveaway-ranking")?.textContent.includes("Елена Петрова") &&
+  document.querySelector("#giveaway-total-points")?.textContent.includes("4"),
+"Страница премии должна загружать и отображать рейтинг очков.");
 await window.navigate("practice");
 for (const level of ["rp_easy", "rp_medium", "rp_hard"]) {
   document.querySelector(`.rp-practice-controls [data-level="${level}"]`)?.dispatchEvent(

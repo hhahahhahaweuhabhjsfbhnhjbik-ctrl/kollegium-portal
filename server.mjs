@@ -40,6 +40,7 @@ const portalPageRoutes = new Set([
   "/page/audit",
   "/page/decrees",
   "/page/awards",
+  "/page/giveaway",
   "/page/reports"
 ]);
 const taskPriorities = ["low", "normal", "high", "critical"];
@@ -875,6 +876,38 @@ function createDatabase(dbPath) {
   db.prepare(`INSERT OR IGNORE INTO promotion_decree_state (id, next_number, first_application_id)
     SELECT 1, 0, COALESCE(MAX(id), 0) FROM applications`).run();
   migrateActivityReportTypes(db);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS giveaway_state (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0,1)),
+      campaign_epoch INTEGER NOT NULL DEFAULT 1 CHECK (campaign_epoch >= 1),
+      updated_by_discord_id TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS giveaway_report_eligibility (
+      report_id INTEGER PRIMARY KEY REFERENCES activity_reports(id) ON DELETE CASCADE,
+      campaign_epoch INTEGER NOT NULL,
+      week_start TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS giveaway_point_entries (
+      report_id INTEGER PRIMARY KEY REFERENCES activity_reports(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      report_type TEXT NOT NULL CHECK (report_type IN ('call','bail')),
+      points INTEGER NOT NULL CHECK (points IN (1,2)),
+      campaign_epoch INTEGER NOT NULL,
+      week_start TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS giveaway_points_week_idx
+      ON giveaway_point_entries(campaign_epoch, week_start, user_id);
+    CREATE TABLE IF NOT EXISTS giveaway_events (
+      id INTEGER PRIMARY KEY,
+      action TEXT NOT NULL CHECK (action IN ('on','off','reset')),
+      actor_discord_id TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  db.prepare("INSERT OR IGNORE INTO giveaway_state (id) VALUES (1)").run();
   const userColumns = db.prepare("PRAGMA table_info(users)").all();
   if (!userColumns.some((item) => item.name === "full_gka_access")) {
     db.exec("ALTER TABLE users ADD COLUMN full_gka_access INTEGER NOT NULL DEFAULT 0 CHECK (full_gka_access IN (0,1))");
@@ -1567,6 +1600,97 @@ function buildAttorneyRanking(db, period) {
     }).sort((left, right) => right.score - left.score || right.average_rating - left.average_rating ||
       right.review_count - left.review_count || left.display_name.localeCompare(right.display_name, "ru"));
   return { period, weights, attorneys };
+}
+
+function getGiveawayWeekWindow(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Europe/Moscow",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(now);
+  const part = (type) => Number(parts.find((item) => item.type === type)?.value);
+  const start = new Date(Date.UTC(part("year"), part("month") - 1, part("day")));
+  start.setUTCDate(start.getUTCDate() - ((start.getUTCDay() + 6) % 7));
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 6);
+  return {
+    start: start.toISOString().slice(0, 10),
+    end: end.toISOString().slice(0, 10)
+  };
+}
+
+export function applyGiveawayCommand(db, action, discordUserId) {
+  if (!["on", "off", "reset"].includes(action)) throw new Error("Команда конкурса не распознана.");
+  const actorId = String(discordUserId || "");
+  if (!/^\d{15,22}$/.test(actorId)) throw new Error("Discord вернул некорректный ID пользователя.");
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const state = db.prepare("SELECT enabled, campaign_epoch FROM giveaway_state WHERE id = 1").get();
+    if (action === "reset") {
+      db.prepare(`UPDATE giveaway_state SET campaign_epoch = campaign_epoch + 1,
+        updated_by_discord_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1`).run(actorId);
+    } else {
+      const nextEnabled = action === "on" ? 1 : 0;
+      if (Number(state.enabled) === nextEnabled) {
+        db.exec("COMMIT");
+        return nextEnabled ? "Конкурс уже включён; накопленные баллы сохранены." : "Конкурс уже выключен.";
+      }
+      db.prepare(`UPDATE giveaway_state SET enabled = ?, updated_by_discord_id = ?,
+        updated_at = CURRENT_TIMESTAMP WHERE id = 1`).run(nextEnabled, actorId);
+    }
+    db.prepare("INSERT INTO giveaway_events (action, actor_discord_id) VALUES (?, ?)")
+      .run(action, actorId);
+    db.exec("COMMIT");
+    if (action === "reset") {
+      const enabled = Number(state.enabled) === 1;
+      return `Баллы конкурса сброшены.${enabled ? " Начисление продолжится." : " Конкурс остаётся выключенным."}`;
+    }
+    return action === "on"
+      ? "Конкурс включён. С этого момента новые отчёты будут участвовать в рейтинге; прежние баллы этой недели сохранены."
+      : "Конкурс поставлен на паузу. Накопленные баллы сохранены; команда !giveway on возобновит начисление.";
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+function getGiveawayLeaderboard(db) {
+  const state = db.prepare("SELECT enabled, campaign_epoch, updated_at FROM giveaway_state WHERE id = 1").get();
+  const week = getGiveawayWeekWindow();
+  const standings = db.prepare(`SELECT u.id AS user_id, u.display_name, u.role,
+      COALESCE(SUM(p.points), 0) AS points,
+      COALESCE(SUM(CASE WHEN p.report_type = 'call' THEN 1 ELSE 0 END), 0) AS calls,
+      COALESCE(SUM(CASE WHEN p.report_type = 'bail' THEN 1 ELSE 0 END), 0) AS bails
+    FROM users u
+    LEFT JOIN giveaway_point_entries p
+      ON p.user_id = u.id AND p.campaign_epoch = ? AND p.week_start = ?
+    WHERE u.status = 'active' AND u.role != ?
+    GROUP BY u.id
+    HAVING COALESCE(SUM(p.points), 0) > 0
+    ORDER BY points DESC, calls DESC, bails DESC, u.display_name COLLATE NOCASE`)
+    .all(state.campaign_epoch, week.start, citizenRole)
+    .map((row, index) => ({
+      rank: index + 1,
+      userId: Number(row.user_id),
+      displayName: row.display_name,
+      role: row.role,
+      points: Number(row.points),
+      calls: Number(row.calls),
+      bails: Number(row.bails)
+    }));
+  return {
+    enabled: Boolean(Number(state.enabled)),
+    updatedAt: state.updated_at,
+    weekStart: week.start,
+    weekEnd: week.end,
+    timeZone: "Europe/Moscow",
+    prize: 300000,
+    pointsPerReport: { call: 1, bail: 2 },
+    totalPoints: standings.reduce((total, item) => total + item.points, 0),
+    participantCount: standings.length,
+    standings
+  };
 }
 
 export async function runDiscordPortalCommand({
@@ -5028,6 +5152,11 @@ ${mode === "lawsuit"
           return sendJson(res, 200, buildAttorneyRanking(db, period));
         }
 
+        if (pathname === "/api/giveaway" && req.method === "GET") {
+          if (user.role === citizenRole) throw new HttpError(403, "Рейтинг премии доступен только сотрудникам Коллегии.");
+          return sendJson(res, 200, getGiveawayLeaderboard(db));
+        }
+
         if (pathname === "/api/reserve" && req.method === "GET") {
           if (user.role === citizenRole) throw new HttpError(403, "Кадровый резерв доступен только сотрудникам.");
           const reserve = db.prepare(`SELECT r.user_id, r.status, r.note, r.created_at, r.updated_at,
@@ -5471,7 +5600,12 @@ ${mode === "lawsuit"
             (SELECT COUNT(*) FROM documents WHERE user_id = users.id AND forum_status = 'approved') AS document_count,
             (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
               WHERE l.user_id = users.id AND d.forum_status = 'approved') AS lawsuit_count
-            FROM users ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'active' THEN 1 ELSE 2 END, role, display_name`).all();
+            FROM users
+            ORDER BY CASE role
+              WHEN 'ГКА' THEN 1 WHEN 'ЗГКА' THEN 2 WHEN 'Ст.Адвокат' THEN 3
+              WHEN 'Адвокат' THEN 4 WHEN 'Юрист' THEN 5 WHEN 'Стажер КА' THEN 6 ELSE 7 END,
+              CASE status WHEN 'active' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END,
+              display_name COLLATE NOCASE`).all();
           return sendJson(res, 200, { members });
         }
 
@@ -6232,6 +6366,11 @@ ${mode === "lawsuit"
                 (report_id, file_name, content_type, content) VALUES (?, ?, ?, ?)`)
                 .run(reportId, photo.name, photo.contentType, photo.content);
             }
+            const giveawayState = db.prepare("SELECT enabled, campaign_epoch FROM giveaway_state WHERE id = 1").get();
+            if (Number(giveawayState.enabled) === 1) {
+              db.prepare(`INSERT INTO giveaway_report_eligibility (report_id, campaign_epoch, week_start)
+                VALUES (?, ?, ?)`).run(reportId, giveawayState.campaign_epoch, getGiveawayWeekWindow().start);
+            }
             db.exec("COMMIT");
           } catch (error) {
             db.exec("ROLLBACK");
@@ -6262,10 +6401,29 @@ ${mode === "lawsuit"
           if (status === "rejected" && decision.length < 4) {
             throw new HttpError(400, "Для отказа укажите причину длиной не менее 4 символов.");
           }
-          const review = db.prepare(`UPDATE activity_reports SET status = ?, decision = ?, reviewed_by = ?,
-            reviewed_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'`)
-            .run(status, decision, user.id, reportId);
-          if (review.changes !== 1) throw new HttpError(409, "Этот отчёт уже рассмотрен.");
+          db.exec("BEGIN IMMEDIATE");
+          try {
+            const review = db.prepare(`UPDATE activity_reports SET status = ?, decision = ?, reviewed_by = ?,
+              reviewed_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'`)
+              .run(status, decision, user.id, reportId);
+            if (review.changes !== 1) throw new HttpError(409, "Этот отчёт уже рассмотрен.");
+            if (status === "approved") {
+              const eligible = db.prepare(`SELECT campaign_epoch, week_start FROM giveaway_report_eligibility
+                WHERE report_id = ?`).get(reportId);
+              const points = report.report_type === "call" ? 1 : report.report_type === "bail" ? 2 : 0;
+              if (eligible && points) {
+                db.prepare(`INSERT OR IGNORE INTO giveaway_point_entries
+                  (report_id, user_id, report_type, points, campaign_epoch, week_start)
+                  VALUES (?, ?, ?, ?, ?, ?)`)
+                  .run(reportId, report.user_id, report.report_type, points,
+                    eligible.campaign_epoch, eligible.week_start);
+              }
+            }
+            db.exec("COMMIT");
+          } catch (error) {
+            db.exec("ROLLBACK");
+            throw error;
+          }
           await notifyPortalUser({
             userId: report.user_id,
             type: "activity_report_review",
@@ -7026,6 +7184,7 @@ export async function startPortal(options = {}) {
           }
         }
       }),
+    onGiveawayCommand: (action, discordUserId) => applyGiveawayCommand(db, action, discordUserId),
     onServiceCommand: (action) => {
       if (action === "restart") return "Перезапускаю портал и Discord-бота. Обычно это занимает около минуты.";
       if (action !== "on" && action !== "off") throw new Error("Неизвестная команда управления сервисом.");

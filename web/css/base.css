@@ -665,6 +665,8 @@ html, body {
   .content-area { padding: 14px; }
   .topbar { padding: 0 12px; }
   .topbar-profile small, .topbar-profile #active-user-role { display: none; }
+  .audit-table-toolbar { align-items: stretch; flex-direction: column; }
+  .audit-search { width: 100%; }
   .lawsuit-form, .lawsuit-editor, .audit-reprimand-form { grid-template-columns: 1fr; }
   .lawsuit-editor > label, .lawsuit-editor > label:nth-child(3), .lawsuit-editor > .lawsuit-fields, .lawsuit-editor > .form-actions { grid-column: 1; }
   .rp-practice-controls { grid-template-columns: 1fr; }

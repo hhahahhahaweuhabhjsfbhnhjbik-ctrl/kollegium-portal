@@ -5,10 +5,11 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
-  createDiscordCitizenRequest, createInitialAdminAccount, createPortalServer as createPortalServerInstance, initialAdminExists, issueDiscordInvite,
+  applyGiveawayCommand, createDiscordCitizenRequest, createInitialAdminAccount, createPortalServer as createPortalServerInstance,
+  initialAdminExists, issueDiscordInvite,
   isAssistantRequestAllowed, parseGeneratedLawsuitDocument, runDiscordPortalAction, runDiscordPortalCommand, startPortal
 } from "./server.mjs";
-import { canControlService, parseTechCommand } from "./discord-bot.mjs";
+import { canControlService, parseGiveawayCommand, parseTechCommand } from "./discord-bot.mjs";
 
 const createPortalServer = (options = {}) => createPortalServerInstance(options);
 
@@ -210,6 +211,15 @@ test("Discord tech commands accept only explicit actions and are admin-only", ()
   assert.equal(canControlService({ authorId: "owner", ownerId: "owner", isAdministrator: false }), true);
   assert.equal(canControlService({ authorId: "admin", ownerId: "owner", isAdministrator: true }), true);
   assert.equal(canControlService({ authorId: "member", ownerId: "owner", isAdministrator: false }), false);
+});
+
+test("Discord giveaway commands parse only supported actions", () => {
+  assert.equal(parseGiveawayCommand("!giveway on"), "on");
+  assert.equal(parseGiveawayCommand("!GIVEWAY OFF"), "off");
+  assert.equal(parseGiveawayCommand("!giveway reset"), "reset");
+  assert.equal(parseGiveawayCommand("!giveway"), "help");
+  assert.equal(parseGiveawayCommand("!giveway wipe"), null);
+  assert.equal(parseGiveawayCommand("!giveway on now"), null);
 });
 
 test("desktop first run creates a single active GKA account", async () => {
@@ -2300,6 +2310,9 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
     ]) {
       assert.equal((await client("/api/auth/login", "POST", { username, password })).status, 200);
     }
+    const auditMembers = await gka("/api/members");
+    assert.deepEqual(auditMembers.data.members.map((member) => member.role),
+      ["ГКА", "ЗГКА", "Юрист", "Юрист", "Гражданин"]);
     const report = await gka("/api/reports?period=2026-10");
     assert.equal(report.status, 200);
     assert.equal(report.data.googleSheetsConfigured, true);
@@ -2329,6 +2342,9 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
     assert.equal("lawsuitReports" in report.data.totals, false);
     assert.equal("prosecutorComplaints" in report.data.totals, false);
 
+    assert.equal((await citizen("/api/giveaway")).status, 403);
+    applyGiveawayCommand(db, "on", "12345678901234567");
+    assert.equal((await lawyer("/api/giveaway")).data.enabled, true);
     const manualLawsuitReport = await lawyer("/api/activity-reports", "POST", {
       reportType: "lawsuit",
       occurredAt: "2026-10-25",
@@ -2456,6 +2472,37 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
     const updatedLawyerReport = updatedReport.data.rows.find((row) => row.userId === lawyerId);
     assert.equal(updatedLawyerReport.callsReported, 2);
     assert.equal(updatedLawyerReport.bailReports, 2);
+    const activeStandings = await lawyer("/api/giveaway");
+    assert.equal(activeStandings.data.totalPoints, 3);
+    assert.equal(activeStandings.data.participantCount, 1);
+    assert.deepEqual(
+      activeStandings.data.standings.find((item) => item.userId === lawyerId),
+      {
+        rank: 1,
+        userId: lawyerId,
+        displayName: "Юрист",
+        role: "Юрист",
+        points: 3,
+        calls: 1,
+        bails: 1
+      }
+    );
+    applyGiveawayCommand(db, "off", "12345678901234567");
+    const pausedSubmission = await lawyer("/api/activity-reports", "POST", {
+      reportType: "bail",
+      occurredAt: "2026-10-25",
+      details: "Отчёт подан, пока начисление поставлено на паузу"
+    });
+    assert.equal(pausedSubmission.status, 201);
+    assert.equal((await gka(`/api/activity-reports/${pausedSubmission.data.id}`, "PATCH", {
+      status: "approved"
+    })).status, 200);
+    const pausedStandings = await lawyer("/api/giveaway");
+    assert.equal(pausedStandings.data.enabled, false);
+    assert.equal(pausedStandings.data.totalPoints, 3);
+    assert.equal(pausedStandings.data.standings[0].bails, 1);
+    applyGiveawayCommand(db, "on", "12345678901234567");
+    assert.equal((await lawyer("/api/giveaway")).data.totalPoints, 3);
 
     assert.equal((await gka("/api/reports?period=2026-13")).status, 400);
     assert.equal((await deputy("/api/reports?period=2026-10")).status, 200);
@@ -2487,6 +2534,12 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
     const largePhoto = await lawyer.raw(`/api/activity-reports/${largePhotoReport.data.id}/photo`);
     assert.equal(largePhoto.status, 200);
     assert.equal(largePhoto.bytes.length, largePhotoBytes.length);
+    applyGiveawayCommand(db, "reset", "12345678901234567");
+    const resetStandings = await lawyer("/api/giveaway");
+    assert.equal(resetStandings.data.enabled, true);
+    assert.equal(resetStandings.data.totalPoints, 0);
+    assert.deepEqual(resetStandings.data.standings, []);
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM giveaway_point_entries").get().count, 2);
   } finally {
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));

@@ -216,6 +216,10 @@
           <svg class="icon"><use href="/web/icons-sprite.svg#icon-12_achievements_badges"></use></svg>
           <span class="nav-label">Награды и профиль</span>
         </button>
+        <button class="nav-item staff-only" data-view="giveaway">
+          <svg class="icon"><use href="/web/icons-sprite.svg#icon-12_achievements_badges"></use></svg>
+          <span class="nav-label">Премии</span>
+        </button>
         <div class="nav-footer-reports staff-only">
           <div class="nav-group-title">ФИКСАЦИЯ ОТЧЁТОВ</div>
           <button class="nav-item nav-report-card" data-view="reports" title="Система отчётов" aria-label="Система отчётов">
@@ -746,6 +750,58 @@
           </div>
         </section>
 
+        <section id="view-giveaway" class="page-view staff-only hidden">
+          <div class="card giveaway-page">
+            <section class="giveaway-hero" aria-labelledby="giveaway-title">
+              <div class="giveaway-hero-copy">
+                <span class="badge badge-gold">КОНКУРС НЕДЕЛИ</span>
+                <h2 id="giveaway-title">Премия лучшему сотруднику</h2>
+                <p>Качественно выполняйте обязанности, отправляйте отчёты и набирайте баллы. Учитываются только отчёты, одобренные руководством.</p>
+                <span id="giveaway-status" class="giveaway-status" role="status" aria-live="polite"></span>
+              </div>
+              <div class="giveaway-prize">
+                <span>ПРИЗ НЕДЕЛИ</span>
+                <strong>300 000 $</strong>
+                <small>личная премия победителю</small>
+              </div>
+            </section>
+            <div class="giveaway-summary-grid">
+              <article class="giveaway-summary-card">
+                <span>Неделя конкурса</span>
+                <strong id="giveaway-period">—</strong>
+                <small>понедельник — воскресенье, МСК</small>
+              </article>
+              <article class="giveaway-summary-card">
+                <span>Баллов в рейтинге</span>
+                <strong id="giveaway-total-points">0</strong>
+                <small>только подтверждённые отчёты</small>
+              </article>
+              <article class="giveaway-summary-card">
+                <span>Участников с баллами</span>
+                <strong id="giveaway-participants">0</strong>
+                <small>за текущую неделю</small>
+              </article>
+            </div>
+            <div class="giveaway-rules">
+              <h3>Как начисляются баллы</h3>
+              <div><span class="giveaway-rule-icon">+1</span><p><strong>Вызов</strong><small>За каждый одобренный отчёт</small></p></div>
+              <div><span class="giveaway-rule-icon">+2</span><p><strong>Освобождение под залог</strong><small>За каждый одобренный отчёт</small></p></div>
+            </div>
+            <section class="giveaway-leaderboard" aria-labelledby="giveaway-leaderboard-title">
+              <div class="giveaway-leaderboard-heading">
+                <div>
+                  <span class="badge badge-info">ТАБЛИЦА ЛИДЕРОВ</span>
+                  <h3 id="giveaway-leaderboard-title">Рейтинг сотрудников</h3>
+                  <p class="text-muted">Очки начисляются автоматически после одобрения отчёта.</p>
+                </div>
+                <button class="btn" type="button" data-action="refresh-giveaway">Обновить</button>
+              </div>
+              <div id="giveaway-ranking" class="giveaway-ranking" aria-live="polite"></div>
+            </section>
+            <p class="giveaway-admin-note">Конкурс включает и ставит на паузу администратор Discord командами <code>!giveway on</code> и <code>!giveway off</code>. Для сброса рейтинга используйте <code>!giveway reset</code>.</p>
+          </div>
+        </section>
+
         <section id="view-rating" class="page-view">
           <div class="card">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
@@ -803,7 +859,15 @@
               <input class="input" id="reprimand-photo" type="file" accept="image/jpeg,image/png,image/webp" required />
               <button class="btn btn-gold" type="submit">Выдать выговор</button>
             </form>
-            <div class="table-wrap">
+            <div class="audit-table-toolbar">
+              <label class="audit-search" for="audit-search">
+                <svg class="icon icon-sm" aria-hidden="true"><use href="/web/icons-sprite.svg#icon-15_search_archive"></use></svg>
+                <input class="input" id="audit-search" type="search" autocomplete="off"
+                  placeholder="Имя, логин, должность или статус">
+              </label>
+              <span id="audit-member-count" class="text-muted" aria-live="polite"></span>
+            </div>
+            <div class="table-wrap audit-table-wrap">
               <table class="data-table tabular-nums">
                 <thead>
                   <tr>
@@ -1002,7 +1066,7 @@
       </div>
     </section>
   </div>
-  <dialog id="network-notice" open aria-labelledby="network-notice-title" aria-describedby="network-notice-copy">
+  <dialog id="network-notice" aria-labelledby="network-notice-title" aria-describedby="network-notice-copy">
     <div class="network-notice-top">
       <span class="network-notice-label"><span aria-hidden="true"></span> Сетевое уведомление</span>
       <form method="dialog">

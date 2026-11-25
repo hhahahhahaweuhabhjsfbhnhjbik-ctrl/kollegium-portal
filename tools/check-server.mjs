@@ -83,6 +83,8 @@ try {
   check(html.includes('id="network-notice"') &&
     html.includes('У некоторых пользователей соединение с хостингом нестабильно'),
   "Страница должна предупреждать о возможных проблемах соединения.");
+  check(!/<dialog\b[^>]*id="network-notice"[^>]*\bopen(?:\s|>)/i.test(html),
+    "Уведомление о соединении не должно быть открыто до входа на главную.");
   check(html.includes('<form method="dialog">'), "Предупреждение должно закрываться без JavaScript.");
   check(!html.includes('/web/css/base.css') && !html.includes('/web/css/theme.css'),
     "Основные CSS не должны загружаться крупными прямыми запросами.");
@@ -93,7 +95,7 @@ try {
     check(loaderSource.includes(fileName), `Загрузчик должен получать ${fileName} частями.`);
   }
   check(html.includes('/web/icons-sprite.svg#icon-01_overview'), "Главная навигация должна использовать спрайт иконок.");
-  for (const route of ["/page/home", "/page/iski", "/page/audit", "/page/decrees", "/page/reports"]) {
+  for (const route of ["/page/home", "/page/iski", "/page/audit", "/page/decrees", "/page/giveaway", "/page/reports"]) {
     const routePage = await request(route, { raw: true });
     check(routePage.status === 200, `Страница ${route}: HTTP ${routePage.status}`);
     check(routePage.payload.toString("utf8").includes('/api/frontend/loader'), `Страница ${route} должна отдавать приложение.`);
@@ -105,6 +107,10 @@ try {
   const decreeQueue = await request("/api/promotion-decree");
   check(decreeQueue.status === 200 && decreeQueue.payload.nextNumber === 0,
     "У ГКА должна открываться очередь указов с нумерацией от №000.");
+  const giveaway = await request("/api/giveaway");
+  check(giveaway.status === 200 && giveaway.payload.prize === 300000 &&
+    giveaway.payload.pointsPerReport?.call === 1 && giveaway.payload.pointsPerReport?.bail === 2,
+  "Рейтинг премии должен отдавать приз и правила начисления баллов.");
 
   /* ── Статика ──────────────────────────────────────────────────────────── */
   const assets = [

@@ -84,6 +84,8 @@ let activityReportPhotoUrl = "";
 let activityReportPhotoRequest = 0;
 let photoViewerReturnFocus = null;
 let currentView = "dashboard";
+let auditMembers = [];
+let auditReprimandCounts = new Map();
 let promotionPracticeState = null;
 let promotionDecreeState = null;
 let discordDmEnabled = true;
@@ -109,6 +111,7 @@ const viewPaths = {
   audit: "/page/audit",
   decrees: "/page/decrees",
   awards: "/page/awards",
+  giveaway: "/page/giveaway",
   reports: "/page/reports"
 };
 const viewsByPath = new Map(Object.entries(viewPaths).map(([name, path]) => [path, name]));
@@ -624,6 +627,7 @@ async function navigate(name) {
     rating: loadRating,
     audit: loadAudit,
     decrees: loadPromotionDecrees,
+    giveaway: loadGiveaway,
     reports: loadReports
   };
   try {
@@ -634,12 +638,11 @@ async function navigate(name) {
 }
 
 async function loadDashboard() {
-  const [profileData, applicationData, lawsuitData, analyticsData, attorneyData] = await Promise.all([
+  const [profileData, applicationData, lawsuitData, analyticsData] = await Promise.all([
     api("/api/profile"),
     api("/api/applications"),
     canUseDocuments() ? api("/api/lawsuits") : Promise.resolve({ lawsuits: [] }),
-    isManager() ? api("/api/analytics?period=7") : Promise.resolve(null),
-    api("/api/attorneys?period=week")
+    isManager() ? api("/api/analytics?period=7") : Promise.resolve(null)
   ]);
   const profile = profileData.profile;
   const openApplications = applicationData.applications.filter((item) =>
@@ -656,7 +659,6 @@ async function loadDashboard() {
   const openHelp = openApplications.filter((item) => item.type === "citizen_help").length;
   const openComplaints = openApplications.filter((item) => item.type === "citizen_complaint").length;
   $("#kpiAppealsNote").textContent = `${openHelp} помощи · ${openComplaints} жалоб`;
-  $("#kpiStaff").textContent = String((attorneyData.attorneys || []).length);
   if (analyticsData) {
     const activity = (analyticsData.trend || []).reduce((total, point) =>
       total + Number(point.documents || 0) + Number(point.lawsuits || 0) + Number(point.requests || 0), 0);
@@ -668,7 +670,27 @@ async function loadDashboard() {
     $("#kpiActivityNote").textContent = "По вашему профилю";
     $("#kpiCalls").textContent = String(profile.approved_call_count || 0);
   }
-  renderDashboardAttorneys(attorneyData.attorneys || []);
+  try {
+    const attorneyData = await api("/api/attorneys?period=week");
+    $("#kpiStaff").textContent = String((attorneyData.attorneys || []).length);
+    renderDashboardAttorneys(attorneyData.attorneys || []);
+  } catch (error) {
+    $("#kpiStaff").textContent = "—";
+    $("#dashboard-attorneys").innerHTML =
+      `<p class="text-muted">Не удалось загрузить рейтинг адвокатов: ${escapeHtml(error.message)}</p>`;
+  }
+  showNetworkNoticeIfDue();
+}
+
+function showNetworkNoticeIfDue() {
+  const notice = $("#network-notice");
+  if (notice.open) return;
+  const storageKey = `portal-network-notice:${currentUser.id}`;
+  const lastShown = Number(localStorage.getItem(storageKey) || 0);
+  const now = Date.now();
+  if (Number.isFinite(lastShown) && now - lastShown < 60 * 60 * 1000) return;
+  notice.showModal();
+  localStorage.setItem(storageKey, String(now));
 }
 
 function renderDashboardAttorneys(attorneys) {
@@ -2381,19 +2403,24 @@ async function toggleDiscordDmPreference(button) {
 }
 
 async function loadRating() {
-  const period = $("#rating-period").value || "all";
-  const data = await api(`/api/attorneys?period=${encodeURIComponent(period)}`);
-  const rows = data.attorneys || [];
-  $("#ratingTableBody").innerHTML = rows.length ? rows.map((attorney, index) =>
-    `<tr>
-      <td>${index + 1}</td>
-      <td>${escapeHtml(attorney.display_name)}</td>
-      <td>${escapeHtml(attorney.role)}</td>
-      <td>${Number(attorney.cases_handled || 0)}</td>
-      <td>${Number(attorney.lawsuit_count || 0)}</td>
-      <td>${Number(attorney.score || 0).toFixed(1)}</td>
-    </tr>`
-  ).join("") : `<tr><td colspan="6">${emptyState("Адвокатов в рейтинге пока нет.")}</td></tr>`;
+  try {
+    const period = $("#rating-period").value || "all";
+    const data = await api(`/api/attorneys?period=${encodeURIComponent(period)}`);
+    const rows = data.attorneys || [];
+    $("#ratingTableBody").innerHTML = rows.length ? rows.map((attorney, index) =>
+      `<tr>
+        <td>${index + 1}</td>
+        <td>${escapeHtml(attorney.display_name)}</td>
+        <td>${escapeHtml(attorney.role)}</td>
+        <td>${Number(attorney.cases_handled || 0)}</td>
+        <td>${Number(attorney.lawsuit_count || 0)}</td>
+        <td>${Number(attorney.score || 0).toFixed(1)}</td>
+      </tr>`
+    ).join("") : `<tr><td colspan="6">${emptyState("Адвокатов в рейтинге пока нет.")}</td></tr>`;
+  } catch (error) {
+    $("#ratingTableBody").innerHTML = `<tr><td colspan="6">${escapeHtml(error.message)}</td></tr>`;
+    throw error;
+  }
 }
 
 async function loadAudit() {
@@ -2404,18 +2431,37 @@ async function loadAudit() {
   const members = memberData.members || [];
   const reprimands = reprimandData.reprimands || [];
   $("#audit-test-notifications").classList.toggle("hidden", currentUser.username !== "yyte");
-  const counts = new Map();
-  reprimands.forEach((item) => counts.set(Number(item.user_id), (counts.get(Number(item.user_id)) || 0) + 1));
+  auditMembers = members;
+  auditReprimandCounts = new Map();
+  reprimands.forEach((item) => auditReprimandCounts.set(
+    Number(item.user_id), (auditReprimandCounts.get(Number(item.user_id)) || 0) + 1
+  ));
   $("#reprimand-member").innerHTML = `<option value="">Выберите сотрудника</option>${members
     .filter((member) => member.status === "active" && member.role !== "Гражданин" &&
       Number(member.id) !== Number(currentUser.id) &&
       (currentUser.hasFullGkaAccess || (member.role !== "ГКА" && !member.hasFullGkaAccess)))
     .map((member) => `<option value="${Number(member.id)}">${escapeHtml(member.display_name)} · ${escapeHtml(member.role)}</option>`).join("")}`;
+  renderAuditMembers();
+}
+
+function renderAuditMembers() {
+  const search = $("#audit-search").value.trim().toLocaleLowerCase("ru");
+  const statusLabels = { active: "Активен", pending: "Ожидает одобрения", suspended: "Приостановлен" };
+  const members = auditMembers.filter((member) => [
+    member.display_name,
+    member.username,
+    member.role,
+    member.status,
+    statusLabels[member.status] || ""
+  ].join(" ").toLocaleLowerCase("ru").includes(search));
+  $("#audit-member-count").textContent = search
+    ? `Найдено ${members.length} из ${auditMembers.length}`
+    : `Всего аккаунтов: ${auditMembers.length}`;
   $("#auditTableBody").innerHTML = members.length ? members.map((member) =>
     `<tr>
       <td>${escapeHtml(member.display_name)}<br><span class="text-muted">#${Number(member.id)}</span></td>
       <td>${escapeHtml(displayRole(member))}<br>${statusBadge(member.status)}</td>
-      <td>${counts.get(Number(member.id)) || 0}</td>
+      <td>${auditReprimandCounts.get(Number(member.id)) || 0}</td>
       <td>${Number(member.document_count || 0)}</td>
       <td>${Number(member.lawsuit_count || 0)}</td>
       <td>${(managerRoles.includes(currentUser.role) || currentUser.hasFullGkaAccess) && Number(member.id) !== Number(currentUser.id) ? `<div class="member-controls">
@@ -2428,7 +2474,36 @@ async function loadAudit() {
         ${managerRoles.includes(currentUser.role) ? `<button class="btn" type="button" data-action="dismiss-member" data-id="${Number(member.id)}">${member.role === "Гражданин" ? "Удалить гражданина" : "Уволить и удалить"}</button>` : ""}
       </div>` : "—"}</td>
     </tr>`
-  ).join("") : `<tr><td colspan="6">${emptyState("Состав коллегии пуст.")}</td></tr>`;
+  ).join("") : `<tr><td colspan="6">${emptyState(search ? "Совпадений не найдено." : "Состав коллегии пуст.")}</td></tr>`;
+}
+
+async function loadGiveaway() {
+  const data = await api("/api/giveaway");
+  $("#giveaway-status").textContent = data.enabled ? "Конкурс идёт" : "Начисление на паузе";
+  $("#giveaway-status").classList.toggle("is-active", data.enabled);
+  $("#giveaway-status").classList.toggle("is-paused", !data.enabled);
+  $("#giveaway-period").textContent = `${displayDate(data.weekStart)} — ${displayDate(data.weekEnd)}`;
+  $("#giveaway-total-points").textContent = Number(data.totalPoints || 0).toLocaleString("ru-RU");
+  $("#giveaway-participants").textContent = Number(data.participantCount || 0).toLocaleString("ru-RU");
+  const standings = data.standings || [];
+  $("#giveaway-ranking").innerHTML = standings.length ? standings.map((member) =>
+    `<article class="giveaway-ranking-row${member.rank === 1 ? " is-leader" : ""}">
+      <span class="giveaway-rank">${Number(member.rank)}</span>
+      <span class="giveaway-ranking-person">
+        <strong>${escapeHtml(member.displayName)}</strong>
+        <small>${escapeHtml(member.role)}</small>
+      </span>
+      <span class="giveaway-ranking-metric">
+        <span>${Number(member.calls)} выз.</span>
+        <small>по 1 баллу</small>
+      </span>
+      <span class="giveaway-ranking-metric">
+        <span>${Number(member.bails)} залог.</span>
+        <small>по 2 балла</small>
+      </span>
+      <strong class="giveaway-ranking-score">${Number(member.points)} б.</strong>
+    </article>`
+  ).join("") : emptyState("На этой неделе пока нет подтверждённых отчётов.");
 }
 
 async function updateMemberRole(button) {
@@ -2870,6 +2945,7 @@ async function handleAction(button) {
   else if (action === "copy-memo") await copyMemo();
   else if (action === "start-new-week") await startNewWeek();
   else if (action === "load-reports") await loadReports();
+  else if (action === "refresh-giveaway") await loadGiveaway();
   else if (action === "update-member-role") await updateMemberRole(button);
   else if (action === "update-member-status") await updateMemberStatus(button);
   else if (action === "dismiss-member") await dismissMember(button);
@@ -3048,6 +3124,7 @@ document.addEventListener("pointercancel", finishStampRotation);
 $("#rating-period").addEventListener("change", () => {
   if (currentUser && currentView === "rating") loadRating().catch((error) => notify(error.message));
 });
+$("#audit-search").addEventListener("input", renderAuditMembers);
 $("#document-dialog").addEventListener("click", (event) => {
   if (event.target === $("#document-dialog")) closeModal();
 });
