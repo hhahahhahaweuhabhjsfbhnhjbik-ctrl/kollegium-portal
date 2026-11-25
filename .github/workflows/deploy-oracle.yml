@@ -37,7 +37,7 @@ jobs:
             printf '%s\n' "$GEMINI_API_KEY" | ssh -i "$HOME/.ssh/id_ed25519" \
               -o BatchMode=yes \
               "$ORACLE_USER@$ORACLE_HOST" \
-              'python3 -c "from pathlib import Path; import os,sys; key=sys.stdin.readline().rstrip(chr(10)+chr(13)); path=Path(\"/opt/kollegium-portal/.env\"); lines=[line for line in path.read_text().splitlines() if not line.startswith(\"GEMINI_API_KEY=\")]; lines.append(\"GEMINI_API_KEY=\"+key); tmp=path.with_name(\".env.tmp\"); tmp.write_text(\"\\n\".join(lines)+\"\\n\"); os.chmod(tmp,0o600); os.replace(tmp,path)"'
+              'sudo python3 -c "from pathlib import Path; import os,sys; key=sys.stdin.readline().rstrip(chr(10)+chr(13)); path=Path(\"/opt/kollegium-portal/.env\"); lines=[line for line in path.read_text().splitlines() if not line.startswith(\"GEMINI_API_KEY=\")]; lines.append(\"GEMINI_API_KEY=\"+key); tmp=path.with_name(\".env.tmp\"); tmp.write_text(\"\\n\".join(lines)+\"\\n\"); os.chmod(tmp,0o600); os.replace(tmp,path)"'
           else
             echo "::warning::GEMINI_API_KEY Actions secret is not set; the deployed AI API remains unconfigured."
           fi
