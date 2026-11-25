@@ -335,8 +335,8 @@ check(!sidebar?.querySelector(".sidebar-scroll [data-view='rating'], .sidebar-sc
 const careerButton = document.querySelector("#careerBranchBtn");
 const careerSubmenu = document.querySelector("#careerSubmenu");
 check(careerButton?.textContent.includes("Начало пути"), "Раздел обучения должен называться «Начало пути».");
-check(careerSubmenu?.textContent.includes("Тесты") && careerSubmenu.textContent.includes("(Экзамены)") &&
-  careerSubmenu.textContent.includes("Практика (РП)"), "Подветки экзаменов и практики не отображаются.");
+check(careerSubmenu?.textContent.includes("Тесты") &&
+  careerSubmenu.textContent.includes("Практика РП"), "Подветки экзаменов и практики не отображаются.");
 careerButton?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
 await wait(5);
 check(careerButton?.getAttribute("aria-expanded") === "false" && !careerSubmenu?.classList.contains("open"),
@@ -366,7 +366,7 @@ check(!practiceNav?.classList.contains("hidden") && !practiceNav?.disabled &&
 "Практика должна быть доступна активному сотруднику с правами руководителя.");
 check(document.querySelectorAll(".rp-practice-controls [data-level]").length === 3 &&
   Boolean(document.querySelector("#rp-practice-content")),
-  "Раздел «Практика (РП)» должен содержать три кнопки уровней и область кейсов.");
+  "Раздел «Практика РП» должен содержать три кнопки уровней и область кейсов.");
 check(!document.querySelector("#law-test-subject") &&
   document.querySelector("#law-exam-buttons") && document.querySelector(".law-exam-grid"),
 "Тесты по кодексам должны отображаться кнопками без выпадающего списка.");

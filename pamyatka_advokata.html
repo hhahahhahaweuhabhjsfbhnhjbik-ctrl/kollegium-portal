@@ -1,205 +1,715 @@
 <!doctype html>
-<html lang="ru">
+<html lang="ru" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Памятка адвоката: задержания, статьи, тайминги</title>
+<title>Памятка адвоката — справочник</title>
 <style>
 :root{
-  --navy:#14213d; --navy2:#1f3a6b; --gold:#c9a227; --bg:#f3f5f9; --card:#fff;
-  --text:#1b2333; --muted:#5d6a82; --line:#e1e6ef; --red:#b3261e; --green:#1b7f4b; --warn:#fff6dc;
+  --bg:#090d1a; --bg2:#0c1222; --card:#111a2e; --card2:#0f172b; --line:#1b2540; --line2:#26335a;
+  --text:#e8edf8; --muted:#8a96b3; --dim:#5d6b8d;
+  --amber:#f5a30b; --amber2:#fbbf24; --amber-bg:rgba(245,163,11,.12); --amber-line:rgba(245,163,11,.35);
+  --green:#2dd4a0; --green-bg:rgba(45,212,160,.12); --sky:#38bdf8; --sky-bg:rgba(56,189,248,.12);
+  --violet:#a78bfa; --violet-bg:rgba(167,139,250,.14); --red:#f87171; --red-bg:rgba(248,113,113,.12);
+  --r:16px; --fs:14px; --font:"Inter","Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;
+}
+:root[data-theme=light]{
+  --bg:#f4f5f9; --bg2:#fff; --card:#fff; --card2:#f7f8fc; --line:#e3e7f0; --line2:#ccd3e3;
+  --text:#18203a; --muted:#55627f; --dim:#8a94ab;
+  --amber:#c27a00; --amber2:#a86400; --amber-bg:rgba(245,163,11,.14); --amber-line:rgba(194,122,0,.4);
+  --green:#12805c; --green-bg:rgba(18,128,92,.1); --sky:#0b73b0; --sky-bg:rgba(11,115,176,.1);
+  --violet:#6d4fd6; --violet-bg:rgba(109,79,214,.1); --red:#c0392b; --red-bg:rgba(192,57,43,.09);
 }
 *{box-sizing:border-box}
-html{scroll-behavior:smooth}
-body{margin:0;background:var(--bg);color:var(--text);font:16px/1.55 "Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif}
-header{background:linear-gradient(135deg,var(--navy),var(--navy2));color:#fff;padding:44px 20px 36px;text-align:center;border-bottom:4px solid var(--gold)}
-header .tag{display:inline-block;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--gold);border:1px solid var(--gold);padding:3px 12px;border-radius:99px;margin-bottom:14px}
-header h1{margin:0 0 8px;font-size:clamp(26px,5vw,40px);line-height:1.15}
-header p{margin:0 auto;max-width:720px;color:#cdd7ee;font-size:15px}
-nav{position:sticky;top:0;z-index:5;background:#fff;border-bottom:1px solid var(--line);box-shadow:0 2px 8px rgba(20,33,61,.06)}
-nav .in{max-width:1100px;margin:0 auto;padding:8px 14px;display:flex;gap:6px;overflow-x:auto;white-space:nowrap}
-nav a{color:var(--navy2);text-decoration:none;font-size:14px;font-weight:600;padding:6px 12px;border-radius:99px}
-nav a:hover{background:var(--bg)}
-main{max-width:1100px;margin:0 auto;padding:26px 16px 50px}
-section{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px 22px 18px;margin-bottom:22px;box-shadow:0 2px 10px rgba(20,33,61,.04)}
-h2{margin:0 0 14px;font-size:22px;color:var(--navy);display:flex;align-items:center;gap:10px}
-h2 .n{background:var(--navy);color:var(--gold);width:32px;height:32px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;font-size:16px;flex:none}
-h3{margin:18px 0 6px;font-size:17px;color:var(--navy2)}
-p{margin:8px 0}
-.tw{overflow-x:auto;border:1px solid var(--line);border-radius:12px;margin:10px 0}
-table{border-collapse:collapse;width:100%;font-size:14.5px;min-width:560px}
-th{background:var(--navy);color:#fff;text-align:left;padding:10px 12px;font-weight:600;white-space:nowrap}
-td{padding:9px 12px;border-top:1px solid var(--line);vertical-align:top}
-tbody tr:nth-child(even){background:#f8f9fc}
-tbody tr:hover{background:#eef2fb}
-td:first-child{font-weight:600;color:var(--navy)}
-.ref{color:var(--muted);font-size:13px;white-space:nowrap}
-.pill{display:inline-block;padding:1px 9px;border-radius:99px;font-size:12.5px;font-weight:600;white-space:nowrap}
-.fed{background:#fde8e6;color:var(--red)} .reg{background:#e5f4ec;color:var(--green)}
-.hot td:first-child{color:var(--red)}
-.note{background:var(--warn);border-left:4px solid var(--gold);padding:10px 14px;border-radius:8px;margin:12px 0;font-size:14.5px}
-.good{background:#e9f6ef;border-left:4px solid var(--green);padding:10px 14px;border-radius:8px;margin:12px 0;font-size:14.5px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:12px 0}
-.stat{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:12px 14px;text-align:center}
-.stat b{display:block;font-size:26px;color:var(--navy2)}
-.stat span{font-size:13px;color:var(--muted)}
-ul.chk{list-style:none;padding:0;margin:8px 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:8px}
-ul.chk li{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 12px 9px 40px;position:relative;font-size:14.5px}
-ul.chk li:before{content:"✓";position:absolute;left:12px;top:8px;width:20px;height:20px;border-radius:6px;background:var(--green);color:#fff;font-size:13px;text-align:center;line-height:20px}
-footer{max-width:1100px;margin:0 auto;padding:0 16px 40px;color:var(--muted);font-size:13px;text-align:center}
-@media print{nav{display:none}body{background:#fff}section{box-shadow:none;break-inside:avoid}}
+html{scroll-padding-top:78px}
+body{margin:0;background:var(--bg);color:var(--text);font:var(--fs)/1.55 var(--font);-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+a{color:var(--amber2)}
+.hidden{display:none!important}
+
+/* top bar */
+.top{position:fixed;inset:0 0 auto 0;height:62px;background:var(--bg2);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;padding:0 18px;z-index:40}
+.prog{position:absolute;left:0;bottom:-1px;height:2px;background:linear-gradient(90deg,var(--amber),var(--amber2));width:0}
+.ibtn{width:36px;height:36px;border-radius:10px;border:1px solid var(--line);background:var(--card2);display:grid;place-items:center;color:var(--muted);font-size:15px;flex:none}
+.ibtn:hover{color:var(--amber2);border-color:var(--amber-line)}
+.logo{width:38px;height:38px;border-radius:11px;background:linear-gradient(135deg,#ffb020,#f08a00);display:grid;place-items:center;font-size:20px;color:#1a1100;box-shadow:0 4px 16px rgba(245,163,11,.3);flex:none}
+.brand{display:flex;align-items:center;gap:11px;min-width:0}
+.brand b{display:block;font-size:14px;letter-spacing:.03em;text-transform:uppercase;white-space:nowrap}
+.brand small{display:block;color:var(--muted);font-size:11.5px;white-space:nowrap}
+.sp{flex:1}
+.kbar{display:flex;align-items:center;gap:10px;height:38px;min-width:260px;white-space:nowrap;background:var(--card2);border:1px solid var(--line);border-radius:11px;padding:0 10px;color:var(--dim);cursor:pointer}
+.kbar:hover{border-color:var(--amber-line)}
+.kbar kbd,.kb{font:11px var(--font);color:var(--muted);background:var(--bg);border:1px solid var(--line2);border-radius:6px;padding:1px 7px}
+.kbar kbd{margin-left:auto}
+
+/* layout */
+.rail{position:fixed;top:62px;bottom:0;left:0;width:248px;background:var(--bg2);border-right:1px solid var(--line);overflow-y:auto;padding:16px 12px 30px;z-index:30;transition:transform .2s}
+.rail h6{margin:16px 10px 6px;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
+.rail a{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;color:var(--muted);text-decoration:none;font-weight:600;font-size:13.5px;border:1px solid transparent}
+.rail a:hover{background:var(--card);color:var(--text)}
+.rail a.on{background:var(--amber-bg);border-color:var(--amber-line);color:var(--amber2)}
+.rail a i{font-style:normal;width:20px;text-align:center}
+.rail a em{margin-left:auto;font-style:normal;font-size:10.5px;background:var(--card);border:1px solid var(--line2);border-radius:99px;padding:0 7px;color:var(--muted)}
+main{margin-left:248px;padding:86px 28px 80px;max-width:1280px}
+.sec{margin-bottom:46px}
+.sec>header{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;margin-bottom:16px;flex-wrap:wrap}
+.sec h2{margin:0;font-size:24px;letter-spacing:-.01em;display:flex;align-items:center;gap:12px}
+.sec h2 .ic{width:38px;height:38px;border-radius:11px;background:var(--amber-bg);border:1px solid var(--amber-line);display:grid;place-items:center;font-size:19px}
+.sec header p{margin:4px 0 0;color:var(--muted);max-width:640px}
+h3{font-size:15px;margin:22px 0 10px;color:var(--amber2)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px}
+.grid{display:grid;gap:12px}
+.g4{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(290px,1fr))}
+.g2{grid-template-columns:repeat(auto-fit,minmax(380px,1fr))}
+
+/* hero */
+.hero{position:relative;overflow:hidden;border-radius:20px;border:1px solid var(--amber-line);padding:30px;background:radial-gradient(900px 300px at 85% -20%,rgba(245,163,11,.22),transparent 60%),linear-gradient(135deg,var(--card),var(--bg2))}
+.hero h1{margin:0 0 8px;font-size:clamp(26px,4vw,38px);letter-spacing:-.02em}
+.hero h1 span{color:var(--amber)}
+.hero p{margin:0;color:var(--muted);max-width:640px;font-size:15px}
+.hero .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+.btn{display:inline-flex;align-items:center;gap:8px;border:0;border-radius:11px;font-weight:700;font-size:13px;padding:9px 15px;transition:.15s;text-decoration:none}
+.btn.amber{background:linear-gradient(180deg,#ffb020,#f29a05);color:#1a1100;box-shadow:0 6px 18px rgba(245,163,11,.22)}
+.btn.amber:hover{filter:brightness(1.08);transform:translateY(-1px)}
+.btn.ghost{background:var(--card2);color:var(--text);border:1px solid var(--line2)}
+.btn.ghost:hover{border-color:var(--amber-line);color:var(--amber2)}
+.btn.sm{padding:5px 10px;font-size:12px;border-radius:9px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+.stat b{display:block;font-size:28px;letter-spacing:-.02em;color:var(--amber2);line-height:1.1}
+.stat span{color:var(--muted);font-size:12.5px}
+.stat small{display:block;color:var(--dim);font-size:11px;margin-top:2px}
+
+/* tables */
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:14px;background:var(--card)}
+table{border-collapse:collapse;width:100%}
+th{position:sticky;top:0;background:var(--card2);text-align:left;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:10px 12px;border-bottom:1px solid var(--line2);white-space:nowrap}
+td{padding:10px 12px;border-top:1px solid var(--line);vertical-align:top}
+tr:first-child td{border-top:0}
+tbody tr:hover td{background:rgba(245,163,11,.04)}
+td.k{font-weight:700;color:var(--amber2);white-space:nowrap}
+.ref{color:var(--dim);font-size:12px;white-space:nowrap}
+.pill{display:inline-block;border-radius:99px;padding:1px 9px;font-size:11.5px;font-weight:700;white-space:nowrap;border:1px solid transparent}
+.p-fed{background:var(--red-bg);color:var(--red);border-color:rgba(248,113,113,.3)}
+.p-reg{background:var(--green-bg);color:var(--green);border-color:rgba(45,212,160,.3)}
+.p-mil{background:var(--violet-bg);color:var(--violet)}
+.p-fin{background:var(--sky-bg);color:var(--sky)}
+.p-am{background:var(--amber-bg);color:var(--amber2);border-color:var(--amber-line)}
+.warn{background:var(--amber-bg);border:1px solid var(--amber-line);border-radius:12px;padding:10px 14px;margin:12px 0;font-size:13.5px}
+.tip{background:var(--green-bg);border:1px solid rgba(45,212,160,.3);border-radius:12px;padding:10px 14px;margin:12px 0;font-size:13.5px}
+.danger{background:var(--red-bg);border:1px solid rgba(248,113,113,.3);border-radius:12px;padding:10px 14px;margin:12px 0;font-size:13.5px}
+.star{background:none;border:0;font-size:17px;color:var(--dim);padding:0 4px;line-height:1}
+.star.on{color:var(--amber2)}
+.star:hover{color:var(--amber2)}
+
+/* toolbars */
+.tools{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+.inp{height:38px;background:var(--card2);border:1px solid var(--line);border-radius:11px;padding:0 12px;outline:none;min-width:0}
+.inp:focus{border-color:var(--amber-line)}
+textarea.inp{height:auto;padding:10px 12px;width:100%;resize:vertical;line-height:1.5}
+.chipb{border:1px solid var(--line2);background:var(--card2);color:var(--muted);border-radius:99px;padding:5px 13px;font-size:12.5px;font-weight:600}
+.chipb.on{background:var(--amber-bg);border-color:var(--amber-line);color:var(--amber2)}
+.cnt{color:var(--dim);font-size:12.5px;margin-left:auto}
+
+/* accordions */
+.acc{border:1px solid var(--line);border-radius:14px;background:var(--card);margin-bottom:10px;overflow:hidden}
+.acc>button{width:100%;text-align:left;background:none;border:0;padding:14px 16px;display:flex;align-items:center;gap:12px;font-weight:700;font-size:14.5px}
+.acc>button .e{font-size:20px}
+.acc>button small{display:block;color:var(--muted);font-weight:400;font-size:12.5px}
+.acc>button .ch{margin-left:auto;color:var(--dim);transition:.2s}
+.acc.open>button .ch{transform:rotate(90deg);color:var(--amber2)}
+.acc .bd{display:none;padding:0 18px 16px 18px;border-top:1px solid var(--line)}
+.acc.open .bd{display:block}
+ol.st{counter-reset:s;list-style:none;padding:0;margin:14px 0 0}
+ol.st li{counter-increment:s;position:relative;padding:0 0 12px 38px}
+ol.st li:before{content:counter(s);position:absolute;left:0;top:0;width:25px;height:25px;border-radius:8px;background:var(--amber-bg);border:1px solid var(--amber-line);color:var(--amber2);font-weight:800;font-size:12px;display:grid;place-items:center}
+ol.st li b{color:var(--text)}
+.ref2{color:var(--dim);font-size:12px;margin-left:4px}
+.say{display:flex;gap:10px;align-items:flex-start;background:var(--card2);border:1px dashed var(--line2);border-radius:10px;padding:8px 12px;margin:6px 0;font-size:13.5px}
+.say q{flex:1;quotes:"«" "»"}
+.say button{flex:none}
+
+/* timers */
+.timer{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;position:relative;overflow:hidden}
+.timer .t{font-size:34px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.timer .n{font-weight:700}
+.timer .r{color:var(--dim);font-size:12px}
+.timer .bar{height:5px;background:var(--line);border-radius:9px;margin:10px 0;overflow:hidden}
+.timer .bar i{display:block;height:100%;width:100%;background:var(--green);transition:width .3s linear}
+.timer.run{border-color:var(--amber-line)}
+.timer.low .bar i{background:var(--red)} .timer.low .t{color:var(--red)}
+.timer.done{border-color:var(--red)}
+.timer .bt{display:flex;gap:6px}
+
+/* calc */
+.calc{display:grid;grid-template-columns:1.1fr 1fr;gap:14px}
+.res{display:grid;gap:8px}
+.kv{display:flex;justify-content:space-between;gap:12px;padding:9px 12px;background:var(--card2);border:1px solid var(--line);border-radius:10px}
+.kv b{color:var(--amber2);text-align:right}
+.sel{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.tag{display:inline-flex;align-items:center;gap:6px;background:var(--amber-bg);border:1px solid var(--amber-line);color:var(--amber2);border-radius:99px;padding:2px 4px 2px 10px;font-weight:700;font-size:12.5px}
+.tag button{background:none;border:0;color:inherit;font-size:14px;padding:0 5px}
+
+/* palette */
+.pal{position:fixed;inset:0;background:rgba(3,6,14,.65);backdrop-filter:blur(3px);z-index:90;display:none;align-items:flex-start;justify-content:center;padding-top:10vh}
+.pal.open{display:flex}
+.pal .box{width:min(680px,94vw);background:var(--bg2);border:1px solid var(--amber-line);border-radius:16px;box-shadow:0 30px 80px rgba(0,0,0,.5);overflow:hidden}
+.pal input{width:100%;height:54px;border:0;border-bottom:1px solid var(--line);background:transparent;padding:0 18px;font-size:16px;outline:none}
+.pal .list{max-height:56vh;overflow-y:auto;padding:6px}
+.pal .it{display:flex;gap:10px;align-items:center;padding:9px 12px;border-radius:10px;cursor:pointer}
+.pal .it.sel2,.pal .it:hover{background:var(--amber-bg)}
+.pal .it b{color:var(--amber2);min-width:68px;font-size:12.5px}
+.pal .it span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pal .it small{color:var(--dim)}
+.pal .ft{padding:8px 14px;border-top:1px solid var(--line);color:var(--dim);font-size:11.5px;display:flex;gap:14px}
+mark{background:rgba(245,163,11,.35);color:inherit;border-radius:3px;padding:0 1px}
+
+.toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,30px);background:var(--card);border:1px solid var(--amber-line);color:var(--text);padding:10px 18px;border-radius:12px;opacity:0;pointer-events:none;transition:.25s;z-index:99;font-weight:600}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.totop{position:fixed;right:20px;bottom:20px;z-index:35}
+.det td{background:var(--card2)!important;border-top:0!important}
+.det .dl{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.det .dl b{color:var(--text)}
+.dim{color:var(--dim)}
+footer{margin-top:40px;color:var(--dim);font-size:12.5px;border-top:1px solid var(--line);padding-top:16px}
+
+@media(max-width:980px){
+  .rail{transform:translateX(-100%)} body.side .rail{transform:none;box-shadow:20px 0 60px rgba(0,0,0,.5)}
+  main{margin-left:0;padding:82px 14px 70px}
+  .xs,.kbar kbd{display:none}.sp{display:none}.kbar{min-width:0;flex:1}.kbar span+span{display:none}.brand small,  .calc{grid-template-columns:1fr}.g2{grid-template-columns:1fr}
+}
+@media(min-width:981px){#burger{display:none}}
+@media print{
+  :root{--bg:#fff;--bg2:#fff;--card:#fff;--card2:#f6f6f6;--line:#ddd;--line2:#bbb;--text:#111;--muted:#444;--dim:#666;--amber2:#8a5200;--amber:#b46f00;--amber-bg:#fff4d9;--amber-line:#e0b25a;--green:#0b6b4a;--red:#a52a1e;--sky:#0b5f90;--violet:#5a3fc0}
+  .top,.rail,.totop,.tools,.btn,.star,.say button,.timer .bt,.hero .row,.pal,.toast,.noprint{display:none!important}
+  main{margin:0;padding:0;max-width:none}
+  .acc .bd{display:block!important}.acc .ch{display:none}
+  .sec{break-inside:auto}.card,.acc,.stat,.timer,tr{break-inside:avoid}
+  body{font-size:11px}.hero{background:#fff;border:1px solid #ccc}
+  .tw{overflow:visible} th{position:static}
+  tr.hid{display:table-row!important}
+}
+svg.lucide{width:1.15em;height:1.15em;stroke-width:2;stroke:currentColor;fill:none;stroke-linecap:round;stroke-linejoin:round;vertical-align:-.18em;flex:none}
+.sec h2 .ic svg.lucide{width:20px;height:20px;color:var(--amber2)}
+.rail a .ni{display:inline-grid;place-items:center;width:20px}.rail a svg.lucide{width:18px;height:18px}
+.rail a.on svg.lucide{color:var(--amber2)}.rail a svg.lucide{color:var(--amber)}
+.acc>button .e{color:var(--amber2);display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:var(--amber-bg);border:1px solid var(--amber-line);font-size:16px}
+.logo svg.lucide{width:21px;height:21px;color:#1a1100}
 </style>
 </head>
 <body>
-<header>
-  <span class="tag">Коллегия адвокатов · San Andreas</span>
-  <h1>Памятка адвоката</h1>
-  <p>Задержания, статьи, тайминги и залог. Редакции: УК, ПК, Закон о статусе госслужащих, ЗОТ — 23.11.2026; АК, Закон об оружии — 14.11.2026; Закон об адвокатуре — 09.11.2026.</p>
-</header>
 
-<nav><div class="in">
-  <a href="#s1">Главное</a><a href="#s2">Тайминги</a><a href="#s3">Статьи</a><a href="#s4">Админка</a>
-  <a href="#s5">Штрафы</a><a href="#s6">Залог</a><a href="#s7">Особые клиенты</a><a href="#s8">Риски</a>
-</div></nav>
+<div class="top">
+  <button class="ibtn" id="burger" onclick="document.body.classList.toggle('side')" aria-label="Меню">☰</button>
+  <div class="brand"><div class="logo"><i data-lucide="scale">⚖</i></div><div><b>Памятка адвоката</b><small>Коллегия адвокатов · San Andreas</small></div></div>
+  <div class="sp"></div>
+  <div class="kbar" onclick="openPal()"><span><i data-lucide="search">🔍</i></span><span>Поиск по статьям, ситуациям, разделам…</span><kbd>Ctrl K</kbd></div>
+  <button class="ibtn xs" onclick="fs(-1)" title="Меньше шрифт">A−</button>
+  <button class="ibtn xs" onclick="fs(1)" title="Больше шрифт">A+</button>
+  <button class="ibtn" id="thm" onclick="toggleTheme()" title="Тема">☾</button>
+  <div class="prog" id="prog"></div>
+</div>
+
+<nav class="rail" id="rail"></nav>
 
 <main>
-
-<section id="s1">
-  <h2><span class="n">1</span>Главное за 30 секунд</h2>
-  <div class="tw"><table>
-    <thead><tr><th>Что</th><th>Правило</th><th>Ссылка</th></tr></thead>
-    <tbody>
-    <tr><td>Договор</td><td>Частный адвокат: письменный договор или устный по телефону, записанный на боди-камеру. Сотрудник вправе потребовать подтверждение.</td><td class="ref">Закон об адвокатуре 6.16, 8.3, 8.8</td></tr>
-    <tr><td>Облик</td><td>Деловой стиль, уважительно к гражданам и сотрудникам, документ по требованию.</td><td class="ref">8.5, 8.7, 4.3</td></tr>
-    <tr><td>Основание задержания</td><td>Должно существовать до действия. Находка при обыске его не заменяет.</td><td class="ref">ПК 2.2, 5.1</td></tr>
-    <tr><td>Обстоятельства</td><td>Адвокат вправе требовать пояснить причину задержания. Сотрудник показывает видео и выслушивает рекомендации.</td><td class="ref">Закон об адвокатуре 3.9, ПК 5.11</td></tr>
-    <tr><td>Беседа с клиентом</td><td>До 10 минут наедине, помещение предоставляет сотрудник.</td><td class="ref">ПК 5.9</td></tr>
-    <tr><td>Права клиента</td><td>Молчание, один звонок до 3 минут, адвокат. Показания до разъяснения прав не используются.</td><td class="ref">ПК 5.5, 5.10, 11.3</td></tr>
-    <tr><td>Видео</td><td>Полная запись с аудио, хранить 72 часа. Нет записи основания — слабое доказательство.</td><td class="ref">ПК 11.4–11.6</td></tr>
-    <tr><td>Жалоба</td><td>В прокуратуру в течение 24 часов.</td><td class="ref">ПК 14.3</td></tr>
-    </tbody></table></div>
-</section>
-
-<section id="s2">
-  <h2><span class="n">2</span>Тайминги</h2>
-  <div class="grid">
-    <div class="stat"><b>1 час</b><span>максимум задержания (ПК 5.2)</span></div>
-    <div class="stat"><b>3 + 5 мин</b><span>ответ адвоката + прибытие (ПК 5.8)</span></div>
-    <div class="stat"><b>10 мин</b><span>беседа с клиентом (ПК 5.9)</span></div>
-    <div class="stat"><b>60 мин</b><span>максимум допроса (ПК 9.9)</span></div>
+<section class="sec" id="notes" style="margin-bottom:26px">
+  <header style="margin-bottom:10px"><div><h2><span class="ic"><i data-lucide="notebook-pen">📝</i></span>Заметки и избранное</h2></div><span class="dim noprint" style="font-size:12px">хранится только в вашем браузере</span></header>
+  <div class="grid g2">
+    <div class="card">
+      <div class="tools" style="margin-bottom:8px"><input class="inp" id="nIn" placeholder="Быстрая заметка: жетон, имя, дело… (Enter — сохранить)" style="flex:1" onkeydown="if(event.key==='Enter')nAdd()"><button class="btn amber sm" onclick="nAdd()">Добавить</button></div>
+      <div id="nList"></div>
+      <div class="tools noprint" style="margin:8px 0 0"><button class="btn ghost sm" onclick="nCopyAll()">Копировать все</button><button class="btn ghost sm" onclick="nClear()">Очистить</button></div>
+    </div>
+    <div class="card">
+      <div class="tools" style="margin-bottom:8px"><input class="inp" id="fIn" list="ukl" placeholder="Статья в избранное: 17.6 (Enter)" style="flex:1" onkeydown="if(event.key==='Enter')fAdd()"><button class="btn amber sm" onclick="fAdd()">★ Добавить</button></div>
+      <div id="favList"></div>
+    </div>
   </div>
-  <div class="tw"><table>
-    <thead><tr><th>Что</th><th>Срок</th><th>Ссылка</th></tr></thead>
-    <tbody>
-    <tr><td>В час задержания не входят</td><td>Ожидание и беседа с адвокатом, ожидание прокурора и руководства, допрос</td><td class="ref">ПК 5.2</td></tr>
-    <tr><td>Адвокат не ответил или опоздал</td><td>Сотрудник вправе после необходимых действий и решения перейти к исполнению наказания</td><td class="ref">ПК 5.8</td></tr>
-    <tr><td>Допрос</td><td>Пауза 10 минут при вызове адвоката; адвокат один раз берёт перерыв до 5 минут</td><td class="ref">ПК 9.6, 9.7</td></tr>
-    <tr><td>Задержан госслужащий</td><td>Прокурор и руководство ожидаются 10 минут</td><td class="ref">ПК 5.13</td></tr>
-    <tr><td>Предварительное расследование</td><td>До 7 дней</td><td class="ref">ПК 3.6</td></tr>
-    <tr><td>Срок оплаты письменного штрафа</td><td>72–168 часов</td><td class="ref">АК 3.5, УК 4.16</td></tr>
-    <tr><td>Давность</td><td>Преступление — 15 («15 дней»), админ. — 3 («3 дня»)</td><td class="ref">УК 4.12, АК 4.2</td></tr>
-    </tbody></table></div>
-  <div class="note"><b>Конверсия наказания:</b> 1 месяц = 2 минуты, 1 год = 25 минут под стражей (комментарий к УК).</div>
 </section>
 
-<section id="s3">
-  <h2><span class="n">3</span>Статьи, по которым задерживают чаще всего</h2>
-  <div class="tw"><table>
-    <thead><tr><th>Статья УК</th><th>Суть</th><th>Уровень, срок</th><th>Залог</th><th>Розыск</th><th>На что смотреть</th></tr></thead>
-    <tbody>
-    <tr class="hot"><td>12.8</td><td>Оружие, боеприпасы, спецсредства, гос. бронежилет у гражданского; оружие без лицензии или мед. карты «A»</td><td><span class="pill fed">Федеральная</span> до 1 года</td><td>не указан ⚠️</td><td>2</td><td>Серийный номер, калибр, лицензия, мед. карта, законность обыска</td></tr>
-    <tr><td>12.8.1</td><td>Незаконное использование холодного оружия</td><td><span class="pill reg">Региональная</span> до 8 мес.</td><td>не указан ⚠️</td><td>1</td><td>Самооборона; обнажать в общественных местах нельзя</td></tr>
-    <tr class="hot"><td>17.1</td><td>Посягательство на жизнь сотрудника из-за службы</td><td><span class="pill fed">Федеральная</span> 1 год, пожизненный запрет на госслужбу, штраф не предусмотрен</td><td>не указан ⚠️</td><td>2, 4</td><td>Умысел именно на смерть, осведомлённость, опознание сотрудника, видео</td></tr>
-    <tr><td>17.2</td><td>Насилие, не опасное для жизни, или угроза расправой сотруднику</td><td><span class="pill reg">Региональная</span> до 8 мес.</td><td>5 000$</td><td>2</td><td>Типичная переквалификация с 17.1</td></tr>
-    <tr><td>17.3</td><td>Оскорбление сотрудника при исполнении</td><td><span class="pill reg">Региональная</span> до 4 мес.</td><td>2 000$</td><td>1</td><td>Было ли это при исполнении, форма оскорбления</td></tr>
-    <tr><td>17.6</td><td>Неповиновение законному требованию</td><td><span class="pill reg">Региональная</span> до 5 мес.</td><td>5 000$</td><td>1</td><td>Законность и понятность требования, повторное требование, время на исполнение</td></tr>
-    <tr><td>17.7</td><td>Отказ платить штраф от уполномоченного лица</td><td><span class="pill reg">Региональная</span> до 8 мес.</td><td>не указан ⚠️</td><td>2</td><td>Законность штрафа, 20 секунд, устный отказ</td></tr>
-    <tr><td>17.7.1</td><td>Отказ платить штраф прокуратуры, суда, Минсоцзащиты, Сената</td><td><span class="pill fed">Федеральная</span> 1 год</td><td>не указан ⚠️</td><td>5</td><td>Истёк ли срок, было ли уведомление</td></tr>
-    <tr><td>17.8</td><td>Побег от сотрудника при задержании или аресте</td><td><span class="pill fed">Федеральная</span> 1 год</td><td>не указан ⚠️</td><td>1</td><td>Было ли законное задержание</td></tr>
-    <tr><td>12.7</td><td>Незаконное нахождение на охраняемой территории</td><td><span class="pill reg">Региональная</span> 5 мес.</td><td>2 500$</td><td>2</td><td>Законность присутствия, предупреждение (ЗОТ 3)</td></tr>
-    </tbody></table></div>
-  <div class="note">⚠️ <b>Залог «не указан»:</b> в УК для статьи нет суммы, а залог считается по суммам из УК (Закон об адвокатуре 3.10, 5.5). Значит залог не предусмотрен, но прямо закон этого не говорит — уточняйте у руководства коллегии.</div>
 
-  <h3>Защита по 12.8</h3>
-  <p><b>Серийный номер:</b> AMXXXXXX — гражданское; MWXXXXXX — частично гражданское (только лёгкое и среднее); LSSD, PRIS, FIB, MAY, ARMY, LSPD — государственное. Нет номера или формат неизвестен — нелегальное. <b>Калибр:</b> тяжёлое (7.62, 11.43, .50 BMG, 12-й калибр не из «Аммунации») только правоохранителям; боеприпасы 7.62, 11.43 и .50 запрещены гражданским. <b>Лицензия:</b> 18+, мед. карта «A», экзамен, пошлина.</p>
-  <p><b>Бронежилет:</b> гражданский легален везде, кроме госучреждений — там это не 12.8, а админ. 6.12 (до 20 000$). Государственный запрещён (это 12.8), но немедленная добровольная сдача найденного изделия не наказывается. Источник: Закон об оружии 14.3–14.5.</p>
-  <p><b>Обыск:</b> личный — только при законном задержании или по ордеру (ПК 7.1); транспорт — по перечню ПК 7.2; добытое незаконным обыском не доказывает вину (ПК 11.3). Только легальное оружие и имущество с лицензиями не изымают до помещения в учреждение (ПК 7.6); если нашли и нелегальное — изымают всё (ПК 7.7).</p>
+<!-- ============ ОБЗОР ============ -->
+<section class="sec" id="home">
+  <div class="hero">
+    <h1>Памятка адвоката <span>San Andreas</span></h1>
+    <p>Всё, что нужно в поле: что делать в конкретной ситуации, тайминги, база статей УК, АК и ДК с залогом и калькуляторами, особые клиенты, риски. Заметки и избранное — сразу сверху. Нажмите <span class="kb">Ctrl</span> <span class="kb">K</span> или <span class="kb">/</span> для поиска.</p>
+    <div class="row">
+      <button class="btn amber" onclick="openPal()"><i data-lucide="search">🔍</i> Быстрый поиск</button>
+      <a class="btn ghost" href="#scen"><i data-lucide="siren">🚨</i> Если случилось…</a>
+      <a class="btn ghost" href="#uk"><i data-lucide="book-open">📕</i> База статей</a>
+    </div>
+  </div>
+  <div class="grid g4" style="margin-top:12px">
+    <div class="stat"><b>1 час</b><span>максимум задержания</span><small>ПК 5.2</small></div>
+    <div class="stat"><b>3 + 5 мин</b><span>ответ адвоката + прибытие</span><small>ПК 5.8</small></div>
+    <div class="stat"><b>10 мин</b><span>беседа с клиентом наедине</span><small>ПК 5.9</small></div>
+    <div class="stat"><b>24 часа</b><span>жалоба в прокуратуру / обжалование</span><small>ПК 14.3</small></div>
+  </div>
 
-  <h3>Защита по 17.1</h3>
-  <p>Состав требует умысла, прямо направленного на смерть, и знания, что потерпевший — сотрудник и что это связано со службой (примечание к 17.1). Нет умысла на смерть — переквалификация на 17.2 или 6.1 (принцип вины, УК 5.4). Проверьте, представился ли сотрудник и виден ли знак (ПК 2.1, 13.2, 13.5), была ли сила законной (Закон об оружии 12, ПК гл. 12), велась ли запись (ПК 11.4). Необходимая оборона — УК 3.1–3.3, смягчающие — УК 4.4.</p>
+  <h3>Главное за 30 секунд</h3>
+  <div class="tw"><table><thead><tr><th>Что</th><th>Правило</th><th>Ссылка</th></tr></thead><tbody id="quick"></tbody></table></div>
 </section>
 
-<section id="s4">
-  <h2><span class="n">4</span>Административные правонарушения</h2>
-  <p>Привлекают: LSPD и LSSD в своей юрисдикции, FIB, суд, прокуратура, USMS по решению суда, USSS (АК 2.3).</p>
-  <div class="tw"><table>
-    <thead><tr><th>Статья АК</th><th>Суть</th><th>Штраф</th></tr></thead>
-    <tbody>
-    <tr><td>5.2</td><td>Невыполнение требования прекратить правонарушение</td><td>до 30 000$</td></tr>
-    <tr><td>6.5</td><td>Вмешательство гражданского в задержание или арест</td><td>до 20 000$</td></tr>
-    <tr><td>6.6</td><td>То же со стороны госслужащего</td><td>до 30 000$</td></tr>
-    <tr><td>6.7</td><td>Сокрытие личности (маска)</td><td>до 15 000$</td></tr>
-    <tr><td>6.8</td><td>Мелкое хулиганство</td><td>до 15 000$</td></tr>
-    <tr><td>6.9</td><td>Неприемлемый вид</td><td>до 15 000$</td></tr>
-    <tr><td>6.10</td><td>Нарушение закона об оружии силовиком без тяжёлых последствий (штраф выписывает прокурор или судья)</td><td>до 25 000$</td></tr>
-    <tr><td>6.12</td><td>Гражданский в бронежилете в госучреждении</td><td>до 20 000$</td></tr>
-    <tr><td>7.1, 7.2</td><td>Оскорбление</td><td>до 10 000$</td></tr>
-    <tr><td>9.3</td><td>Воспрепятствование медицинской помощи</td><td>до 20 000$</td></tr>
-    </tbody></table></div>
-  <div class="good"><b>Аргументы:</b> малозначительность и устное замечание (АК 3.2), смягчающие и отягчающие (3.3, 3.4), давность 3 («3 дня»), штраф назначается на видео (ПК 11.4).</div>
-  <div class="note"><b>Ловушки:</b> по 5.2 новое требование прекратить правонарушение предъявляют не раньше наказания за предыдущее, а за длящееся нарушение штраф один раз. Отказ снять маску — сразу 17.6 УК, без предварительного админ. наказания (примечание к АК 6.7).</div>
+<!-- ============ СИТУАЦИИ ============ -->
+<section class="sec" id="scen">
+  <header><div><h2><span class="ic"><i data-lucide="siren">🚨</i></span>Если случилось…</h2><p>Пошаговые сценарии. Откройте нужный, готовые фразы копируются одним нажатием.</p></div>
+  <div class="tools noprint"><button class="btn ghost sm" onclick="accAll(true)">Раскрыть все</button><button class="btn ghost sm" onclick="accAll(false)">Свернуть</button></div></header>
+  <div id="scenList"></div>
 </section>
 
-<section id="s5">
-  <h2><span class="n">5</span>Неуплата штрафов</h2>
-  <p>На месте штраф лучше <b>оплатить и обжаловать в течение 24 часов</b>. Фраза «не согласен, оплачу и обжалую» отказом не считается, а устное «не буду платить», возврат тикета, 20 секунд молчания или попытка уйти — это 17.7.</p>
-  <ul>
-    <li>Проверяйте полномочия выписавшего (ПК 1.6, 6.6), сумму в пределах «до X», наличие видео.</li>
-    <li>Штраф прокуратуры платят любому её сотруднику, судебный — судье (УК 4.15.1).</li>
-    <li>Неуплата уголовного штрафа аннулирует освобождение, лицо отвечает по исходным статьям (УК 4.11.1).</li>
-    <li>⚠️ По 17.7.1 срок оплаты 72–168 часов, поэтому состав логично возникает после его истечения; прямо в тексте этого нет.</li>
-  </ul>
+<!-- ============ ТАЙМЕРЫ ============ -->
+<section class="sec" id="timers">
+  <header><div><h2><span class="ic"><i data-lucide="timer">⏱</i></span>Тайминги</h2><p>Время «час задержания» не включает беседу с адвокатом, ожидание прокурора и допрос (ПК 5.2).</p></div></header>
+
+  
+  <div class="tw"><table><thead><tr><th>Что</th><th>Срок</th><th>Ссылка</th></tr></thead><tbody id="timeTbl"></tbody></table></div>
+
+  <h3 class="noprint">Конвертер игрового времени</h3>
+  <div class="card calc noprint">
+    <div>
+      <p class="dim" style="margin-top:0">Срок по закону указан в «месяцах» и «годах», а отсиживается в реальных минутах: <b>1 месяц = 2 мин</b>, <b>1 год = 25 мин</b> (комментарий к УК). Давность: 15 лет = 15 дней, АК 3 года = 3 дня.</p>
+      <div class="tools"><input class="inp" id="cvY" type="number" min="0" placeholder="Лет" style="width:90px" oninput="conv()"><input class="inp" id="cvM" type="number" min="0" placeholder="Месяцев" style="width:110px" oninput="conv()"></div>
+      <div class="tools"><button class="chipb" onclick="cvSet(0,4)">4 мес.</button><button class="chipb" onclick="cvSet(0,8)">8 мес.</button><button class="chipb" onclick="cvSet(1,0)">1 год</button><button class="chipb" onclick="cvSet(2,0)">2 года</button><button class="chipb" onclick="cvSet(6,0)">6 лет (СИЗО)</button><button class="chipb" onclick="cvSet(24,0)">24 года (ФТ)</button></div>
+    </div>
+    <div class="res"><div class="kv"><span>Минут под стражей</span><b id="cvMin">—</b></div><div class="kv"><span>В часах и минутах</span><b id="cvH">—</b></div><div class="kv"><span>Проверка: месяцев всего</span><b id="cvMo">—</b></div></div>
+  </div>
 </section>
 
-<section id="s6">
-  <h2><span class="n">6</span>Залог</h2>
-  <div class="tw"><table>
-    <thead><tr><th>Вопрос</th><th>Правило</th></tr></thead>
-    <tbody>
-    <tr><td>Кто вправе</td><td>Любой задержанный, кроме задержанных по ордеру или судебному акту с прямым указанием на отсутствие залога (ПК 15.2)</td></tr>
-    <tr><td>Что запрещено адвокату</td><td>Выпускать под залог задержанных по ордеру или постановлению суда (Закон об адвокатуре 5.4) — действуйте по этой более строгой норме</td></tr>
-    <tr><td>Сумма</td><td>По УК. Предложить увеличить можно не более чем вдвое, уменьшать нельзя (3.10, 5.5)</td></tr>
-    <tr><td>Частный адвокат</td><td>Вправе освободить под залог того, кому помогал при задержании (8.2). После стадии ареста может остаться ради залога, иначе покидает территорию (8.4)</td></tr>
-    </tbody></table></div>
+<!-- ============ УК ============ -->
+<section class="sec" id="uk">
+  <header><div><h2><span class="ic"><i data-lucide="book-open">📕</i></span>База статей УК</h2><p>Все статьи гл. VI–XVIII: уровень, срок, залог, приоритет розыска, запрет на службу и вилка штрафа (по звёздам, ст. 4.13/4.15). Нажмите на строку — подробности.</p></div></header>
+  <div class="tools noprint">
+    <input class="inp" id="ukq" placeholder="Номер или слова: 12.8, оружие, взятка…" style="flex:1;min-width:220px" oninput="renderUK()">
+    <button class="chipb on" data-f="all" onclick="ukF(this)">Все</button>
+    <button class="chipb" data-f="fed" onclick="ukF(this)">Федеральные</button>
+    <button class="chipb" data-f="reg" onclick="ukF(this)">Региональные</button>
+    <button class="chipb" data-f="mil" onclick="ukF(this)">Военные</button>
+    <button class="chipb" data-f="fin" onclick="ukF(this)">Финансовые</button>
+    <button class="chipb" data-f="bail" onclick="ukF(this)">Есть залог</button>
+    <button class="chipb" data-f="fav" onclick="ukF(this)">★ Избранное</button>
+    <span class="cnt" id="ukcnt"></span>
+  </div>
+  <div class="tw"><table><thead><tr><th></th><th>Статья</th><th>Суть</th><th>Уровень</th><th>Срок</th><th>Залог</th><th>Розыск</th></tr></thead><tbody id="ukBody"></tbody></table></div>
+  <div class="warn" style="margin-top:12px">⚠️ <b>Залог «—»:</b> в УК для статьи сумма не указана, а залог считается по суммам из УК (Закон об адвокатуре 3.10, 5.5). Значит залог по ней не предусмотрен, но прямо закон этого не говорит — уточняйте у руководства.</div>
+  <div class="grid g3">
+    <div class="card"><b>Что значат звёзды (УК 4.13, 4.15)</b>
+      <table style="margin-top:8px"><tbody>
+        <tr><td class="k">без *</td><td>запрета нет · штраф 12 500–25 000$</td></tr>
+        <tr><td class="k">*</td><td>запрет 7 дней · 25 000–50 000$</td></tr>
+        <tr><td class="k">**</td><td>запрет 21 день · 50 000–100 000$</td></tr>
+        <tr><td class="k">***</td><td>запрет 45 дней · 100 000–125 000$</td></tr>
+        <tr><td class="k">****</td><td>пожизненный запрет · штраф не предусмотрен</td></tr></tbody></table></div>
+    <div class="card"><b>Куда сажают (УК 4.5–4.7)</b>
+      <p style="margin:8px 0 0">1–2 региональные статьи → <b>КПЗ</b>. 3 и более региональных → <b>СИЗО</b> до 6 лет. Любая федеральная → <b>Федеральная тюрьма</b> до 24 лет. При нескольких статьях наказание за каждую, полное или частичное сложение (4.10).</p></div>
+    <div class="card"><b>Освобождение (УК 4.11, 4.14)</b>
+      <p style="margin:8px 0 0">Примирение — впервые и до 8 мес. Уголовный штраф вместо отсидки — суд или прокуратура, если нет крупного ущерба. Срок оплаты 72–168 часов; неуплата аннулирует освобождение (4.11.1).</p></div>
+  </div>
 </section>
 
-<section id="s7">
-  <h2><span class="n">7</span>Особые клиенты</h2>
-  <div class="tw"><table>
-    <thead><tr><th>Клиент</th><th>Что помнить</th></tr></thead>
-    <tbody>
-    <tr><td>Госслужащий</td><td>Вызывают прокурора и представителя руководства, ждут 10 минут. Не явились — освобождение. Нет полной видеозаписи — освобождение (ПК 5.12–5.15). По главам 14, 15, 16 УК задерживать нельзя (Закон о взаимодействии 8.1). Локальное решение о вине ведёт к увольнению (ТК 7.2).</td></tr>
-    <tr><td>Силовик с оружием</td><td>Любое оружие, в том числе нелегальное, — только при исполнении, нелегальное сдаётся на склад (Закон об оружии 11.2). Задержан по 12.8 или 12.8.1 без опасных последствий — освобождение, оружие не изымают, жалоба в прокуратуру. Админ. 6.10 — только суд или прокуратура.</td></tr>
-    <tr><td>Неприкосновенный</td><td>Задержание только для предотвращения опасности или по ордеру AS, PTD или суду. О вине решают только прокуратура и суд. Следственные действия — по ордеру IA (ПК гл. 16).</td></tr>
-    <tr><td>Внештатник</td><td>Документ на срок не более 7 дней (168 часов) с данными паспорта, руководителя, даты и времени выдачи и окончания (Закон о взаимодействии 12–13).</td></tr>
-    </tbody></table></div>
+<!-- ============ ЗАЩИТА ============ -->
+<section class="sec" id="def">
+  <header><div><h2><span class="ic"><i data-lucide="shield-check">🛡</i></span>Линии защиты по частым статьям</h2><p>12.8 и 17.1 — самые частые, но не единственные. Ниже — на что смотреть по каждой.</p></div></header>
+  <div class="grid g2" id="defGrid"></div>
 </section>
 
-<section id="s8">
-  <h2><span class="n">8</span>Риски самого адвоката</h2>
-  <div class="tw"><table>
-    <thead><tr><th>Риск</th><th>Основание</th></tr></thead>
-    <tbody>
-    <tr><td>В КПЗ частный адвокат — только по вызову; в Федеральной тюрьме — по вызову по рации или телефону. Нахождение без оснований — 12.7 или 12.7.1 УК.</td><td class="ref">ЗОТ 27, 34, 38; Закон об адвокатуре 8.4</td></tr>
-    <tr><td>Стажёр и юрист не заходят на ЗОТ единолично</td><td class="ref">Закон об адвокатуре 1.8</td></tr>
-    <tr><td>Нельзя публично заявлять о вине, если клиент её отрицает; идти против воли клиента</td><td class="ref">5.2, 5.1</td></tr>
-    <tr><td>Лицензия изымается: нарушение УК, судимость, просроченная мед. карта, налог 40 000$ (3 дня), аккредитация 1-го числа 5 000$</td><td class="ref">6.4, 6.8, 7.1</td></tr>
-    <tr><td>Если мешают работать — 9.6 УК (до 3 мес., залог 5 000$): фиксируйте на видео, жалоба в 24 часа</td><td class="ref">УК 9.6</td></tr>
-    <tr><td>Встречи с отбывающим наказание: до 2 раз в сутки по 10 минут</td><td class="ref">3.4</td></tr>
-    </tbody></table></div>
+<!-- ============ АК ============ -->
+<section class="sec" id="ak">
+  <header><div><h2><span class="ic"><i data-lucide="book-marked">📘</i></span>Административный кодекс</h2><p>Штрафы привлекают LSPD и LSSD в своей юрисдикции, FIB, суд, прокуратура, USMS по решению суда, USSS (АК 2.3).</p></div></header>
+  <div class="tools noprint"><input class="inp" id="akq" placeholder="Поиск по АК…" style="flex:1" oninput="renderAK()"><span class="cnt" id="akcnt"></span></div>
+  <div class="tw"><table><thead><tr><th>Статья</th><th>Суть</th><th>Штраф</th></tr></thead><tbody id="akBody"></tbody></table></div>
+  <div class="grid g2" style="margin-top:12px">
+    <div class="tip"><b>Аргументы:</b> малозначительность и устное замечание (АК 3.2), смягчающие и отягчающие (3.3, 3.4), давность 3 года («3 дня», 4.2), сумма штрафа назначается на видео (ПК 11.4), срок оплаты письменного штрафа 72–168 часов (3.5).</div>
+    <div class="warn"><b>Ловушки:</b> по 5.2 новое требование прекратить правонарушение предъявляют не раньше наказания за предыдущее, а за длящееся нарушение штраф один раз. Отказ платить — это 17.7 УК (АК 5.1). Отказ снять маску — сразу 17.6 УК, без админ. наказания (примечание к АК 6.7).</div>
+  </div>
 </section>
 
+<!-- ============ ДК ============ -->
+<section class="sec" id="dk">
+  <header><div><h2><span class="ic"><i data-lucide="car">🚗</i></span>Дорожный кодекс</h2><p>Общие правила: ответственность за каждое нарушение, потолок штрафа за совокупность — 50 000$ (ДК 6). Три и более нарушений — можно изъять лицензию (ДК 10). Привлекают LSPD, LSSD, прокуратура, суд (ДК 7).</p></div></header>
+  <div class="grid g3" style="margin-bottom:12px">
+    <div class="card"><b>Малозначительность (ДК 3)</b><p style="margin:6px 0 0" class="dim">Деятельность носит предупредительный, а не карательный характер: при незначительном нарушении и сотрудничестве возможно освобождение.</p></div>
+    <div class="card"><b>Проверка (ДК 8)</b><p style="margin:6px 0 0" class="dim">Водитель предъявляет по первому требованию лицензию нужной категории и техпаспорт. Уклонение — отдельное нарушение.</p></div>
+    <div class="card"><b>Отказ платить (ДК 9)</b><p style="margin:6px 0 0" class="dim">Ответственность по 17.7 УК. Совет клиенту: оплатить и обжаловать.</p></div>
+  </div>
+  <div class="tools noprint"><input class="inp" id="dkq" placeholder="Поиск по ДК: парковка, обгон, 43…" style="flex:1" oninput="renderDK()"><span class="cnt" id="dkcnt"></span></div>
+  <div class="tw"><table><thead><tr><th>Статья</th><th>Нарушение</th><th>Штраф</th></tr></thead><tbody id="dkBody"></tbody></table></div>
+  <div class="warn" style="margin-top:12px">Суммы вытянуты из текста статей автоматически. Если у статьи несколько сумм (например, ст. 43 — по превышению скорости), смотрите точный текст статьи.</div>
+</section>
+
+<!-- ============ ЗАЛОГ ============ -->
+<section class="sec" id="bail">
+  <header><div><h2><span class="ic"><i data-lucide="banknote">💵</i></span>Залог и калькулятор дела</h2><p>Добавьте статьи клиента — получите залог, куда сажают, вилку штрафа и запрет на службу.</p></div></header>
+  <div class="calc">
+    <div class="card">
+      <b>Статьи клиента</b>
+      <div class="tools" style="margin-top:8px"><input class="inp" id="cq" list="ukl" placeholder="Номер статьи, напр. 17.6" style="flex:1" onkeydown="if(event.key==='Enter')cAdd()"><datalist id="ukl"></datalist><button class="btn amber sm" onclick="cAdd()">Добавить</button><button class="btn ghost sm" onclick="cClear()">Сброс</button></div>
+      <div class="sel" id="csel"></div>
+      <p class="dim" style="font-size:12.5px;margin-bottom:0">Статьи также добавляются кнопкой «+ в расчёт дела» в подробностях строки базы УК. Выбор сохраняется в браузере.</p>
+    </div>
+    <div class="res" id="cres"></div>
+  </div>
+  <h3>Правила залога</h3>
+  <div class="tw"><table><tbody>
+    <tr><td class="k">Кто вправе</td><td>Любой задержанный, кроме задержанных по ордеру или судебному акту с прямым указанием на отсутствие залога (ПК 15.2).</td></tr>
+    <tr><td class="k">Запрет адвокату</td><td>Выпускать под залог задержанных по ордеру или постановлению суда нельзя (Закон об адвокатуре 5.4) — действуйте по этой более строгой норме.</td></tr>
+    <tr><td class="k">Сумма</td><td>По УК. Предложить увеличить можно не более чем вдвое, уменьшать нельзя (Закон об адвокатуре 3.10, 5.5).</td></tr>
+    <tr><td class="k">Частный адвокат</td><td>Вправе освободить под залог того, кому помогал при задержании (8.2). После ареста может остаться ради залога, иначе покидает территорию (8.4).</td></tr>
+  </tbody></table></div>
+  <div class="warn">⚠️ Сумма залога при нескольких статьях в законе прямо не описана: калькулятор показывает сумму по статьям как ориентир — уточните у руководства или сотрудника.</div>
+</section>
+
+<!-- ============ ШТРАФЫ ============ -->
+<section class="sec" id="fines">
+  <header><div><h2><span class="ic"><i data-lucide="credit-card">💳</i></span>Штрафы и неуплата</h2><p>На месте штраф лучше оплатить и обжаловать в течение 24 часов.</p></div></header>
+  <div class="grid g2">
+    <div class="card"><b>Что считается отказом (17.7 УК)</b><ul style="margin:8px 0 0;padding-left:18px">
+      <li>Устное «не буду платить», возврат тикета</li><li>20 секунд молчания, попытка уйти</li>
+      <li><b>Не отказ:</b> «не согласен, оплачу и обжалую»</li></ul></div>
+    <div class="card"><b>Кому платят</b><ul style="margin:8px 0 0;padding-left:18px">
+      <li>Штраф прокуратуры — любому её сотруднику, судебный — судье (УК 4.15.1)</li>
+      <li>Уголовный штраф платят тому ведомству, что выдало</li><li>Срок 72–168 часов (УК 4.16, АК 3.5)</li></ul></div>
+    <div class="card"><b>Проверьте</b><ul style="margin:8px 0 0;padding-left:18px">
+      <li>Полномочия выписавшего (ПК 1.6, 6.6)</li><li>Сумма в пределах «до X»</li><li>Есть ли видео</li></ul></div>
+    <div class="card"><b>Последствия</b><ul style="margin:8px 0 0;padding-left:18px">
+      <li>Неуплата уголовного штрафа аннулирует освобождение — ответ по исходным статьям (УК 4.11.1)</li>
+      <li>17.7 — до 8 мес., региональная; 17.7.1 — 1 год, федеральная</li></ul></div>
+  </div>
+  <div class="warn">⚠️ По 17.7.1 срок оплаты 72–168 часов, поэтому состав логично возникает после его истечения; прямо в тексте этого нет.</div>
+</section>
+
+<!-- ============ ОСОБЫЕ КЛИЕНТЫ ============ -->
+<section class="sec" id="spec">
+  <header><div><h2><span class="ic"><i data-lucide="user-round">👤</i></span>Особые клиенты</h2></div></header>
+  <div class="grid g2" id="specGrid"></div>
+</section>
+
+<!-- ============ РИСКИ ============ -->
+<section class="sec" id="risk">
+  <header><div><h2><span class="ic"><i data-lucide="triangle-alert">⚠️</i></span>Риски самого адвоката</h2></div></header>
+  <div class="tw"><table><thead><tr><th>Риск</th><th>Основание</th></tr></thead><tbody id="riskBody"></tbody></table></div>
+</section>
+
+<!-- ============ ЗАКОНЫ ============ -->
+<section class="sec" id="laws">
+  <header><div><h2><span class="ic"><i data-lucide="library">📚</i></span>Реестр законов в памятке</h2></div></header>
+  <div class="tw"><table><thead><tr><th>Закон</th><th>Редакция</th><th>Что искать</th></tr></thead><tbody id="lawBody"></tbody></table></div>
+</section>
+
+<footer>Памятка справочная, составлена по текстам законов и не заменяет решение суда или толкование. Пункты с ⚠️ уточняйте у руководства коллегии. Редакции: УК, ПК, ТК — 23.11.2026; АК, ДК, Закон об оружии — 14.11.2026; Закон о ЗОТ — 23.11.2026.</footer>
 </main>
-<footer>Памятка справочная, составлена по текстам законов, и не заменяет решение суда или толкование Пленума Верховного Суда. Пункты с ⚠️ уточняйте у руководства коллегии.</footer>
+
+<button class="ibtn totop noprint" onclick="scrollTo({top:0})" title="Наверх">↑</button>
+
+<div class="pal" id="pal" onclick="if(event.target===this)closePal()">
+  <div class="box">
+    <input id="palq" placeholder="Что ищем? Например: 17.6, залог, маска, допрос…" oninput="palRender()" autocomplete="off">
+    <div class="list" id="pall"></div>
+    <div class="ft"><span><span class="kb">↑↓</span> выбор</span><span><span class="kb">Enter</span> открыть</span><span><span class="kb">Esc</span> закрыть</span></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ===== DATA ===== */
+const UK = [{"n":"6.1","st":1,"lvl":"reg","bail":"1500","pr":"1","pen":"От 2 до 4 месяцев лишения свободы","title":"Нанесение телесных повреждений, а равно посягательство на жизнь и здоровье гражданина"},{"n":"6.2","st":2,"lvl":"fed","bail":"","pr":"2","pen":"1 год лишения свободы","title":"Убийство, то есть умышленное причинение смерти другому человеку"},{"n":"6.3","st":3,"lvl":"fed","bail":"","pr":"2","pen":"2 года лишения свободы","title":"Тяжкое убийство, то есть убийство двух или более лиц."},{"n":"6.4","st":0,"lvl":"reg","bail":"4000","pr":"1","pen":"До 5 месяцев лишения свободы","title":"Причинение смерти по неосторожности"},{"n":"7.1","st":4,"lvl":"fed","bail":"","pr":"4","pen":"1 год лишения свободы","title":"Похищение человека"},{"n":"7.2","st":1,"lvl":"reg","bail":"3000","pr":"1","pen":"От 2 до 5 месяцев лишения свободы","title":"Клевета, содержащаяся в публичном выступлении, средствах массовой информации либо с использованием своего служебного положения"},{"n":"8.1","st":3,"lvl":"fed","bail":"","pr":"2","pen":"До 1 года лишения свободы","title":"Изнасилование, или иные действия сексуального характера, то есть половое сношение с применением насилия или с угрозой его применения к потерпевшей (потерпевшему) или к другим лицам либо с использованием беспомощного состояния поте"},{"n":"8.2","st":1,"lvl":"reg","bail":"4500","pr":"2","pen":"До 5 месяцев лишения свободы","title":"Понуждение лица к половому сношению, мужеложеству, лесбиянству или совершению иных действий сексуального характера путем шантажа, угрозы уничтожением, повреждением или изъятием имущества либо с использованием материальной или иной"},{"n":"8.3","st":1,"lvl":"reg","bail":"","pr":"1","pen":"От 4 месяцев лишения свободы","title":"Сексуальное домогательство, связанное с использованием явного или скрытого подтекста."},{"n":"9.1","st":0,"lvl":"reg","bail":"","pr":"1","pen":"До 8 месяцев лишения свободы","title":"Незаконное собирание или распространение сведений о частной жизни лица, составляющих его личную или семейную тайну, без его согласия либо распространение этих сведений в публичном выступлении, публичном произведении или средствах "},{"n":"9.2","st":0,"lvl":"reg","bail":"2000","pr":"2","pen":"До 5 месяцев лишения свободы","title":"Незаконное проникновение на частную территорию занимая организацией или проникновение в жилище, совершенное против воли проживающего в нем лица или вопреки интересам руководства организации в том числе с использованием своего служ"},{"n":"9.3","st":1,"lvl":"fed","bail":"","pr":"2","pen":"1 год лишения свободы","title":"Воспрепятствование свободному осуществлению гражданином своих избирательных прав, в том числе соединенные с подкупом, обманом, принуждением, применением насилия либо с угрозой его применения"},{"n":"9.4","st":0,"lvl":"reg","bail":"4000","pr":"1","pen":"До 4 месяцев лишения свободы","title":"Воспрепятствование законной профессиональной деятельности журналистов путем принуждения их к распространению либо к отказу от распространения информации"},{"n":"9.5","st":0,"lvl":"reg","bail":"5000","pr":"1","pen":"До 2 месяцев лишения свободы","title":"Воспрепятствование законной профессиональной деятельности журналистов путем незаконного ограничения права поиска, получения, передачи, производства и распространения информации любым законным способом"},{"n":"9.6","st":0,"lvl":"reg","bail":"5000","pr":"2","pen":"До 3 месяцев лишения свободы","title":"Воспрепятствование законной профессиональной деятельности Адвоката путем незаконного ограничения его прав и полномочий регламентируемых Законом “об Адвокатуре и Адвокатской деятельности”"},{"n":"9.7","st":3,"lvl":"fed","bail":"","pr":"4","pen":"2 года лишения свободы","title":"Организация, проведение и участие в азартных играх которые представляют угрозу жизни участникам таких игр и окружающим, а также пародии и копии этих игр."},{"n":"10.1","st":1,"lvl":"fin","bail":"4000","pr":"1","pen":"До 4 месяцев лишения свободы","title":"Кража до $10000"},{"n":"10.2","st":1,"lvl":"fin","bail":"4000","pr":"2","pen":"До 8 месяцев лишения свободы","title":"Кража от $10001 и более"},{"n":"10.4","st":1,"lvl":"reg","bail":"3000","pr":"2","pen":"До 5 месяцев лишения свободы","title":"Мошенничество, то есть хищение чужого имущества или приобретение права на чужое имущество путем обмана или злоупотребления доверием"},{"n":"10.5","st":2,"lvl":"reg","bail":"3000","pr":"2","pen":"До 5 месяцев лишения свободы","title":"Грабеж, то есть открытое хищение из чужого недвижимого, а также личного имущества."},{"n":"10.5.2","st":2,"lvl":"reg","bail":"2000","pr":"1","pen":"До 5 месяцев лишения свободы","title":"Кража, то есть скрытое хищение из чужого недвижимого, а также личного имущества"},{"n":"10.6","st":2,"lvl":"reg","bail":"5000","pr":"2","pen":"До 5 месяцев лишения свободы","title":"Разбой, то есть нападение в целях хищения чужого имущества, совершенное с применением насилия, опасного для жизни или здоровья, либо с угрозой применения такого насилия"},{"n":"10.7","st":1,"lvl":"reg","bail":"2000","pr":"1","pen":"До 4 месяцев лишения свободы","title":"Неправомерное завладение автомобилем или иным транспортным средством без цели хищения (угон)"},{"n":"10.8","st":2,"lvl":"reg","bail":"4000","pr":"1","pen":"возмещение нанесенного ущерба до 10.000$ или до 5 месяцев лишения свободы","title":"Умышленные уничтожение или повреждение частного/государственного имущества, совершенные из хулиганских побуждений, путем поджога, взрыва, намеренным повреждения транспортным средством или иным способом"},{"n":"10.9","st":1,"lvl":"reg","bail":"","pr":"1","pen":"До 5 месяцев лишения свободы","title":"Проникновение на опечатанную территорию, а равно повреждение или срыв печати (пломбы)."},{"n":"10.10","st":0,"lvl":"reg","bail":"","pr":"3","pen":"8 месяцев лишения свободы","title":"Вымогательство (рэкет), то есть требование передачи чужого имущества или права на имущество или совершения других действий имущественного характера под угрозой применения насилия либо уничтожения или повреждения чужого имущества."},{"n":"10.11","st":0,"lvl":"reg","bail":"2000","pr":"1","pen":"4 месяца лишения свободы","title":"Самовольное проникновение, а равно нахождение на территории служебных помещений частных коммерческих и некоммерческих организаций."},{"n":"11.1","st":1,"lvl":"fin","bail":"","pr":"5","pen":"До 8 месяцев лишения свободы","title":"Осуществление коммерческой/некоммерческой деятельности без регистрации."},{"n":"11.2","st":1,"lvl":"fin","bail":"3000","pr":"2","pen":"До 4 месяцев лишения свободы","title":"Принуждение к совершению сделки или к отказу от ее совершения под угрозой применения насилия, уничтожения или повреждения чужого имущества"},{"n":"11.4","st":2,"lvl":"fin","bail":"","pr":"5","pen":"До 1 года лишения свободы","title":"Уклонение от уплаты налогов"},{"n":"11.5","st":1,"lvl":"fin","bail":"5500","pr":"5","pen":"До 4 месяцев лишения свободы","title":"Сокрытие денежных средств либо имущества, за счет которых должно производиться взыскание налогов"},{"n":"11.6","st":3,"lvl":"fin","bail":"","pr":"4","pen":"До 4 месяцев лишения свободы","title":"Использование бюджетных денежных средств в целях, не соответствующих назначению этих средств (в случае, если данные денежные средства были выделены государственной казной на определённые цели)"},{"n":"11.6.1","st":3,"lvl":"fin","bail":"","pr":"4","pen":"До 4 месяцев лишения свободы","title":"Использование бюджетных денежных средств в личных целях (растрата) лицами, ответственными за контроль и распоряжение этими денежными средствами"},{"n":"11.7","st":1,"lvl":"fed","bail":"","pr":"1","pen":"До 2 лет лишения свободы","title":"Самовольное, незаконное занятие/присвоение территории или земельного участка, принадлежащего государству, без имеющейся на то лицензии"},{"n":"12.1","st":4,"lvl":"fed","bail":"","pr":"5","pen":"От 5 до 7 лет лишения свободы","title":"Терроризм — совершение взрыва, поджога или иных действий, устрашающих население и создающих опасность гибели человека, причинения значительного имущественного ущерба либо наступления иных тяжких последствий, если эти действия сове"},{"n":"12.2","st":4,"lvl":"fed","bail":"","pr":"4","pen":"От 2 до 3 лет лишения свободы","title":"Склонение, вербовка или иное вовлечение лица в терроризм, а равно финансирование терроризма"},{"n":"12.3","st":4,"lvl":"fed","bail":"","pr":"5","pen":"От 1 года и 6 месяцев до 3 лет лишения свободы","title":"Захват или удержание лица в качестве заложника, совершенные в целях понуждения государства, организации или гражданина совершить какое-либо действие или воздержаться от совершения какого-либо действия как условия освобождения зало"},{"n":"12.4","st":1,"lvl":"reg","bail":"1500","pr":"3","pen":"до 5 месяцев лишения свободы","title":"Заведомо ложное сообщение о готовящихся взрыве, поджоге или иных действиях, создающих опасность гибели людей, причинения значительного имущественного ущерба либо наступления иных общественно опасных последствий."},{"n":"12.5","st":3,"lvl":"fed","bail":"","pr":"2","pen":"От 2 до 3 лет лишения свободы","title":"Организация массовых беспорядков, а также участие в них, сопровождавшихся насилием, погромами, поджогами, уничтожением имущества, применением оружия, взрывных устройств, взрывчатых, отравляющих или иных опасных веществ и предметов"},{"n":"12.7","st":1,"lvl":"reg","bail":"2500","pr":"2","pen":"5 месяцев лишения свободы","title":"Незаконное проникновение на охраняемую в соответствии с законодательством штата Сан-Андреас территорию, а равно незаконное нахождение на ней"},{"n":"12.7.1","st":2,"lvl":"fed","bail":"","pr":"3","pen":"1 год лишения свободы","title":"Незаконное проникновение на территорию повышенной секретности в соответствии с законодательством штата Сан-Андреас, а равно незаконное нахождение на ней"},{"n":"12.8","st":2,"lvl":"fed","bail":"","pr":"2","pen":"до 1 года лишения свободы","title":"Незаконное приобретение, хранение, использование, продажа огнестрельного оружия, электрошокового оружие, боеприпасов, специальных средств, а равно незаконное хранение или ношение бронежилета государственного образца гражданским ли"},{"n":"12.8.1","st":1,"lvl":"reg","bail":"","pr":"1","pen":"до 8 месяцев лишения свободы","title":"Незаконное использование холодного оружия."},{"n":"12.9","st":3,"lvl":"fed","bail":"","pr":"2","pen":"1 год лишения свободы","title":"Незаконные приобретение, передача, сбыт, хранение, перевозка, изготовление, ношение взрывчатых веществ, взрывных устройств или предметов, поражающее действие которых основано на использовании горючих веществ."},{"n":"12.9.1","st":1,"lvl":"reg","bail":"3000","pr":"1","pen":"До 4 месяцев лишения свободы","title":"Незаконное перемещение по территории Штата, хранение товаров, ценностей и иных предметов являющееся контрабандой, а также их незаконный вывоз, ввоз, пересылка."},{"n":"12.10","st":2,"lvl":"fed","bail":"","pr":"1","pen":"2 года лишения свободы","title":"Укрывательство преступника, а именно сокрытие и помощь лицу, совершившему преступление (предоставление убежища или транспортного средства, изменение его внешнего вида, снабжение поддельным или чужим паспортом)."},{"n":"12.11","st":1,"lvl":"reg","bail":"5000","pr":"1","pen":"До 4 месяцев лишения свободы","title":"Организация, а равно вовлечение в занятие проституцией или принуждение к продолжению занятия проституцией."},{"n":"12.12","st":4,"lvl":"fed","bail":"","pr":"5","pen":"2 год лишения свободы","title":"Освобождение заключенных из федеральных или региональных пенитенциарных учреждений, включая насильственное вторжение, применение оружия, взрывчатки, угрозы или иное противоправное воздействие на сотрудников или службы безопасности"},{"n":"12.13","st":4,"lvl":"fed","bail":"","pr":"5","pen":"1 год лишения свободы","title":"Использование средств электромагнитного подавления (ЭМИ) на военной базе Форта Занкудо или в федеральном пенитенциарном учреждении, если это причинило вред здоровью людей, нарушило работу систем безопасности, связи или оборудовани"},{"n":"12.14","st":4,"lvl":"fed","bail":"","pr":"5, 3","pen":"1 год лишения свободы","title":"Нападение на конвой EMS (п. 1–5, см. текст статьи)"},{"n":"13.1","st":2,"lvl":"fed","bail":"","pr":"2","pen":"1 год лишения свободы","title":"Приобретение, хранение, перевозка и сбыт наркотических средств (свыше 10 грамм)."},{"n":"13.2","st":0,"lvl":"reg","bail":"2000","pr":"1","pen":"до 4 месяцев лишения свободы","title":"Угроза убийством или причинением тяжкого вреда здоровью гражданскому лицу (в том числе с целью запугивания)."},{"n":"14.1","st":4,"lvl":"fed","bail":"","pr":"3","pen":"От 4 до 6 лет лишения свободы","title":"Посягательство на жизнь государственного или общественного деятеля, совершенное в целях прекращения его государственной или иной политической деятельности либо из мести за такую деятельность"},{"n":"14.2","st":4,"lvl":"fed","bail":"","pr":"5","pen":"От 7 до 10 лет лишения свободы","title":"Действия, направленные на насильственный захват власти или насильственное удержание власти, а равно вооруженный мятеж, в нарушение Конституции штата Сан-Андреас, а равно направленные на насильственное изменение конституционного ст"},{"n":"14.3","st":4,"lvl":"fed","bail":"","pr":"5","pen":"От 3 до 5 лет лишения свободы","title":"Государственная измена - деяние гражданина США, наносящее ущерб суверенитету, территориальной целостности, обороноспособности, экономической и национальной безопасности страны. Переход на сторону врага, шпионаж и помощь иностранны"},{"n":"14.4","st":4,"lvl":"fed","bail":"","pr":"5","pen":"от 2 до 3 лет лишения свободы","title":"Разглашение государственной тайны, лицам, которые не располагают такой информацией или нарушение положений раздела V закона о “государственной и служебной тайне”."},{"n":"14.5","st":4,"lvl":"fed","bail":"","pr":"5","pen":"5 лет лишения свободы","title":"Раскрытие совершенно секретной информации, отнесенной Указом Генерального Прокурора в силу закона."},{"n":"15.1","st":2,"lvl":"fed","bail":"","pr":"3","pen":"1 год лишения свободы","title":"Превышение должностных полномочий, то есть совершение должностным лицом действий, явно выходящих за пределы его полномочий и повлекших существенное нарушение прав, и законных интересов граждан или организаций."},{"n":"15.2","st":2,"lvl":"fed","bail":"","pr":"3","pen":"1 год лишения свободы","title":"Злоупотребление должностными полномочиями, то есть использование должностным лицом своих служебных полномочий вопреки интересам службы, совершенное из корыстной или иной личной заинтересованностью и повлекших нарушение прав и зако"},{"n":"15.3","st":2,"lvl":"fed","bail":"","pr":"2","pen":"От 2 до 3 лет лишения свободы","title":"Самовольное присвоение гражданином полномочий должностного лица, либо выдача себя за должностное лицо коем гражданин не является"},{"n":"15.4","st":2,"lvl":"fed","bail":"","pr":"2","pen":"От 3 до 4 лет лишения свободы","title":"Получение взятки, то есть получение должностным лицом, лично или через посредника взятки в виде денег, иного имущества, либо в виде оказания ему услуг имущественного характера, либо услуг связанных с его непосредственно занимаемой"},{"n":"15.4.1","st":2,"lvl":"fed","bail":"","pr":"2","pen":"От 1 до 2 лет лишения свободы","title":"Дача взятки должностному лицу лично или через посредника в виде денег, иного имущества, либо в виде оказания им услуг имущественного характера, либо услуг связанных с его непосредственно занимаемой должностью, предоставления иных "},{"n":"15.4.2","st":1,"lvl":"reg","bail":"2000","pr":"1","pen":"До 5 месяцев лишения свободы","title":"Предложение взятки должностному лицу лично или через посредника в виде денег, иного имущества, либо в виде оказания им услуг имущественного характера, либо услуг связанных с его непосредственно занимаемой должностью, предоставлени"},{"n":"15.4.3","st":2,"lvl":"fed","bail":"","pr":"2","pen":"От 1 до 2 лет лишения свободы","title":"Вымогательство взятки должностным лицом направленное на склонение лица под угрозой незаконных действий либо услуг связанных с его непосредственно занимаемой должностью, в том числе освобождение задержанного от задержания или арест"},{"n":"15.5","st":2,"lvl":"fed","bail":"","pr":"3","pen":"1 год лишения свободы","title":"Халатность, то есть неисполнение или ненадлежащее исполнение должностным лицом своих обязанностей вследствие недобросовестного или небрежного отношения к службе либо обязанностей по должности, если это деяние повлекло существенное"},{"n":"15.6","st":1,"lvl":"fed","bail":"","pr":"2","pen":"1 год лишения свободы","title":"Неисполнение сотрудником органов правопорядка приказа начальника, отданного в установленном порядке и не противоречащего закону, причинившее существенный вред правам и законным интересам граждан или организаций."},{"n":"15.7","st":2,"lvl":"reg","bail":"","pr":"2","pen":"8 месяцев лишения свободы","title":"Разглашение служебной тайны, лицам, которые не располагают такой информацией."},{"n":"16.1","st":3,"lvl":"fed","bail":"","pr":"4","pen":"1 год лишения свободы","title":"Вмешательство в какой бы то ни было форме в деятельность суда, следствия, ограничение прав граждан в целях воспрепятствования осуществлению правосудия"},{"n":"16.2","st":4,"lvl":"fed","bail":"","pr":"4","pen":"От 1 года и 6 месяцев до 3 лет лишения свободы","title":"Угроза, а равно посягательство на жизнь судьи, или иного лица, участвующего в отправлении правосудия, прокурора, защитника, эксперта, специалиста, судебного пристава, судебного исполнителя, а равно их близких в связи с рассмотрени"},{"n":"16.3","st":0,"lvl":"reg","bail":"2000","pr":"1","pen":"до 5 месяцев лишения свободы","title":"Неуважение к суду, выразившееся в оскорблении участников судебного разбирательства или неуважении суда во время судебного заседания."},{"n":"16.4","st":3,"lvl":"fed","bail":"","pr":"4","pen":"1 год лишения свободы","title":"Привлечение заведомо невиновного к уголовной или административной ответственности."},{"n":"16.5","st":3,"lvl":"fed","bail":"","pr":"4","pen":"2 года лишения свободы","title":"Заведомо незаконное задержание, заключение под стражу или содержание под стражей"},{"n":"16.6","st":1,"lvl":"fed","bail":"","pr":"3","pen":"2 года лишения свободы","title":"Фальсификация доказательств по гражданскому, административному делу лицом, участвующим в деле, или его представителем"},{"n":"16.7","st":3,"lvl":"fed","bail":"","pr":"3","pen":"3 года лишения свободы","title":"Фальсификация доказательств по уголовному делу лицом, производящим расследование, прокурором или защитником"},{"n":"16.8","st":3,"lvl":"fed","bail":"","pr":"3","pen":"От 4 до 5 лет лишения свободы","title":"Вынесение судьей (судьями) заведомо неправомерного приговора, решения или иного судебного акта"},{"n":"16.9","st":1,"lvl":"reg","bail":"2000","pr":"2","pen":"до 5 месяцев лишения свободы","title":"Заведомо ложный донос о совершении преступления"},{"n":"16.10","st":2,"lvl":"fed","bail":"","pr":"2","pen":"1 год лишения свободы","title":"Заведомо ложные показания свидетеля, потерпевшего либо заключение или показание эксперта, показание специалиста"},{"n":"16.11","st":2,"lvl":"fed","bail":"","pr":"2","pen":"1 год и 6 месяцев лишения свободы","title":"Подкуп свидетеля, потерпевшего в целях дачи ими ложных показаний либо эксперта, специалиста в целях дачи ими ложного заключения или ложных показаний"},{"n":"16.12","st":2,"lvl":"fed","bail":"","pr":"4","pen":"От 2 до 3 лет лишения свободы","title":"Неисполнение вступивших в законную силу приговора суда, решения суда, или иного судебного акта, ордера или постановления прокурора, службы Федеральных Маршалов, а равно воспрепятствование их исполнению"},{"n":"16.13","st":2,"lvl":"fed","bail":"","pr":"2","pen":"От 2 до 3 лет лишения свободы","title":"Сокрытие улик или уничтожение улик."},{"n":"16.14","st":3,"lvl":"fed","bail":"","pr":"4","pen":"От 2 до 3 лет лишения свободы","title":"Уклонение от расследования, задержания и суда, намеренные действия, которые направлены правонарушителем на уклонение от реального уголовного срока или другой уголовной ответственности. Таковыми считаются: Попытка скрыться при публ"},{"n":"17.1","st":4,"lvl":"fed","bail":"","pr":"2, 4","pen":"1 год лишения свободы","title":"Посягательство на жизнь сотрудника государственной организации, а равно их близких в связи с исполнением им своих должностных обязанностей либо из мести за такую деятельность"},{"n":"17.2","st":1,"lvl":"reg","bail":"5000","pr":"2","pen":"8 месяцев лишения свободы","title":"Применение насилия, не опасного для жизни или здоровья, либо угроза расправой над сотрудником государственной организации, либо угроза применения насилия в отношении его близких в связи с исполнением им своих должностных обязаннос"},{"n":"17.3","st":0,"lvl":"reg","bail":"2000","pr":"1","pen":"до 4 месяцев лишения свободы","title":"Oскорбление сотрудника государственной структуры при исполнении должностных обязанностей или в связи с их исполнением, совершенное единожды в устной или письменной форме или путем совершения различных действий."},{"n":"17.4","st":2,"lvl":"fed","bail":"","pr":"1","pen":"1 год и 6 месяцев лишения свободы, а также изъятие документа, описанного в статье","title":"Использование незарегистрированной и(или) недействительной лицензии, а также подделка удостоверения или иного официального документа, предоставляющего права или освобождающего от обязанностей, в целях его использования либо сбыт т"},{"n":"17.5","st":2,"lvl":"fed","bail":"","pr":"1","pen":"1 год и 6 месяцев лишения свободы","title":"Самоуправство, то есть самовольное, вопреки установленному законом или иным нормативным правовым актом порядку совершение каких-либо действий"},{"n":"17.6","st":1,"lvl":"reg","bail":"5000","pr":"1","pen":"До 5 месяцев лишения свободы","title":"Неповиновение законному требованию сотрудника силовой, правоохранительной структуры"},{"n":"17.6.1","st":2,"lvl":"fed","bail":"","pr":"2","pen":"1 год лишения свободы","title":"Неповиновение законному требованию, исходящему от губернатора, вице-губернатора, сотрудника прокуратуры, судьи, министра, отданному в соответствии с должностными полномочиями"},{"n":"17.7","st":1,"lvl":"reg","bail":"","pr":"2","pen":"До 8 месяцев лишения свободы","title":"Отказ от оплаты штрафа выписанного уполномоченным лицом"},{"n":"17.7.1","st":2,"lvl":"fed","bail":"","pr":"5","pen":"1 год лишения свободы","title":"Отказ от уплаты штрафа назначенный Прокуратурой, Судом в ходе судебного разбирательства, Министерством Социальной Защиты или Сенатом"},{"n":"17.8","st":2,"lvl":"fed","bail":"","pr":"1","pen":"1 год лишения свободы","title":"Попытка побега от сотрудника силовой, правоохранительной структуры в ходе процесса задержания или ареста"},{"n":"17.9","st":1,"lvl":"reg","bail":"","pr":"2","pen":"4 месяца лишения свободы","title":"Воспрепятствование профессиональной деятельности государственного служащего проявившееся в умышленной провокации в отношении них, при исполнении ими своих обязанностей"},{"n":"18.1","st":0,"lvl":"mil","bail":"5000","pr":"2","pen":"До 4 месяцев лишения свободы","title":"Неисполнение подчиненным приказа начальника, отданного в установленном порядке, причинившее существенный вред интересам службы"},{"n":"18.2","st":2,"lvl":"mil","bail":"6000","pr":"3","pen":"До 5 месяцев лишения свободы","title":"Самовольное оставление части или места службы, а равно неявка в срок без уважительных причин на службу при увольнении из части"},{"n":"18.3","st":2,"lvl":"mil","bail":"8000","pr":"4","pen":"До 5 месяцев лишения свободы","title":"Дезертирство, то есть самовольное оставление части или места службы в целях уклонения от прохождения военной службы, а равно неявка в тех же целях на службу"},{"n":"18.4","st":1,"lvl":"mil","bail":"5000","pr":"2","pen":"До 5 месяцев лишения свободы","title":"Нарушение правил несения боевого дежурства (боевой службы) по своевременному обнаружению и отражению внезапного нападения на охраняемый объект либо по обеспечению его безопасности"},{"n":"18.5","st":2,"lvl":"mil","bail":"2000","pr":"2","pen":"До 5 месяцев лишения свободы","title":"Умышленные уничтожение или повреждение оружия, боеприпасов или предметов военной техники"},{"n":"18.6","st":1,"lvl":"mil","bail":"3000","pr":"3","pen":"До 5 месяцев лишения свободы","title":"Уничтожение или повреждение по неосторожности оружия, боеприпасов или предметов военной техники, повлекшие тяжкие последствия"},{"n":"18.7","st":0,"lvl":"mil","bail":"3000","pr":"3","pen":"До 4 месяцев лишения свободы","title":"Нарушение правил вождения или эксплуатации боевой, специальной или транспортной машины, повлекшее по неосторожности причинение тяжкого вреда здоровью человека"},{"n":"18.8","st":1,"lvl":"mil","bail":"5000","pr":"2","pen":"До 5 месяцев лишения свободы","title":"Нарушение правил полетов или подготовки к ним либо иных правил эксплуатации военных летательных аппаратов, повлекшее по неосторожности тяжкие последствия"}];
+const DK = [{"n":"8","t":"Уклонение от проверки","f":[],"lic":false},{"n":"9","t":"Уклонение от ответственности","f":[],"lic":false},{"n":"10","t":"Лишение права управления транспортным средством","f":[],"lic":true},{"n":"11","t":"Проверка грузового транспорта","f":[],"lic":false},{"n":"12","t":"Управление транспортным средством без государственных регистрационных знаков","f":[15000],"lic":false},{"n":"13","t":"Эксплуатация транспортного средства без регистрации государственного регистрационного знака","f":[25000],"lic":false},{"n":"14","t":"Эксплуатация мотоцикла","f":[5000],"lic":false},{"n":"15","t":"Авария","f":[10000],"lic":false},{"n":"16","t":"Разрешение дорожных споров","f":[],"lic":false},{"n":"17","t":"Управление ТС в состоянии алкогольного опьянения","f":[15000],"lic":true},{"n":"17.1","t":"Управление ТС в состоянии наркотического опьянения","f":[15000],"lic":true},{"n":"18","t":"Управление транспортным средством водителем, не имеющим права управления","f":[10000],"lic":false},{"n":"19","t":"Передача управления транспортным средством лицам, не имеющим права управления ТС","f":[20000],"lic":false},{"n":"20","t":"Колонны и кортежи","f":[20000],"lic":false},{"n":"21","t":"Использование телефона во время вождения","f":[15000],"lic":false},{"n":"22","t":"Создание водителем опасности для движения","f":[20000],"lic":false},{"n":"23","t":"Спец. транспорт с маячком синего или красного цвета","f":[],"lic":false},{"n":"24","t":"Спец. транспорт с маячком синего или красного цвета и специальным звуковым сигналом","f":[],"lic":false},{"n":"25","t":"Непредоставление преимущества спец. транспорту","f":[15000],"lic":false},{"n":"26","t":"Преимущество спец. транспорта","f":[],"lic":false},{"n":"27","t":"Приближение к транспортному средству с включенным проблесковым маячком синего или красного цвета","f":[5000],"lic":false},{"n":"28","t":"Движение пешеходов","f":[10000],"lic":false},{"n":"29","t":"Предоставление пешеходом преимущества транспортным средствам с включенным проблесковым маячком синего или красного цвета","f":[10000],"lic":false},{"n":"30","t":"Перекрестки","f":[],"lic":false},{"n":"31","t":"Непредоставление преимущества в движении при выезде с прилегающей территории","f":[15000],"lic":false},{"n":"32","t":"Непредоставление преимущества в движении транспортным средствам попутного направления при перестроении","f":[15000],"lic":false},{"n":"33","t":"Расположение транспортного средства на проезжей части при повороте","f":[10000],"lic":false},{"n":"34","t":"Непредоставление преимущества в движении встречным ТС","f":[10000],"lic":false},{"n":"35","t":"Непредоставление преимущества в движении на регулируемых знаками перекрестке","f":[10000],"lic":false},{"n":"36","t":"Непредоставление преимущества в движении","f":[10000],"lic":false},{"n":"37","t":"Разворот запрещается","f":[20000],"lic":false},{"n":"38","t":"Расположение авто на дорогах с отсутствующей разметкой","f":[10000],"lic":false},{"n":"39","t":"Движение по встречной полосе движения на дороге с двусторонним движением","f":[10000],"lic":false},{"n":"40","t":"Движение по встречной полосе движения на дороге с односторонним движением","f":[15000],"lic":false},{"n":"41","t":"Расположение на проезжей части тихоходных и крупногабаритных ТС","f":[10000],"lic":false},{"n":"42","t":"Движение по тротуарам пешеходным и велодорожкам","f":[15000],"lic":false},{"n":"43","t":"Скоростное ограничение в городе","f":[2500,5000,10000],"lic":false},{"n":"44","t":"Скоростное ограничение вне города","f":[],"lic":false},{"n":"45","t":"скоростное ограничение для буксирующего ТС","f":[5000],"lic":false},{"n":"46","t":"Движение со слишком малой скоростью","f":[10000],"lic":false},{"n":"47","t":"Обгон","f":[10000],"lic":false},{"n":"48","t":"Запрет на обгон","f":[10000],"lic":false},{"n":"49","t":"Непредоставление преимущества маршрутному ТС","f":[5000],"lic":false},{"n":"50","t":"Расположение транспортного средства для постановки на стоянку","f":[10000],"lic":false},{"n":"51","t":"Парковка на проезжей части","f":[10000],"lic":false},{"n":"52","t":"Стоянка на специально оборудованных парковках","f":[],"lic":false},{"n":"53","t":"Остановка запрещена","f":[5000],"lic":false},{"n":"54","t":"Запреты на автомагистралях","f":[5000],"lic":false},{"n":"55","t":"Свет в темное время суток","f":[10000],"lic":false},{"n":"56","t":"Свет в населенных пунктах","f":[10000],"lic":false},{"n":"57","t":"Звуковой сигнал","f":[5000],"lic":false},{"n":"58","t":"Двойная желтая сплошная линия","f":[10000],"lic":false},{"n":"59","t":"Одиночная желтая сплошная линия","f":[10000],"lic":false},{"n":"60","t":"Белая сплошная линия","f":[],"lic":false},{"n":"61","t":"Движение по полосам","f":[10000],"lic":false},{"n":"62","t":"Сужение дороги","f":[],"lic":false},{"n":"63","t":"Стоп-линия","f":[10000],"lic":false},{"n":"64","t":"Пешеходные переходы","f":[10000],"lic":false},{"n":"65","t":"Двойная сплошная линия переходящая в сплошную линию с пунктирной","f":[10000],"lic":false},{"n":"66","t":"Bus Lane","f":[10000],"lic":false},{"n":"67","t":"No Parking","f":[10000],"lic":false},{"n":"68","t":"Разделительная полоса","f":[10000],"lic":false},{"n":"69","t":"Знак \"STOP\"","f":[10000],"lic":false},{"n":"70","t":"Уступи дорогу","f":[],"lic":false},{"n":"71","t":"Разворот запрещен","f":[10000],"lic":false},{"n":"72","t":"Поворот налево запрещен","f":[10000],"lic":false},{"n":"73","t":"Поворот направо запрещен","f":[10000],"lic":false},{"n":"74","t":"Движение запрещено","f":[10000],"lic":false},{"n":"75","t":"Парковка запрещена","f":[10000],"lic":false},{"n":"76","t":"Сплошная красная линия","f":[10000],"lic":false}];
+const AK = [
+ ["5.2","Невыполнение требования сотрудника силовой/правоохранительной структуры прекратить правонарушение","до 30 000$"],
+ ["6.1","Нарушение порядка собраний, митингов, пикетов (Указ Губернатора №005)","до 25 000$"],
+ ["6.2","Наркотики от 1 до 10 г включительно (приобретение, хранение, перевозка, изготовление, сбыт)","до 20 000$"],
+ ["6.3","Заведомо ложный вызов специализированных служб","до 10 000$"],
+ ["6.4","Введение в заблуждение либо попытка обмана сотрудников госслужб","до 15 000$"],
+ ["6.5","Вмешательство гражданского в задержание, арест или разбирательство","до 20 000$"],
+ ["6.6","То же — со стороны госслужащего с использованием служебного положения","до 30 000$"],
+ ["6.7","Умышленное сокрытие личности (маска) без веской причины","до 15 000$"],
+ ["6.8","Мелкое хулиганство — нарушение общественного порядка","до 15 000$"],
+ ["6.9","Неприемлемый вид в общественных местах и госучреждениях","до 15 000$"],
+ ["6.10","Нарушение Закона об оружии силовиком без существенного нарушения прав и угрозы жизни (штраф — прокурор или судья)","до 25 000$"],
+ ["6.11","Подделка, изготовление или оборот поддельных документов на грузоперевозку","30 000$"],
+ ["6.12","Гражданский в бронежилете в помещениях/на территории госучреждения","до 20 000$"],
+ ["7.1","Оскорбление — унижение чести и достоинства в неприличной форме","до 10 000$"],
+ ["7.2","Публичное оскорбление гражданина единожды","до 10 000$"],
+ ["7.3","Дискриминация по признаку пола, расы, национальности и др.","по тексту статьи"],
+ ["7.4","Нарушение неприкосновенности частной жизни, телефонный терроризм, преследование","до 30 000$"],
+ ["7.5","Умышленное повреждение чужого имущества без значительного ущерба","до 10 000$ + возмещение"],
+ ["7.6","Клевета, соединённая с обвинением в преступлении","до 10 000$ + возмещение до 7 000$"],
+ ["7.7","Клевета — заведомо ложные порочащие сведения","до 10 000$ + возмещение"],
+ ["8.1","Превышение суточной нормы добычи/вылова","по тексту статьи"],
+ ["8.2","Охота без действующей лицензии","до 30 000$"],
+ ["8.3","Охота запрещёнными оружием, средствами или приспособлениями","до 30 000$"],
+ ["9.1","Нет действующей мед. справки у сотрудника госструктуры (штраф — прокуратура)","до 10 000$"],
+ ["9.2","В мед. справке сотрудника нет нужных категорий и отметок (штраф — прокуратура)","до 5 000$"],
+ ["9.3","Воспрепятствование оказанию медицинской помощи","до 20 000$"],
+ ["10.1","Ненадлежащее исполнение должностным лицом обязанностей без существенных последствий","по тексту статьи"]
+];
+const QUICK = [
+ ["Договор","Частный адвокат: письменный договор или устный по телефону, записанный на боди-камеру. Сотрудник вправе потребовать подтверждение.","Закон об адвокатуре 6.16, 8.3, 8.8"],
+ ["Облик","Деловой стиль, уважительно к гражданам и сотрудникам, документ по требованию.","8.5, 8.7, 4.3"],
+ ["Основание","Основание задержания должно существовать до действия. Находка при обыске его не заменяет.","ПК 2.2, 5.1"],
+ ["Обстоятельства","Адвокат вправе требовать пояснить причину задержания. Сотрудник показывает видео и выслушивает рекомендации.","Закон об адвокатуре 3.9, ПК 5.11"],
+ ["Беседа","До 10 минут наедине, помещение предоставляет сотрудник.","ПК 5.9"],
+ ["Права клиента","Молчание, один звонок до 3 минут, адвокат. Показания до разъяснения прав не используются.","ПК 5.5, 5.10, 11.3"],
+ ["Видео","Полная запись с аудио, хранить 72 часа. Нет записи основания — слабое доказательство.","ПК 11.4–11.6"],
+ ["Жалоба","В прокуратуру в течение 24 часов.","ПК 14.3"]
+];
+const TIMES = [
+ ["В час задержания не входят","Ожидание и беседа с адвокатом, ожидание прокурора и руководства, допрос","ПК 5.2"],
+ ["Адвокат не ответил или опоздал","Сотрудник вправе после необходимых действий и решения перейти к исполнению наказания","ПК 5.8"],
+ ["Допрос","До 60 минут. Пауза 10 минут при вызове адвоката; адвокат один раз берёт перерыв до 5 минут","ПК 9.6, 9.7, 9.9"],
+ ["Задержан госслужащий","Прокурор и руководство ожидаются 10 минут","ПК 5.13"],
+ ["Предварительное расследование","До 7 дней","ПК 3.6"],
+ ["Срок оплаты письменного штрафа","72–168 часов","АК 3.5, УК 4.16"],
+ ["Давность","Преступление — 15 лет («15 дней»), админ. — 3 года («3 дня»)","УК 4.12, АК 4.2"],
+ ["Встречи с отбывающим наказание","До 2 раз в сутки по 10 минут","Закон об адвокатуре 3.4"],
+ ["Внештатник","Документ на срок не более 7 дней (168 часов)","Закон о взаимодействии 12–13"],
+ ["Жалоба / обжалование штрафа","24 часа","ПК 14.3"]
+];
+const SCEN = [
+ {e:"🚔",t:"Клиента задержали, вы прибыли",s:"Первые 10 минут решают всё",
+  steps:[
+  "<b>Представьтесь и подтвердите основание:</b> письменный договор или устный по телефону с записью на боди-камеру. <span class='ref2'>Закон об адвокатуре 6.16, 8.3, 8.8</span>",
+  "<b>Потребуйте пояснить причину задержания</b> и показать видео; изложите рекомендации — сотрудник обязан выслушать. <span class='ref2'>Закон об адвокатуре 3.9, ПК 5.11</span>",
+  "<b>Проверьте основание:</b> оно должно быть до действия, находка при обыске его не заменяет. <span class='ref2'>ПК 2.2, 5.1</span>",
+  "<b>Убедитесь, что клиенту разъяснили права</b> (молчание, звонок до 3 минут, адвокат). Показания до разъяснения не используются. <span class='ref2'>ПК 5.5, 5.10, 11.3</span>",
+  "<b>Беседа наедине до 10 минут</b> — помещение предоставляет сотрудник. <span class='ref2'>ПК 5.9</span>",
+  "<b>Идёт запись?</b> Нет видео основания — слабое доказательство. Сами фиксируйте видео со звуком с первой секунды. <span class='ref2'>ПК 11.4–11.6</span>"],
+  say:["Адвокат по договору, прошу пояснить основание задержания и показать видеозапись.","Прошу обеспечить беседу с клиентом наедине в рамках 10 минут."]},
+ {e:"🗣",t:"Допрос",s:"Паузы, перерывы, границы",
+  steps:[
+  "Допрос — до <b>60 минут</b>, время допроса не входит в час задержания. <span class='ref2'>ПК 9.9, 5.2</span>",
+  "При вызове адвоката допрос на паузе <b>10 минут</b>; адвокат один раз берёт перерыв <b>до 5 минут</b>. <span class='ref2'>ПК 9.6, 9.7</span>",
+  "Не заявляйте публично о вине, если клиент её отрицает; не идите против воли клиента. <span class='ref2'>Закон об адвокатуре 5.1, 5.2</span>",
+  "Клиент вправе молчать. Всё, что сказано до разъяснения прав, — недопустимое доказательство. <span class='ref2'>ПК 5.5, 11.3</span>"],
+  say:["Клиент пользуется правом хранить молчание. Прошу перерыв для консультации."]},
+ {e:"🧾",t:"Клиенту выписали штраф",s:"Не наделайте 17.7 из ничего",
+  steps:[
+  "<b>Совет клиенту: оплатить и обжаловать в течение 24 часов.</b> Фраза «не согласен, оплачу и обжалую» отказом не считается. <span class='ref2'>ПК 14.3</span>",
+  "<b>Не допускайте отказа:</b> «не буду платить», возврат тикета, 20 секунд молчания, попытка уйти — это 17.7 УК. <span class='ref2'>АК 5.1</span>",
+  "Проверьте полномочия выписавшего, сумму в пределах «до X» и наличие видео. <span class='ref2'>ПК 1.6, 6.6</span>",
+  "Малозначительность и устное замечание — аргумент. <span class='ref2'>АК 3.2</span>"],
+  say:["Не согласен с штрафом, оплачу и обжалую в установленный срок."]},
+ {e:"🙋",t:"Просят отойти / мешают работать",s:"Спокойно и без споров на точке",
+  steps:[
+  "На законное требование отойти на безопасную дистанцию реагируйте <b>спокойно и без споров</b> — конфликт на месте почти всегда оборачивается лишними статьями. <span class='ref2'>УК 17.6, АК 5.2</span>",
+  "Не вставайте в круг субъектов и не мешайте проходу и конвоированию. <span class='ref2'>АК 6.5</span>",
+  "Сомневаетесь в законности — запросите правовое основание, зафиксируйте ответ или отказ и переводите спор в официальную плоскость.",
+  "Если мешают именно работе адвоката — это <b>9.6 УК</b> (до 3 мес., залог 5 000$). Фиксируйте на видео, жалоба в течение 24 часов. <span class='ref2'>УК 9.6</span>"],
+  say:["Прошу указать правовое основание требования. Отхожу на указанную дистанцию.","Фиксирую на видео; жалоба будет направлена в прокуратуру."]},
+ {e:"🔫",t:"Обыск, изъятие оружия, 12.8",s:"Законность обыска и серийный номер",
+  steps:[
+  "Личный обыск — только при <b>законном задержании</b> или по ордеру. Транспорт — по перечню ПК 7.2. Добытое незаконным обыском не доказывает вину. <span class='ref2'>ПК 7.1, 7.2, 11.3</span>",
+  "Легальное оружие и имущество с лицензиями не изымают до помещения в учреждение; нашли ещё и нелегальное — изымают всё. <span class='ref2'>ПК 7.6, 7.7</span>",
+  "Проверьте серийный номер, калибр, лицензию и мед. карту «A». Подробнее — в разделе «Линии защиты».",
+  "Государственный бронежилет: добровольная немедленная сдача найденного изделия не наказывается. <span class='ref2'>Закон об оружии 14.3–14.5</span>"],
+  say:["Прошу пояснить основание обыска и зафиксировать серийный номер изъятого."]},
+ {e:"💵",t:"Освобождение под залог",s:"Кому можно, сколько, чего нельзя",
+  steps:[
+  "Залог — любому задержанному, кроме задержанных по ордеру или судебному акту без залога. <span class='ref2'>ПК 15.2</span>",
+  "<b>Адвокату нельзя</b> выпускать под залог задержанных по ордеру или постановлению суда. <span class='ref2'>Закон об адвокатуре 5.4</span>",
+  "Сумма — по УК. Увеличить можно не более чем вдвое, уменьшать нельзя. <span class='ref2'>3.10, 5.5</span>",
+  "Нет суммы в УК у статьи — залог прямо не предусмотрен (⚠️ уточняйте у руководства). Посчитать — в разделе «Залог»."],
+  say:[]},
+ {e:"🏛",t:"Клиент — госслужащий / силовик",s:"Особые процедуры задержания",
+  steps:[
+  "Вызывают <b>прокурора и представителя руководства</b>, ждут 10 минут. Не явились или нет полной видеозаписи — освобождение. <span class='ref2'>ПК 5.12–5.15</span>",
+  "По главам 14, 15, 16 УК задерживать нельзя. <span class='ref2'>Закон о взаимодействии 8.1</span>",
+  "Силовик с оружием: задержан по 12.8 или 12.8.1 без опасных последствий — освобождение, оружие не изымают, жалоба в прокуратуру. <span class='ref2'>Закон об оружии 11.2</span>",
+  "Локальное решение о вине ведёт к увольнению. <span class='ref2'>ТК 7.2</span>"],
+  say:[]},
+ {e:"🚪",t:"Не пускают на объект (КПЗ, ФТ, ЗОТ)",s:"Режимные зоны",
+  steps:[
+  "В КПЗ частный адвокат — <b>только по вызову</b>; в Федеральной тюрьме — по вызову по рации или телефону. <span class='ref2'>ЗОТ 27, 34, 38</span>",
+  "Нахождение без оснований — 12.7 или 12.7.1 УК. <span class='ref2'>Закон об адвокатуре 8.4</span>",
+  "Стажёр и юрист не заходят на ЗОТ единолично. <span class='ref2'>Закон об адвокатуре 1.8</span>",
+  "Помните про правила режимных зон и обысков на входе — не срывайте вход в нужный момент."],
+  say:["Нахожусь по вызову клиента, прошу пропустить в установленном порядке."]}
+];
+const DEF = [
+ {t:"12.8 — оружие",c:"fed",b:["<b>Серийный номер:</b> AMXXXXXX — гражданское; MWXXXXXX — частично гражданское (только лёгкое и среднее); LSSD, PRIS, FIB, MAY, ARMY, LSPD — государственное. Нет номера или формат неизвестен — нелегальное.","<b>Калибр:</b> тяжёлое (7.62, 11.43, .50 BMG, 12-й калибр не из «Аммунации») только правоохранителям; боеприпасы 7.62, 11.43 и .50 запрещены гражданским.","<b>Лицензия:</b> 18+, мед. карта «A», экзамен, пошлина.","<b>Бронежилет:</b> гражданский легален везде, кроме госучреждений (там АК 6.12, до 20 000$). Государственный запрещён, но немедленная добровольная сдача не наказывается. <span class='ref2'>Закон об оружии 14.3–14.5</span>","<b>Обыск:</b> ПК 7.1, 7.2, 7.6, 7.7, 11.3."]},
+ {t:"17.1 — посягательство на жизнь сотрудника",c:"fed",b:["Состав требует <b>умысла на смерть</b> и знания, что потерпевший — сотрудник и это связано со службой (примечание к 17.1).","Нет умысла на смерть — переквалификация на 17.2 или 6.1 (принцип вины, УК 5.4).","Проверьте, представился ли сотрудник и виден ли знак (ПК 2.1, 13.2, 13.5), была ли сила законной (Закон об оружии 12, ПК гл. 12), велась ли запись (ПК 11.4).","Необходимая оборона — УК 3.1–3.3; смягчающие — УК 4.4."]},
+ {t:"17.6 — неповиновение",c:"reg",b:["Требование должно быть <b>законным и понятным</b>, повторное требование и время на исполнение.","«Законность требования» — запросите правовое основание и зафиксируйте.","Отказ снять маску — 17.6 без предварительного админ. наказания (примечание к АК 6.7)."]},
+ {t:"17.7 / 17.7.1 — отказ платить штраф",c:"reg",b:["17.7 — штраф уполномоченного лица (региональная, до 8 мес.); 17.7.1 — прокуратура, суд, Минсоцзащиты, Сенат (федеральная, 1 год).","Проверьте законность штрафа, 20 секунд, был ли устный отказ.","Срок оплаты письменного штрафа 72–168 часов: не наступил — состава нет (⚠️ прямо в тексте не сказано)."]},
+ {t:"17.8 — побег от сотрудника",c:"fed",b:["Применима только при <b>законном</b> задержании или аресте — проверьте основание.","Различайте побег и растерянность/неясное требование."]},
+ {t:"12.7 / 12.7.1 — охраняемая территория",c:"reg",b:["Законность присутствия и предупреждение (ЗОТ 3).","Адвокат в КПЗ — только по вызову; в Федеральной тюрьме — по вызову (ЗОТ 27, 34, 38)."]},
+ {t:"17.2 / 17.3 — насилие и оскорбление сотрудника",c:"reg",b:["17.2 — типичная переквалификация с 17.1 (залог 5 000$).","17.3 — важно, было ли это при исполнении, и форма оскорбления (залог 2 000$)."]},
+ {t:"Принципы защиты (общие)",c:"fin",b:["Малозначительность, смягчающие и отягчающие (УК 4.4, 4.4.1; АК 3.2–3.4).","Примирение с потерпевшим при первом деянии до 8 мес. (УК 4.11).","Освобождение с уголовным штрафом (УК 4.14–4.16).","Давность 15 лет («15 дней») для преступлений (УК 4.12)."]}
+];
+const SPEC = [
+ ["Госслужащий","Вызывают прокурора и представителя руководства, ждут 10 минут. Не явились — освобождение. Нет полной видеозаписи — освобождение (ПК 5.12–5.15). По главам 14, 15, 16 УК задерживать нельзя (Закон о взаимодействии 8.1). Локальное решение о вине ведёт к увольнению (ТК 7.2)."],
+ ["Силовик с оружием","Любое оружие, в том числе нелегальное, — только при исполнении, нелегальное сдаётся на склад (Закон об оружии 11.2). Задержан по 12.8 или 12.8.1 без опасных последствий — освобождение, оружие не изымают, жалоба в прокуратуру. Админ. 6.10 — только суд или прокуратура."],
+ ["Неприкосновенный","Задержание только для предотвращения опасности или по ордеру AS, PTD или суду. О вине решают только прокуратура и суд. Следственные действия — по ордеру IA (ПК гл. 16)."],
+ ["Внештатник","Документ на срок не более 7 дней (168 часов) с данными паспорта, руководителя, даты и времени выдачи и окончания (Закон о взаимодействии 12–13)."]
+];
+const RISK = [
+ ["В КПЗ частный адвокат — только по вызову; в Федеральной тюрьме — по вызову по рации или телефону. Нахождение без оснований — 12.7 или 12.7.1 УК.","ЗОТ 27, 34, 38; Закон об адвокатуре 8.4"],
+ ["Стажёр и юрист не заходят на ЗОТ единолично","Закон об адвокатуре 1.8"],
+ ["Нельзя публично заявлять о вине, если клиент её отрицает; идти против воли клиента","5.2, 5.1"],
+ ["Лицензия изымается: нарушение УК, судимость, просроченная мед. карта, налог 40 000$ (3 дня), аккредитация 1-го числа 5 000$","6.4, 6.8, 7.1"],
+ ["Если мешают работать — 9.6 УК (до 3 мес., залог 5 000$): фиксируйте на видео, жалоба в 24 часа","УК 9.6"],
+ ["Встречи с отбывающим наказание: до 2 раз в сутки по 10 минут","3.4"],
+ ["Залог ниже установленного нельзя; выпускать по ордеру или судебному акту нельзя","3.10, 5.4, 5.5"]
+];
+const LAWS = [
+ ["Уголовный кодекс (УК)","23.11.2026","Статьи, сроки, залог, штрафы, запреты (4.5–4.16), давность"],
+ ["Процессуальный кодекс (ПК)","23.11.2026","Задержание (гл. 5), допрос (гл. 9), обыск (гл. 7), доказательства (11), жалобы (14), залог (15)"],
+ ["Административный кодекс (АК)","14.11.2026","Административные штрафы, давность, уклонение"],
+ ["Дорожный кодекс (ДК)","14.11.2026","Штрафы за нарушения ПДД, изъятие лицензии"],
+ ["Закон об адвокатуре","очищенная версия","Статус, договор, залог, права и запреты адвоката"],
+ ["Закон о закрытых и охраняемых территориях (ЗОТ)","23.11.2026","Допуск адвоката в КПЗ, ФТ, режимные зоны"],
+ ["Закон о региональных правоохранительных органах","06.09.2026","Полномочия LSPD / LSSD"],
+ ["Закон о Federal Investigation Bureau","09.11.2026","Полномочия FIB"],
+ ["Закон о San Andreas State Prison Authority","—","Пенитенциарные учреждения"],
+ ["Трудовой кодекс (ТК)","23.11.2026","Увольнение, мед. справки госслужащих"],
+ ["Этический кодекс","01.10.2026","Этика служащих и адвокатов"],
+ ["Закон об оружии / о взаимодействии госслужащих","14.11.2026","Оружие, бронежилет, статусы силовиков"]
+];
+
+/* ===== helpers ===== */
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function ls(k,v){try{if(v===undefined)return JSON.parse(localStorage.getItem('pam_'+k));localStorage.setItem('pam_'+k,JSON.stringify(v))}catch(e){return null}}
+function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(toast.h);toast.h=setTimeout(()=>t.classList.remove('show'),1700)}
+function copyTxt(t){(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast('Скопировано'),fb);function fb(){const a=document.createElement('textarea');a.value=t;document.body.appendChild(a);a.select();try{document.execCommand('copy');toast('Скопировано')}catch(e){toast('Не удалось')}a.remove()}}
+const LV={fed:'Федеральная',reg:'Региональная',mil:'Военная',fin:'Финансовая','':'—'};
+const fmt=n=>n?String(n).replace(/\B(?=(\d{3})+(?!\d))/g,' ')+'$':'—';
+const STAR={0:['12 500–25 000$','нет'],1:['25 000–50 000$','7 дней'],2:['50 000–100 000$','21 день'],3:['100 000–125 000$','45 дней'],4:['не предусмотрен','пожизненный']};
+
+/* ===== nav ===== */
+const LM={"📝": "notebook-pen", "🏠": "layout-grid", "🚨": "siren", "⏱": "timer", "📕": "book-open", "🛡": "shield-check", "📘": "book-marked", "🚗": "car", "💵": "banknote", "💳": "credit-card", "👤": "user-round", "⚠️": "triangle-alert", "📚": "library", "⚖": "scale", "🔍": "search", "🚔": "shield-alert", "🗣": "message-square-text", "🧾": "receipt", "🙋": "hand", "🔫": "crosshair", "🏛": "landmark", "🚪": "door-open"};
+const NAV=[
+ ['Быстро',[['notes','📝','Заметки · ★']]],
+ ['Обзор',[['home','🏠','Главное'],['scen','🚨','Если случилось…'],['timers','⏱','Тайминги']]],
+ ['Законы',[['uk','📕','База УК'],['def','🛡','Линии защиты'],['ak','📘','Админка (АК)'],['dk','🚗','Дорожный (ДК)'],['bail','💵','Залог и калькулятор'],['fines','💳','Штрафы']]],
+ ['Люди',[['spec','👤','Особые клиенты'],['risk','⚠️','Риски адвоката']]],
+ ['Законы и справочники',[['laws','📚','Реестр законов']]]
+];
+$('#rail').innerHTML=NAV.map(g=>`<h6>${g[0]}</h6>`+g[1].map(x=>`<a href="#${x[0]}" data-s="${x[0]}"><i class="ni"><i data-lucide="${LM[x[1]]||'circle'}">${x[1]}</i></i>${x[2]}</a>`).join('')).join('');
+$('#rail').addEventListener('click',()=>document.body.classList.remove('side'));
+const spy=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){$$('.rail a').forEach(a=>a.classList.toggle('on',a.dataset.s===e.target.id))}})},{rootMargin:'-30% 0px -60% 0px'});
+$$('main .sec').forEach(s=>spy.observe(s));
+addEventListener('scroll',()=>{const h=document.documentElement;$('#prog').style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+'%'},{passive:true});
+
+/* ===== static blocks ===== */
+$('#quick').innerHTML=QUICK.map(r=>`<tr><td class="k">${r[0]}</td><td>${r[1]}</td><td class="ref">${r[2]}</td></tr>`).join('');
+$('#timeTbl').innerHTML=TIMES.map(r=>`<tr><td class="k">${r[0]}</td><td>${r[1]}</td><td class="ref">${r[2]}</td></tr>`).join('');
+$('#specGrid').innerHTML=SPEC.map(r=>`<div class="card"><b style="color:var(--amber2)">${r[0]}</b><p style="margin:8px 0 0">${r[1]}</p></div>`).join('');
+$('#riskBody').innerHTML=RISK.map(r=>`<tr><td>${r[0]}</td><td class="ref">${r[1]}</td></tr>`).join('');
+$('#lawBody').innerHTML=LAWS.map(r=>`<tr><td class="k">${r[0]}</td><td class="ref">${r[1]}</td><td>${r[2]}</td></tr>`).join('');
+$('#defGrid').innerHTML=DEF.map(d=>`<div class="card"><div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><b>${d.t}</b><span class="pill p-${d.c}">${LV[d.c]}</span></div><ul style="margin:0;padding-left:18px">${d.b.map(x=>`<li style="margin:4px 0">${x}</li>`).join('')}</ul></div>`).join('');
+$('#scenList').innerHTML=SCEN.map((s,i)=>`<div class="acc" id="sc${i}"><button onclick="this.parentNode.classList.toggle('open')"><span class="e"><i data-lucide="${LM[s.e]||'circle'}">${s.e}</i></span><span>${s.t}<small>${s.s}</small></span><span class="ch">▶</span></button><div class="bd"><ol class="st">${s.steps.map(x=>`<li>${x}</li>`).join('')}</ol></div></div>`).join('');
+function accAll(o){$$('#scenList .acc').forEach(a=>a.classList.toggle('open',o))}
+
+/* ===== UK ===== */
+let ukFilter='all',openRow=null;const favs=new Set(ls('fav')||[]);
+function ukF(b){ukFilter=b.dataset.f;$$('[data-f]').forEach(x=>x.classList.toggle('on',x===b));renderUK()}
+function toggleFav(n){favs.has(n)?favs.delete(n):favs.add(n);ls('fav',[...favs]);renderUK();renderFav()}
+function renderUK(){
+  const q=$('#ukq').value.trim().toLowerCase();
+  let rows=UK.filter(a=>{
+    if(ukFilter==='fav'&&!favs.has(a.n))return false;
+    if(ukFilter==='bail'&&!a.bail)return false;
+    if(['fed','reg','mil','fin'].includes(ukFilter)&&a.lvl!==ukFilter)return false;
+    if(q&&!(a.n+' '+a.title+' '+a.pen+' '+LV[a.lvl]).toLowerCase().includes(q))return false;return true});
+  $('#ukcnt').textContent=rows.length+' из '+UK.length;
+  $('#ukBody').innerHTML=rows.map(a=>{const st=STAR[a.st];return `<tr onclick="toggleDet('${a.n}')" style="cursor:pointer"><td><button class="star ${favs.has(a.n)?'on':''}" onclick="event.stopPropagation();toggleFav('${a.n}')">${favs.has(a.n)?'★':'☆'}</button></td><td class="k">${a.n}<span class="dim">${'*'.repeat(a.st)}</span></td><td>${esc(a.title.length>170?a.title.slice(0,167)+'…':a.title)}</td><td><span class="pill p-${a.lvl||'am'}">${LV[a.lvl]}</span></td><td>${esc(a.pen||'—')}</td><td style="white-space:nowrap">${fmt(a.bail)}</td><td style="white-space:nowrap">${esc(a.pr||'—')}</td></tr>`+(openRow===a.n?`<tr class="det"><td></td><td colspan="6"><div class="dl"><span>Запрет на службу: <b>${st[1]}</b></span><span>Вилка штрафа (4.15): <b>${st[0]}</b></span><span>Залог: <b>${a.bail?fmt(a.bail)+' (до '+fmt(a.bail*2)+' при увеличении вдвое)':'не указан ⚠️'}</b></span><span>Розыск: <b>${a.pr||'—'}</b></span></div><div class="tools" style="margin:10px 0 0"><button class="btn amber sm" onclick="event.stopPropagation();cAdd('${a.n}')">+ в расчёт дела</button><button class="btn ghost sm" onclick="event.stopPropagation();copyTxt('УК ${a.n}: ${esc(a.title).replace(/'/g,'’')} — ${esc(a.pen)}')">копировать</button></div></td></tr>`:'')}).join('')||'<tr><td colspan="7" class="dim" style="padding:22px;text-align:center">Ничего не найдено</td></tr>';
+}
+function toggleDet(n){openRow=openRow===n?null:n;renderUK()}
+function renderFav(){const l=[...favs].map(n=>UK.find(a=>a.n===n)).filter(Boolean);$('#favList').innerHTML=l.length?l.map(a=>`<div class="kv" style="margin-bottom:6px"><span><b style="color:var(--amber2)">${a.n}</b> ${esc(a.title.slice(0,70))}…</span><button class="star on" onclick="toggleFav('${a.n}')">★</button></div>`).join(''):'<span class="dim">Пусто — введите номер выше или отмечайте ★ в базе УК</span>'}
+
+/* ===== AK / DK ===== */
+function hl(t,q){return q?esc(t).replace(new RegExp('('+q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','ig'),'<mark>$1</mark>'):esc(t)}
+function renderAK(){const q=$('#akq').value.trim().toLowerCase();const r=AK.filter(a=>!q||(a.join(' ')).toLowerCase().includes(q));$('#akcnt').textContent=r.length+' из '+AK.length;$('#akBody').innerHTML=r.map(a=>`<tr><td class="k">${a[0]}</td><td>${hl(a[1],q)}</td><td style="white-space:nowrap">${a[2]}</td></tr>`).join('')}
+function renderDK(){const q=$('#dkq').value.trim().toLowerCase();const r=DK.filter(a=>!q||(a.n+' '+a.t).toLowerCase().includes(q));$('#dkcnt').textContent=r.length+' из '+DK.length;$('#dkBody').innerHTML=r.map(a=>`<tr><td class="k">${a.n}</td><td>${hl(a.t,q)}${a.lic?' <span class="pill p-fed">лицензия</span>':''}</td><td style="white-space:nowrap">${a.f.length?a.f.map(fmt).join(' / '):'<span class="dim">по тексту</span>'}</td></tr>`).join('')}
+
+/* ===== converter ===== */
+function conv(){const y=+$('#cvY').value||0,m=+$('#cvM').value||0;if(!y&&!m){['cvMin','cvH','cvMo'].forEach(i=>$('#'+i).textContent='—');return}const min=y*25+m*2;$('#cvMin').textContent=min+' мин';$('#cvH').textContent=(Math.floor(min/60)?Math.floor(min/60)+' ч ':'')+(min%60)+' мин';$('#cvMo').textContent=y*12+m}
+function cvSet(y,m){$('#cvY').value=y||'';$('#cvM').value=m||'';conv()}
+
+/* ===== case calculator ===== */
+let CASE=ls('case')||[];
+$('#ukl').innerHTML=UK.map(a=>`<option value="${a.n}">${esc(a.title.slice(0,60))}</option>`).join('');
+function cAdd(n){n=(n||$('#cq').value).trim();const a=UK.find(x=>x.n===n);if(!a){toast('Статья не найдена в базе');return}if(!CASE.includes(n))CASE.push(n);$('#cq').value='';ls('case',CASE);cRender();toast('Добавлено: '+n)}
+function cDel(n){CASE=CASE.filter(x=>x!==n);ls('case',CASE);cRender()}
+function cClear(){CASE=[];ls('case',CASE);cRender()}
+function cRender(){
+  $('#csel').innerHTML=CASE.map(n=>`<span class="tag">${n}<button onclick="cDel('${n}')">×</button></span>`).join('')||'<span class="dim">Статьи не добавлены</span>';
+  const A=CASE.map(n=>UK.find(x=>x.n===n)).filter(Boolean);
+  if(!A.length){$('#cres').innerHTML='<div class="kv"><span>Добавьте статьи слева</span><b>—</b></div>';return}
+  const fed=A.some(a=>a.lvl==='fed'),regN=A.filter(a=>a.lvl==='reg').length;
+  const place=fed?'Федеральная тюрьма (до 24 лет)':regN>=3?'СИЗО (до 6 лет)':'КПЗ';
+  const noBail=A.filter(a=>!a.bail),sum=A.reduce((s,a)=>s+(+a.bail||0),0);
+  const mx=Math.max(...A.map(a=>a.st)),pr=Math.max(...A.map(a=>Math.max(...String(a.pr||0).split(',').map(x=>+x))));
+  const st=STAR[mx];
+  $('#cres').innerHTML=
+   `<div class="kv"><span>Где отбывать (УК 4.5–4.7)</span><b>${place}</b></div>`+
+   `<div class="kv"><span>Залог по статьям (сумма)</span><b>${sum?fmt(sum):'—'}</b></div>`+
+   (sum?`<div class="kv"><span>Максимум при увеличении вдвое</span><b>${fmt(sum*2)}</b></div>`:'')+
+   (noBail.length?`<div class="kv" style="border-color:var(--amber-line)"><span>⚠️ Без суммы залога: ${noBail.map(a=>a.n).join(', ')}</span><b>уточнить</b></div>`:'')+
+   `<div class="kv"><span>Вилка штрафа (самая тяжкая, 4.15)</span><b>${st[0]}</b></div>`+
+   `<div class="kv"><span>Запрет на службу (самая тяжкая, 4.13)</span><b>${st[1]}</b></div>`+
+   `<div class="kv"><span>Макс. приоритет розыска</span><b>${pr||'—'}</b></div>`+
+   `<div class="kv"><span>Минут под стражей, если выбрать верхний срок</span><b id="cmin">—</b></div>`;
+  let tot=0,ok=true;A.forEach(a=>{const parts=(' '+a.pen.toLowerCase()).split(' до ');const p=parts[parts.length-1];const y=(p.match(/(\d+)\s*(?:год|лет)/)||[0,0])[1],m=(p.match(/(\d+)\s*мес/)||[0,0])[1];if(!+y&&!+m)ok=false;tot+=y*25+m*2});
+  $('#cmin').textContent=ok?'≈ '+tot+' мин (полное сложение)':'не по всем статьям указан срок'
+}
+
+/* ===== palette ===== */
+let pIdx=[],pSel=0;
+function buildIdx(){
+  pIdx=[];
+  $$('main .sec').forEach(s=>{const h=s.querySelector('h2');if(h)pIdx.push({k:'Раздел',t:h.textContent.trim(),x:'',go:()=>go('#'+s.id)})});
+  SCEN.forEach((s,i)=>pIdx.push({k:'Ситуация',t:s.t,x:s.s+' '+s.steps.join(' ').replace(/<[^>]+>/g,''),go:()=>{go('#scen');$('#sc'+i).classList.add('open');setTimeout(()=>$('#sc'+i).scrollIntoView({block:'center'}),200)}}));
+  UK.forEach(a=>pIdx.push({k:'УК '+a.n,t:a.title,x:a.pen+' '+LV[a.lvl],go:()=>{ukFilter='all';$$('[data-f]').forEach(x=>x.classList.toggle('on',x.dataset.f==='all'));$('#ukq').value=a.n;openRow=a.n;renderUK();go('#uk')}}));
+  AK.forEach(a=>pIdx.push({k:'АК '+a[0],t:a[1],x:a[2],go:()=>{$('#akq').value=a[0];renderAK();go('#ak')}}));
+  DK.forEach(a=>pIdx.push({k:'ДК '+a.n,t:a.t,x:'',go:()=>{$('#dkq').value=a.t.split(' ')[0];renderDK();go('#dk')}}));
+  QUICK.forEach(r=>pIdx.push({k:'Главное',t:r[0],x:r[1],go:()=>go('#home')}));
+  TIMES.forEach(r=>pIdx.push({k:'Срок',t:r[0],x:r[1],go:()=>go('#timers')}));
+}
+function go(h){closePal();location.hash=h}
+function openPal(){$('#pal').classList.add('open');$('#palq').value='';palRender();setTimeout(()=>$('#palq').focus(),20)}
+function closePal(){$('#pal').classList.remove('open')}
+function palRender(){
+  const q=$('#palq').value.trim().toLowerCase();let r;
+  if(!q)r=pIdx.filter(i=>i.k==='Раздел'||i.k==='Ситуация').slice(0,14);
+  else{const w=q.split(/\s+/);r=pIdx.map(i=>{const h=(i.k+' '+i.t).toLowerCase(),b=(i.x||'').toLowerCase();let s=0;for(const x of w){if(h.startsWith(x)||i.k.toLowerCase().endsWith(' '+x))s+=6;else if(h.includes(x))s+=3;else if(b.includes(x))s+=1;else return null}return{i,s}}).filter(Boolean).sort((a,b)=>b.s-a.s).slice(0,40).map(x=>x.i)}
+  pSel=0;pCur=r;
+  $('#pall').innerHTML=r.map((i,n)=>`<div class="it ${n===0?'sel2':''}" data-n="${n}"><b>${esc(i.k)}</b><span>${esc(i.t)}</span></div>`).join('')||'<div class="dim" style="padding:20px;text-align:center">Ничего не найдено</div>';
+  $$('#pall .it').forEach(e=>e.onclick=()=>pCur[+e.dataset.n].go());
+}
+let pCur=[];
+function pMove(d){const l=$$('#pall .it');if(!l.length)return;pSel=(pSel+d+l.length)%l.length;l.forEach((e,i)=>e.classList.toggle('sel2',i===pSel));l[pSel].scrollIntoView({block:'nearest'})}
+addEventListener('keydown',e=>{
+  const typing=/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openPal();return}
+  if(e.key==='/'&&!typing&&!$('#pal').classList.contains('open')){e.preventDefault();openPal();return}
+  if($('#pal').classList.contains('open')){
+    if(e.key==='Escape')closePal();
+    else if(e.key==='ArrowDown'){e.preventDefault();pMove(1)}
+    else if(e.key==='ArrowUp'){e.preventDefault();pMove(-1)}
+    else if(e.key==='Enter'&&pCur[pSel])pCur[pSel].go();
+  }
+});
+
+/* ===== prefs ===== */
+function fs(d){const v=Math.min(18,Math.max(12,(ls('fs')||14)+d));ls('fs',v);document.documentElement.style.setProperty('--fs',v+'px')}
+function toggleTheme(){const t=document.documentElement.dataset.theme==='dark'?'light':'dark';document.documentElement.dataset.theme=t;$('#thm').textContent=t==='dark'?'☾':'☀';ls('theme',t)}
+let NOTES=ls('notes')||[];
+if(!NOTES.length){const old=ls('note');if(old)NOTES=old.split('\n').filter(Boolean)}
+function nAdd(){const v=$('#nIn').value.trim();if(!v)return;NOTES.unshift(v);ls('notes',NOTES);$('#nIn').value='';nRender()}
+function nDel(i){NOTES.splice(i,1);ls('notes',NOTES);nRender()}
+function nClear(){if(NOTES.length&&confirm('Удалить все заметки?')){NOTES=[];ls('notes',NOTES);nRender()}}
+function nCopyAll(){copyTxt(NOTES.join('\n'))}
+function nRender(){$('#nList').innerHTML=NOTES.map((n,i)=>`<div class="kv" style="margin-bottom:6px;align-items:center"><span style="flex:1;word-break:break-word">${esc(n)}</span><span class="noprint" style="display:flex;gap:4px"><button class="btn ghost sm" onclick="copyTxt(NOTES[${i}])">⧉</button><button class="btn ghost sm" onclick="nDel(${i})">✕</button></span></div>`).join('')||'<span class="dim">Заметок нет — напишите выше и нажмите Enter</span>'}
+function fAdd(){const n=$('#fIn').value.trim();if(!UK.find(a=>a.n===n)){toast('Статья не найдена');return}favs.add(n);ls('fav',[...favs]);$('#fIn').value='';renderUK();renderFav()}
+
+/* ===== init ===== */
+renderUK();renderAK();renderDK();renderFav();cRender();buildIdx();
+fs(0);
+if(ls('theme')==='light'){document.documentElement.dataset.theme='light';$('#thm').textContent='☀'}
+nRender();
+if(location.hash)setTimeout(()=>{const t=document.querySelector(location.hash);t&&t.scrollIntoView()},50);
+</script>
 </body>
 </html>

@@ -109,6 +109,7 @@ body::before {
 .nav-item:hover {
   background-color: var(--bg-surface-hover);
   color: var(--text-primary);
+  transform: translateX(2px);
 }
 
 .nav-item.active {

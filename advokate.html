@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Коллегия Адвокатов — Портал</title>
   <link rel="icon" type="image/png" href="/assets/site-icon.png" />
-  <link rel="stylesheet" href="/web/css/base.css" />
-  <link rel="stylesheet" href="/web/css/theme.css" />
-  <link rel="stylesheet" href="/web/css/awards.css" />
+  <link rel="stylesheet" href="/web/css/base.css?v=20261125-1" />
+  <link rel="stylesheet" href="/web/css/theme.css?v=20261125-1" />
+  <link rel="stylesheet" href="/web/css/awards.css?v=20261125-1" />
 </head>
 <body>
 
@@ -182,14 +182,14 @@
           <button class="nav-subitem" data-view="tests">
             <span class="nav-subitem-label">
               <svg class="icon icon-sm"><use href="/web/icons-sprite.svg#icon-28_training_exam"></use></svg>
-              <span>Тесты<br><small>(Экзамены)</small></span>
+              <span>Тесты</span>
             </span>
             <span class="nav-sub-badge nav-sub-badge-test">Тест 1</span>
           </button>
           <button class="nav-subitem" id="practice-nav" data-view="practice">
             <span class="nav-subitem-label">
               <svg class="icon icon-sm"><use href="/web/icons-sprite.svg#icon-16_folder_docs"></use></svg>
-              <span>Практика (РП)</span>
+              <span>Практика РП</span>
             </span>
             <span class="nav-sub-badge nav-sub-badge-practice">Кейсы</span>
           </button>
@@ -384,6 +384,30 @@
                 <svg class="icon icon-sm"><use href="/web/icons-sprite.svg#icon-23_motion_petition"></use></svg> Добавить иск
               </button>
             </div>
+            <section class="ai-assistant-card ai-assistant-lawsuit" aria-labelledby="ai-lawsuit-title">
+              <div class="ai-assistant-heading">
+                <div class="ai-assistant-brand">
+                  <img class="ai-assistant-avatar" src="/assets/law-association-seal.png" alt="ИИ-помощник Коллегии адвокатов">
+                  <div>
+                    <h3 id="ai-lawsuit-title">Юридический ИИ-помощник</h3>
+                    <p>Составление описательной части и план действий по ситуации</p>
+                  </div>
+                </div>
+                <span class="ai-assistant-online"><i></i> Готов к работе</span>
+              </div>
+              <label class="ai-assistant-label" for="ai-lawsuit-question">Опишите ситуацию</label>
+              <textarea id="ai-lawsuit-question" class="input ai-assistant-input" rows="4" maxlength="8000" placeholder="Например: сотрудник задержал меня на ЗОТ, не назвал основание, не предоставил до свидания с адвокатом..."></textarea>
+              <p class="ai-thinking-note">ИИ читает всю загруженную законодательную базу штата: ответ может занять больше обычного времени.</p>
+              <div class="ai-assistant-actions">
+                <button class="btn btn-gold" type="button" data-action="ask-ai-lawsuit">
+                  <svg class="icon icon-sm"><use href="/web/icons-sprite.svg#icon-23_motion_petition"></use></svg> Составить документ
+                </button>
+                <button class="btn" type="button" data-action="copy-ai-lawsuit" disabled>Скопировать ответ</button>
+                <button class="btn" type="button" data-action="insert-ai-facts" disabled>Вставить в форму</button>
+              </div>
+              <div id="ai-lawsuit-status" class="ai-assistant-status hidden" aria-live="polite"></div>
+              <article id="ai-lawsuit-answer" class="ai-assistant-answer hidden" aria-live="polite"></article>
+            </section>
             <form id="lawsuit-form" class="lawsuit-form hidden">
               <div class="lawsuit-editor">
                 <label>Форма документа
@@ -478,6 +502,29 @@
               <button class="btn" type="button" data-laws-tab="fees" aria-selected="false">Судебные пошлины</button>
               <button class="btn" type="button" data-laws-tab="complaints" aria-selected="false">Жалобы в прокуратуру</button>
             </div>
+            <section class="ai-assistant-card ai-assistant-laws" aria-labelledby="ai-laws-title">
+              <div class="ai-assistant-heading">
+                <div class="ai-assistant-brand">
+                  <img class="ai-assistant-avatar" src="/assets/law-association-seal.png" alt="ИИ-помощник Коллегии адвокатов">
+                  <div>
+                    <h3 id="ai-laws-title">Консультант по законам штата</h3>
+                    <p>Ответ с опорой на загруженную законодательную базу</p>
+                  </div>
+                </div>
+                <span class="ai-assistant-online"><i></i> Готов к работе</span>
+              </div>
+              <label class="ai-assistant-label" for="ai-laws-question">Задайте юридический вопрос</label>
+              <textarea id="ai-laws-question" class="input ai-assistant-input" rows="3" maxlength="8000" placeholder="Например: можно ли задерживать гражданина на закрытой территории и сколько длится ожидание адвоката?"></textarea>
+              <p class="ai-thinking-note">ИИ проверяет всю загруженную законодательную базу: сложный ответ может занять больше времени.</p>
+              <div class="ai-assistant-actions">
+                <button class="btn btn-gold" type="button" data-action="ask-ai-laws">
+                  <svg class="icon icon-sm"><use href="/web/icons-sprite.svg#icon-15_search_archive"></use></svg> Получить ответ
+                </button>
+                <button class="btn" type="button" data-action="copy-ai-laws" disabled>Скопировать ответ</button>
+              </div>
+              <div id="ai-laws-status" class="ai-assistant-status hidden" aria-live="polite"></div>
+              <article id="ai-laws-answer" class="ai-assistant-answer hidden" aria-live="polite"></article>
+            </section>
             <div id="lawsTextTab">
               <div id="lawsSearchResults" class="laws-search-results hidden" aria-live="polite"></div>
               <div id="lawsContainer" style="display: flex; flex-direction: column; gap: 10px;"></div>
@@ -907,6 +954,6 @@
     </section>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="/web/js/app.js"></script>
+  <script type="module" src="/web/js/app.js?v=20261125-1"></script>
 </body>
 </html>

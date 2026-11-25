@@ -85,6 +85,11 @@ let photoViewerReturnFocus = null;
 let currentView = "dashboard";
 let discordDmEnabled = true;
 let discordSettings = null;
+let aiLawsAnswer = "";
+let aiLawsuitAnswer = "";
+let aiGeneratedLawsuitDocument = null;
+let aiCooldownTimer = null;
+let aiCooldownSeconds = 0;
 const activityReportLabels = {
   call: "Вызов",
   bail: "Залог"
@@ -127,6 +132,208 @@ function notify(message) {
   toast.classList.add("visible");
   window.clearTimeout(toastTimer);
   toastTimer = window.setTimeout(() => toast.classList.remove("visible"), 3800);
+}
+
+function formatAiAnswer(text) {
+  const normalized = String(text || "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/^\uFEFF/, "")
+    .replace(/(?:^|\n)\s*#{2,6}\s*/g, "\n")
+    .replace(/^[ \t]+/gm, "")
+    .trim();
+  if (!normalized) return "";
+
+  const blocks = normalized.split(/\n{2,}/);
+  return blocks.map((block) => {
+    const lines = block.split("\n").map((line) => line.trim()).filter(Boolean);
+    if (!lines.length) return "";
+
+    const hasOnlyListItems = lines.every((line) => /^(?:[-*•]|[-*•]\s+)\s*/.test(line));
+    if (hasOnlyListItems) {
+      return `<ul>${lines.map((line) =>
+        `<li>${formatAiInline(escapeHtml(line.replace(/^[-*•]\s*/, "").trim()))}</li>`
+      ).join("")}</ul>`;
+    }
+
+    const numbered = lines.every((line) => /^\d+[.)]\s+/.test(line));
+    if (numbered) {
+      return `<ol>${lines.map((line) =>
+        `<li>${formatAiInline(escapeHtml(line.replace(/^\d+[.)]\s*/, "").trim()))}</li>`
+      ).join("")}</ol>`;
+    }
+
+    return lines.map((line) => {
+      if (/^[-*•]\s/.test(line)) {
+        return `<p class="ai-answer-bullet">${formatAiInline(escapeHtml(line.replace(/^[-*•]\s*/, "").trim()))}</p>`;
+      }
+      if (/^\d+[.)]\s/.test(line)) {
+        return `<p class="ai-answer-step">${formatAiInline(escapeHtml(line.trim()))}</p>`;
+      }
+      if (/^[A-ZА-ЯЁ][^.!?]{2,80}:$/.test(line) || /^(?:Правовой анализ|Практический ответ|Применимые нормы|Требования)$/iu.test(line)) {
+        return `<h4>${formatAiInline(escapeHtml(line))}</h4>`;
+      }
+      return `<p>${formatAiInline(escapeHtml(line))}</p>`;
+    }).join("");
+  }).join("");
+}
+
+function formatAiInline(text) {
+  return text
+    .replace(/\*\*\s*(.*?)\s*\*\*/g, "<strong>$1</strong>")
+    .replace(/__\s*(.*?)\s*__/g, "<strong>$1</strong>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>");
+}
+
+function setAiCooldown(seconds) {
+  aiCooldownSeconds = Number(seconds || 60);
+  window.clearInterval(aiCooldownTimer);
+  $$("[data-action='ask-ai-laws'], [data-action='ask-ai-lawsuit']").forEach((button) => {
+    button.disabled = true;
+  });
+  const update = () => {
+    $$("[data-action='ask-ai-laws'], [data-action='ask-ai-lawsuit']").forEach((button) => {
+      const lawsuit = button.dataset.action === "ask-ai-lawsuit";
+      button.innerHTML = `<span class="ai-cooldown-ring"></span><span>Повтор через ${aiCooldownSeconds} сек.</span>`;
+      button.setAttribute("aria-label", `Повторный запрос доступен через ${aiCooldownSeconds} секунд`);
+      if (aiCooldownSeconds <= 0) {
+        button.disabled = false;
+        button.innerHTML = lawsuit
+          ? '<svg class="icon icon-sm"><use href="/web/icons-sprite.svg#icon-23_motion_petition"></use></svg> Составить документ'
+          : '<svg class="icon icon-sm"><use href="/web/icons-sprite.svg#icon-15_search_archive"></use></svg> Получить ответ';
+        button.removeAttribute("aria-label");
+      }
+    });
+    if (aiCooldownSeconds <= 0) {
+      window.clearInterval(aiCooldownTimer);
+      aiCooldownTimer = null;
+      return;
+    }
+    aiCooldownSeconds -= 1;
+  };
+  update();
+  aiCooldownTimer = window.setInterval(update, 1000);
+}
+
+async function askAiAssistant(mode) {
+  const lawsuit = mode === "lawsuit";
+  const question = $(lawsuit ? "#ai-lawsuit-question" : "#ai-laws-question").value.trim();
+  const status = $(lawsuit ? "#ai-lawsuit-status" : "#ai-laws-status");
+  const answerNode = $(lawsuit ? "#ai-lawsuit-answer" : "#ai-laws-answer");
+  const copyButton = $(`[data-action="${lawsuit ? "copy-ai-lawsuit" : "copy-ai-laws"}"]`);
+  if (question.length < 3) {
+    notify("Опишите ситуацию или задайте юридический вопрос.");
+    $(lawsuit ? "#ai-lawsuit-question" : "#ai-laws-question").focus();
+    return;
+  }
+  status.className = "ai-assistant-status is-loading";
+  status.textContent = lawsuit
+    ? "Анализирую ситуацию по всей законодательной базе и подбираю форму документа. Это может занять больше обычного времени…"
+    : "Анализирую весь комплект законов штата и формирую практический ответ. Сложный запрос может занять больше времени…";
+  status.classList.remove("hidden");
+  answerNode.classList.add("hidden");
+  copyButton.disabled = true;
+  const insertButton = lawsuit ? $(`[data-action="insert-ai-facts"]`) : null;
+  if (insertButton) insertButton.disabled = true;
+  const submitButton = $(`[data-action="${lawsuit ? "ask-ai-lawsuit" : "ask-ai-laws"}"]`);
+  submitButton.disabled = true;
+  try {
+    const data = await api("/api/ai-assistant", {
+      method: "POST",
+      body: { question, mode }
+    });
+    const answer = data.answer || "";
+    if (Number(data.cooldownSeconds) > 0) setAiCooldown(data.cooldownSeconds);
+    else submitButton.disabled = false;
+    if (lawsuit) {
+      aiGeneratedLawsuitDocument = data.document || null;
+      const generated = Boolean(aiGeneratedLawsuitDocument);
+      aiLawsuitAnswer = data.document?.facts
+        ? `${data.document.facts}${data.document.claims ? `\n\nТребования:\n${data.document.claims}` : ""}`
+        : answer;
+      if (generated) {
+        const courtName = data.document.template.includes("supreme")
+          ? "Верховный суд"
+          : data.document.template.includes("federal")
+            ? "Окружной суд"
+            : "Подходящая форма документа";
+        answerNode.innerHTML = `<h4>Документ подготовлен</h4><p>ИИ выбрал: <strong>${escapeHtml(courtName)}</strong>. Нажмите «Вставить в форму», чтобы перенести описательную часть, требования и известные данные в конструктор.</p>`;
+      } else {
+        answerNode.innerHTML = formatAiAnswer(answer);
+      }
+    } else {
+      aiLawsAnswer = answer;
+      answerNode.innerHTML = formatAiAnswer(answer);
+    }
+    answerNode.classList.remove("hidden");
+    window.requestAnimationFrame(() => {
+      answerNode.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+    status.className = "ai-assistant-status";
+    status.textContent = "Ответ подготовлен ИИ на основе загруженной базы. Перед подачей проверьте нормы с руководством.";
+    copyButton.disabled = false;
+    if (insertButton) insertButton.disabled = false;
+  } catch (error) {
+    status.className = "ai-assistant-status";
+    status.textContent = error.message;
+    submitButton.disabled = false;
+  }
+}
+
+async function copyAiAnswer(answer) {
+  await navigator.clipboard.writeText(answer);
+  notify("Ответ ИИ скопирован.");
+}
+
+function applyGeneratedLawsuitDocument(document) {
+  if (!document || typeof document !== "object") return false;
+  const template = $("#lawsuit-template");
+  const form = $("#lawsuit-form");
+  const allowed = new Set([
+    "lawsuit-supreme",
+    "lawsuit-federal",
+    "motion-supreme",
+    "motion-federal",
+    "rehabilitation",
+    "appeal"
+  ]);
+  template.value = allowed.has(document.template) ? document.template : "lawsuit-supreme";
+  renderLawsuitFields();
+
+  $("#lawsuit-title").value = String(document.title || "").slice(0, 150);
+  Object.entries(document).forEach(([key, value]) => {
+    if (key === "template" || key === "title") return;
+    const field = $(`[data-lawsuit-field="${key}"]`);
+    if (!field) return;
+    field.value = key === "filingDate" && !value
+      ? ""
+      : String(value || "");
+  });
+  renderLawsuitPreview();
+  form.classList.remove("hidden");
+  form.scrollIntoView({ behavior: "smooth", block: "start" });
+  notify("ИИ подготовил документ. Все поля можно изменить вручную.");
+  return true;
+}
+
+function insertAiLawsuitFacts() {
+  if (!aiGeneratedLawsuitDocument) {
+    if (aiLawsuitAnswer) {
+      const field = $('[data-lawsuit-field="facts"]');
+      if (!field) {
+        $("#lawsuit-form").classList.remove("hidden");
+        renderLawsuitFields();
+      }
+      const factsField = $('[data-lawsuit-field="facts"]');
+      if (factsField) {
+        factsField.value = aiLawsuitAnswer;
+        renderLawsuitPreview();
+        factsField.focus();
+        notify("Описательная часть вставлена в форму.");
+      }
+    }
+    return;
+  }
+  applyGeneratedLawsuitDocument(aiGeneratedLawsuitDocument);
 }
 
 function formatNotificationDate(value) {
@@ -2396,6 +2603,11 @@ async function handleAction(button) {
     button.setAttribute("aria-expanded", String(expanded));
   }
   else if (action === "toggle-lawsuit-form") $("#lawsuit-form").classList.toggle("hidden");
+  else if (action === "ask-ai-laws") await askAiAssistant("laws");
+  else if (action === "ask-ai-lawsuit") await askAiAssistant("lawsuit");
+  else if (action === "copy-ai-laws") await copyAiAnswer(aiLawsAnswer);
+  else if (action === "copy-ai-lawsuit") await copyAiAnswer(aiLawsuitAnswer);
+  else if (action === "insert-ai-facts") insertAiLawsuitFacts();
   else if (action === "submit-appeal") await submitAppeal();
   else if (action === "start-career-exam") await startExam();
   else if (action === "start-law-exam") await startExam(button.dataset.subject);

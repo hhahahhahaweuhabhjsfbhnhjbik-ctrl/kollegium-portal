@@ -1792,6 +1792,94 @@ function parseStoredJson(value, label) {
   }
 }
 
+function extractLawContext(query, lawFiles) {
+  const terms = [...new Set(String(query).toLocaleLowerCase("ru")
+    .replace(/[^\p{L}\p{N}\s.]/gu, " ")
+    .split(/\s+/)
+    .filter((term) => term.length >= 2))]
+    .slice(0, 25);
+  const chunks = [];
+  for (const law of lawFiles) {
+    const text = law.text.replace(/\r\n?/g, "\n").trim();
+    if (!text) continue;
+    const paragraphs = text.split(/\n{2,}|\n(?=\s*(?:Статья\s+)?\d+(?:[.)]|\s))/i);
+    for (let index = 0; index < paragraphs.length; index += 1) {
+      const paragraph = paragraphs[index].trim();
+      if (paragraph.length < 20) continue;
+      const lower = paragraph.toLocaleLowerCase("ru");
+      const score = terms.reduce((sum, term) => sum + (lower.includes(term) ? term.length : 0), 0);
+      chunks.push({ law: law.name, text: paragraph.slice(0, 2400), score });
+    }
+  }
+  chunks.sort((left, right) => right.score - left.score);
+  const selected = [];
+  let length = 0;
+  for (const chunk of chunks) {
+    if (chunk.score === 0 && selected.length >= 8) break;
+    if (length + chunk.text.length > 90000) break;
+    selected.push(chunk);
+    length += chunk.text.length;
+  }
+  return selected.map((chunk) => `### ${chunk.law}\n${chunk.text}`).join("\n\n");
+}
+
+export function isAssistantRequestAllowed(question) {
+  const text = String(question || "").trim();
+  return text.length >= 3;
+}
+
+export function parseGeneratedLawsuitDocument(answer) {
+  if (typeof answer !== "string") return null;
+  const jsonText = answer
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch {
+    const start = jsonText.indexOf("{");
+    const end = jsonText.lastIndexOf("}");
+    if (start < 0 || end <= start) return null;
+    try {
+      parsed = JSON.parse(jsonText.slice(start, end + 1));
+    } catch {
+      return null;
+    }
+  }
+  const allowedTemplates = new Set(["lawsuit-supreme", "lawsuit-federal", "motion-supreme", "motion-federal", "rehabilitation", "appeal"]);
+  const stringField = (key) => typeof parsed[key] === "string" ? parsed[key] : "";
+  return {
+    template: allowedTemplates.has(parsed.template) ? parsed.template : "lawsuit-supreme",
+    title: stringField("title").slice(0, 150),
+    motionType: stringField("motionType"),
+    motionSubject: stringField("motionSubject"),
+    claimant: stringField("claimant"),
+    claimantId: stringField("claimantId"),
+    claimantPhone: stringField("claimantPhone"),
+    claimantEmail: stringField("claimantEmail"),
+    passport: stringField("passport"),
+    repName: stringField("repName"),
+    repId: stringField("repId"),
+    repLicense: stringField("repLicense"),
+    defendant: stringField("defendant"),
+    organization: stringField("organization"),
+    badge: stringField("badge"),
+    facts: stringField("facts"),
+    claims: stringField("claims"),
+    evidence: stringField("evidence"),
+    feeProof: stringField("feeProof"),
+    convictionDate: stringField("convictionDate"),
+    articles: stringField("articles"),
+    feeReady: stringField("feeReady"),
+    passportCopy: stringField("passportCopy"),
+    otherDocs: stringField("otherDocs"),
+    filingDate: stringField("filingDate"),
+    signature: stringField("signature")
+  };
+}
+
+
 export function createPortalServer(options = {}) {
   const dbPath = options.dbPath || process.env.DB_PATH || path.join(root, "data", "portal.sqlite");
   const db = options.db || createDatabase(dbPath);
@@ -1862,6 +1950,17 @@ export function createPortalServer(options = {}) {
    * число секунд до сброса окна.
    */
   const rateBuckets = new Map();
+  const aiCooldowns = new Map();
+  function consumeAiCooldown(userId) {
+    const now = Date.now();
+    const activeUntil = aiCooldowns.get(userId) || 0;
+    if (activeUntil > now) return Math.ceil((activeUntil - now) / 1000);
+    aiCooldowns.delete(userId);
+    return 0;
+  }
+  function applyAiCooldown(userId) {
+    aiCooldowns.set(userId, Date.now() + 60 * 1000);
+  }
   function consumeRateLimit(key, limit, windowMs) {
     const now = Date.now();
     if (rateBuckets.size > 5000) {
@@ -2514,6 +2613,147 @@ export function createPortalServer(options = {}) {
         const user = publicUser(db, session.user_id);
         if (req.method !== "GET") assertCsrf(req, session);
         if (user.status !== "active") throw new HttpError(403, "Аккаунт ожидает одобрения ГКА или приостановлен.");
+
+        if (pathname === "/api/ai-assistant" && req.method === "POST") {
+          const geminiKey = String(options.geminiApiKey ?? process.env.GEMINI_API_KEY ?? "").trim();
+          if (!geminiKey) throw new HttpError(503, "ИИ-сервис не настроен. Добавьте ключ сервера.");
+          const body = await readJson(req);
+          const question = String(body.question || "").trim();
+          const mode = ["laws", "lawsuit", "answer"].includes(body.mode) ? body.mode : "answer";
+          if (question.length < 3) throw new HttpError(400, "Опишите ситуацию подробнее.");
+          if (question.length > 8000) throw new HttpError(400, "Запрос слишком длинный. Укажите не более 8000 символов.");
+          if (!isAssistantRequestAllowed(question)) throw new HttpError(400, "Опишите ситуацию подробнее.");
+          const aiCooldownSeconds = consumeAiCooldown(session.user_id);
+          if (aiCooldownSeconds) throw new HttpError(429, `Повторный запрос доступен через ${aiCooldownSeconds} с.`);
+          const lawFiles = [];
+          const lawDir = path.join(root, "data", "laws");
+          const files = await readdir(lawDir, { withFileTypes: true });
+          for (const file of files) {
+            if (!file.isFile() || path.extname(file.name).toLowerCase() !== ".txt") continue;
+            try {
+              lawFiles.push({ name: file.name, text: await readFile(path.join(lawDir, file.name), "utf8") });
+            } catch {}
+          }
+          const context = lawFiles
+            .sort((left, right) => left.name.localeCompare(right.name, "ru"))
+            .map((law) => `### ПОЛНЫЙ ТЕКСТ: ${law.name}\n${law.text}`)
+            .join("\n\n");
+          const systemInstruction = `Ты — официальный ИИ-ассистент и юридический консультант Коллегии Адвокатов штата San Andreas (сервер Mirror).
+Твоя единственная задача — помогать адвокатам, стажерам и гражданам разбираться в законодательной базе и составлять официальные юридические документы.
+Отвечай только на вопросы о законодательстве штата San Andreas, процессуальных действиях и юридических документах.
+На оффтоп ответь кратким отказом и напоминанием, что помогаешь только по законам штата San Andreas.
+Разговорные RP-формулировки типа «кавулили», «задержали», «под статью», «что говорить» считай юридическим описанием ситуации. Не отказывай только из-за непрофессиональной речи или отсутствия точного названия статьи.
+Используй только приложенную законодательную базу. Не придумывай номера статей. Если точной нормы нет, прямо скажи: «В загруженной законодательной базе нет точной нормы по данному вопросу. Рекомендую уточнить информацию у Руководства Коллегии Адвокатов (ГКА/ЗГКА).»
+Пиши по делу, деловым языком. В юридическом документе заменяй неизвестные данные на [Указать ...], не выдумывая факты.
+${mode === "lawsuit"
+  ? "Сначала проанализируй всю представленную ситуацию, найди применимые нормы и статьи в полной базе законов, затем составь готовую описательную часть, правовую квалификацию и просительную часть адвокатского документа."
+  : "Проанализируй прямой смысл вопроса пользователя, найди в полной базе все применимые нормы и статьи, объясни практический ответ понятным текстом и укажи названия документов и номера статей."}
+${mode === "lawsuit"
+  ? `Для режима составления документа верни СТРОГО JSON без Markdown и пояснений. JSON должен содержать: template (lawsuit-supreme, lawsuit-federal, motion-supreme, motion-federal, rehabilitation или appeal), title, motionType, motionSubject, claimant, claimantId, claimantPhone, claimantEmail, passport, repName, repId, repLicense, defendant, organization, badge, facts, claims, evidence, feeProof, convictionDate, articles, feeReady, passportCopy, otherDocs, filingDate, signature. Определи подходящий шаблон по ситуации: иск — lawsuit, ходатайство или возражение — motion, реабилитация — rehabilitation, апелляция — appeal. Для Верховного суда используй supreme, для окружного — federal. Не выдумывай отсутствующие данные: используй пустую строку "" для неизвестных полей. В поле facts напиши официальный текст описательной части от первого лица заявителя/истца («Я…»), без инструкций и подстановочных пояснений: хронология событий, точное лицо ответчика, основание вызова или задержания, процессуальные нарушения и применимые статьи. В поле claims укажи только самостоятельную просительную часть суда, каждое требование с новой строки. Тайм-коды сохраняй в evidence или facts, если они были указаны пользователем.`
+  : ""}
+Всегда отвечай на сам вопрос пользователя; не возвращай просто строки поиска и не ограничивайся цитатами из закона.
+Ответ дай кратко: максимум 8 пунктов и максимум 700 слов. Не повторяй вступление и не перечисляй очевидные общие советы. На ответах о задержании укажи только необходимые действия, права и применимые статьи.
+Не показывай Markdown-маркеры в ответе: не используй решётки, двойные звездочки и тройные кавычки-кода для оформления.
+Пиши заголовки обычными строками, нумерованные пункты как «1.», «2.» и короткие пункты как обычный текст.
+Не используй таблицы и блоки кода.
+Ниже передана полная загруженная законодательная база штата.`;
+          const model = String(options.geminiModel ?? process.env.GEMINI_MODEL ?? "gemini-3.5-flash-lite").trim();
+          const fallbackModel = String(options.geminiFallbackModel ?? process.env.GEMINI_FALLBACK_MODEL ?? "gemini-2.5-flash").trim();
+          const modelCandidates = [...new Set([
+            model,
+            fallbackModel,
+            "gemini-3.5-flash-lite",
+            "gemini-2.5-flash"
+          ])].filter(Boolean);
+          let geminiResponse;
+          let responseBody = {};
+          for (const candidate of modelCandidates) {
+            for (let attempt = 0; attempt < 3; attempt += 1) {
+              const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(candidate)}:generateContent`;
+              const controller = new AbortController();
+              const timeout = setTimeout(() => controller.abort(), 60000);
+              try {
+                geminiResponse = await (options.geminiFetch || globalThis.fetch)(endpoint, {
+                  method: "POST",
+                  headers: {
+                    "content-type": "application/json",
+                    "x-goog-api-key": geminiKey
+                  },
+                  body: JSON.stringify({
+                    systemInstruction: { parts: [{ text: systemInstruction }] },
+                    contents: [{ role: "user", parts: [{ text: `${context ? `ЗАКОНОДАТЕЛЬНАЯ БАЗА:\n${context}\n\n` : ""}ВОПРОС ИЛИ СИТУАЦИЯ:\n${question}` }] }],
+                    generationConfig: { temperature: 0.2, maxOutputTokens: 1800 }
+                  }),
+                  signal: controller.signal
+                });
+              } catch (error) {
+                if (error.name === "AbortError" || error instanceof TypeError) {
+                  await new Promise((resolve) => setTimeout(resolve, 750 * (attempt + 1)));
+                  continue;
+                }
+                continue;
+              } finally {
+                clearTimeout(timeout);
+              }
+              responseBody = await geminiResponse.json().catch(() => ({}));
+              if (geminiResponse.ok) break;
+              if (![429, 503].includes(geminiResponse.status)) break;
+              await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+            }
+            if (geminiResponse?.ok) break;
+          }
+          if (!geminiResponse || !geminiResponse.ok) {
+            const detail = String(responseBody.error?.message || "");
+            if (/no longer available to new users|is no longer available/i.test(detail)) {
+              throw new HttpError(503, "Модель ИИ устарела или недоступна для этого ключа. Сервер переключён на актуальную модель; повторите запрос.");
+            }
+            if (/high demand|перегруз|unavailable|temporarily/i.test(detail)) {
+              throw new HttpError(503, "ИИ-сервис временно перегружен. Сервер уже попробовал запасные модели. Повторите запрос через минуту.");
+            }
+            throw new HttpError(502, detail ? `ИИ-сервис отклонил запрос: ${detail.slice(0, 300)}` : "ИИ-сервис отклонил запрос.");
+          }
+          const answer = (responseBody.candidates?.[0]?.content?.parts || [])
+            .map((part) => typeof part.text === "string" ? part.text : "")
+            .filter(Boolean)
+            .join("\n")
+            .trim();
+          if (!answer) throw new HttpError(502, "ИИ-сервис не вернул текст ответа.");
+          const exactRefusal = "Запрос отклонен. Я консультирую исключительно по законодательной базе штата San Andreas и составлению адвокатских документов.";
+          if (answer === exactRefusal) {
+            const legalHint = /(?:стать[ияеию]|ук|пк|ак|закон|адвокат|прокуратур|суд|задерж|кавул|кинули|подозре|обвин|иск|жалоб|дорожн|трудов)/iu.test(question);
+            if (legalHint) {
+              const retryModel = modelCandidates.find((candidate) => candidate !== model) || model;
+              const retryEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(retryModel)}:generateContent`;
+              const retryResponse = await (options.geminiFetch || globalThis.fetch)(retryEndpoint, {
+                method: "POST",
+                headers: { "content-type": "application/json", "x-goog-api-key": geminiKey },
+                body: JSON.stringify({
+                  systemInstruction: { parts: [{ text: `${systemInstruction}\nЭто безусловно юридический RP-запрос штата. Проанализируй вопрос и дай конкретный практический ответ.` }] },
+                  contents: [{ role: "user", parts: [{ text: `Вопрос пользователя с бытовой RP-речью:\n${question}\n\nИспользуй всю полную базу законов и ответь по существу с применимыми статьями.` }] }],
+                  generationConfig: { temperature: 0.1, maxOutputTokens: 1800 }
+                })
+              }).catch(() => null);
+              if (retryResponse?.ok) {
+                const retryBody = await retryResponse.json().catch(() => ({}));
+                const retryAnswer = (retryBody.candidates?.[0]?.content?.parts || [])
+                  .map((part) => typeof part.text === "string" ? part.text : "")
+                  .filter(Boolean)
+                  .join("\n")
+                  .trim();
+                if (retryAnswer && retryAnswer !== exactRefusal) {
+                  applyAiCooldown(session.user_id);
+                  return sendJson(res, 200, { answer: retryAnswer, mode, document: null, cooldownSeconds: 60 });
+                }
+              }
+            }
+          }
+          let document = null;
+          if (mode === "lawsuit") {
+            document = parseGeneratedLawsuitDocument(answer);
+          }
+          applyAiCooldown(session.user_id);
+          return sendJson(res, 200, { answer, mode, document, cooldownSeconds: 60 });
+        }
 
         if (pathname === "/api/rp-practice/completions" && req.method === "GET") {
           if (user.role === citizenRole) throw new HttpError(403, "RP-практика доступна только сотрудникам Коллегии.");
@@ -5625,10 +5865,10 @@ export function createPortalServer(options = {}) {
       if (req.method === "GET" && pathname === "/pamyatka_advokata.html") {
         const html = await readFile(path.join(root, "pamyatka_advokata.html"));
         res.setHeader("x-frame-options", "SAMEORIGIN");
-        res.setHeader("content-security-policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'self'; form-action 'self'");
+        res.setHeader("content-security-policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'self'; form-action 'self'");
         res.writeHead(200, {
           "content-type": "text/html; charset=utf-8",
-          "cache-control": "no-cache",
+          "cache-control": "no-store, max-age=0",
           "x-content-type-options": "nosniff"
         });
         res.end(html);
@@ -5640,7 +5880,7 @@ export function createPortalServer(options = {}) {
         const html = await readFile(path.join(root, "advokate.html"));
         res.writeHead(200, {
           "content-type": "text/html; charset=utf-8",
-          "cache-control": "no-cache",
+          "cache-control": "no-store, max-age=0",
           "x-content-type-options": "nosniff"
         });
         res.end(html);
@@ -5815,7 +6055,7 @@ const publicWebhookChannels = ["applications", "exams", "logs"];
  * Возвращает false, если путь не относится к статике, чтобы маршрутизация
  * продолжилась обычным образом.
  */
-async function serveFrontendAsset(res, pathname, { cacheControl = "no-cache" } = {}) {
+async function serveFrontendAsset(res, pathname, { cacheControl = "no-store, max-age=0" } = {}) {
   if (!pathname.startsWith("/web/")) return false;
   let decoded;
   try {
