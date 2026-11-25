@@ -57,4 +57,4 @@ jobs:
              fi
              git fetch origin main
              git reset --hard origin/main
-             sudo docker compose -f deploy/oracle/compose.yaml up -d --build'
+             sudo docker compose -f deploy/oracle/compose.yaml up -d --build --force-recreate'
