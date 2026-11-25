@@ -21,8 +21,12 @@
   --violet:#6d4fd6; --violet-bg:rgba(109,79,214,.1); --red:#c0392b; --red-bg:rgba(192,57,43,.09);
 }
 *{box-sizing:border-box}
-html{scroll-padding-top:78px}
+html{scroll-padding-top:78px;scrollbar-width:thin;scrollbar-color:rgba(201,162,39,.78) var(--bg)}
 body{margin:0;background:var(--bg);color:var(--text);font:var(--fs)/1.55 var(--font);-webkit-font-smoothing:antialiased}
+html::-webkit-scrollbar,body::-webkit-scrollbar,.rail::-webkit-scrollbar,.pal .list::-webkit-scrollbar,.tw::-webkit-scrollbar{width:8px;height:8px}
+html::-webkit-scrollbar-track,body::-webkit-scrollbar-track,.rail::-webkit-scrollbar-track,.pal .list::-webkit-scrollbar-track,.tw::-webkit-scrollbar-track{background:var(--bg);border-radius:999px}
+html::-webkit-scrollbar-thumb,body::-webkit-scrollbar-thumb,.rail::-webkit-scrollbar-thumb,.pal .list::-webkit-scrollbar-thumb,.tw::-webkit-scrollbar-thumb{border:2px solid var(--bg);border-radius:999px;background:linear-gradient(180deg,#f4d47a,#9d7625)}
+html::-webkit-scrollbar-thumb:hover,body::-webkit-scrollbar-thumb:hover,.rail::-webkit-scrollbar-thumb:hover,.pal .list::-webkit-scrollbar-thumb:hover,.tw::-webkit-scrollbar-thumb:hover{background:#d5b45a}
 button,input,select,textarea{font:inherit;color:inherit}
 button{cursor:pointer}
 a{color:var(--amber2)}
@@ -51,7 +55,7 @@ a{color:var(--amber2)}
 .rail a.on{background:var(--amber-bg);border-color:var(--amber-line);color:var(--amber2)}
 .rail a i{font-style:normal;width:20px;text-align:center}
 .rail a em{margin-left:auto;font-style:normal;font-size:10.5px;background:var(--card);border:1px solid var(--line2);border-radius:99px;padding:0 7px;color:var(--muted)}
-main{margin-left:248px;padding:86px 28px 80px;max-width:1280px}
+main{width:calc(100% - 248px);max-width:none;margin-left:248px;padding:86px 34px 80px}
 .sec{margin-bottom:46px}
 .sec>header{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;margin-bottom:16px;flex-wrap:wrap}
 .sec h2{margin:0;font-size:24px;letter-spacing:-.01em;display:flex;align-items:center;gap:12px}
