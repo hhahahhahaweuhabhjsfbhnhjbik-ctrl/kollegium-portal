@@ -79,7 +79,9 @@ try {
   check(!/<style[\s>]/i.test(html), "В HTML не должно быть инлайновых <style>.");
   check(!/<script>[\s\S]*?\S[\s\S]*?<\/script>/i.test(html), "В HTML не должно быть инлайнового кода.");
   check(html.includes('/api/frontend/loader'), "HTML должен подключать загрузчик приложения.");
-  check(!/<link\b[^>]*rel=["']stylesheet["']/i.test(html), "CSS не должен загружаться крупными прямыми запросами.");
+  check(html.includes('/web/css/loading.css'), "HTML должен сразу подключать компактные стили экрана загрузки.");
+  check(!html.includes('/web/css/base.css') && !html.includes('/web/css/theme.css'),
+    "Основные CSS не должны загружаться крупными прямыми запросами.");
   const loader = await request("/api/frontend/loader", { raw: true });
   const loaderSource = loader.payload.toString("utf8");
   check(loader.status === 200, `Загрузчик оформления: HTTP ${loader.status}`);
@@ -100,6 +102,7 @@ try {
   /* ── Статика ──────────────────────────────────────────────────────────── */
   const assets = [
     ["/web/icons-sprite.svg", "image/svg+xml"],
+    ["/web/css/loading.css", "text/css"],
     ["/web/css/base.css", "text/css"],
     ["/web/css/theme.css", "text/css"],
     ["/web/css/awards.css", "text/css"],
@@ -122,6 +125,9 @@ try {
     check(String(asset.headers.get("content-type")).startsWith(expectedType),
       `${pathname}: ожидался ${expectedType}, получен ${asset.headers.get("content-type")}`);
     check(asset.payload.length > 0, `${pathname}: пустой ответ`);
+    if (pathname === "/web/css/loading.css") {
+      check(asset.payload.length < 12 * 1024, "CSS экрана загрузки должен оставаться компактным.");
+    }
   }
 
   /* ── Защита от обхода каталога ────────────────────────────────────────── */
