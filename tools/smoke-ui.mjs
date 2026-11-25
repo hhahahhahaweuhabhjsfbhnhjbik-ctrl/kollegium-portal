@@ -101,6 +101,7 @@ const responses = {
   "/api/activity-reports/101": { ok: true, status: "approved" },
   "/api/auth/logout": { ok: true },
   "/api/applications": { applications: [] },
+  "/api/promotion-decree": { nextNumber: 0, candidates: [], history: [] },
   "/api/exams/law-progress": {
     available: false,
     stageRole: "ГКА",

@@ -93,7 +93,7 @@ try {
     check(loaderSource.includes(fileName), `Загрузчик должен получать ${fileName} частями.`);
   }
   check(html.includes('/web/icons-sprite.svg#icon-01_overview'), "Главная навигация должна использовать спрайт иконок.");
-  for (const route of ["/page/home", "/page/iski", "/page/audit", "/page/reports"]) {
+  for (const route of ["/page/home", "/page/iski", "/page/audit", "/page/decrees", "/page/reports"]) {
     const routePage = await request(route, { raw: true });
     check(routePage.status === 200, `Страница ${route}: HTTP ${routePage.status}`);
     check(routePage.payload.toString("utf8").includes('/api/frontend/loader'), `Страница ${route} должна отдавать приложение.`);
@@ -102,6 +102,9 @@ try {
   const csp = String(page.headers.get("content-security-policy") || "");
   check(csp.includes("script-src 'self' blob:"), "CSP должен разрешать blob-модуль загрузчика.");
   check(!/script-src[^;]*'unsafe-inline'/.test(csp), "CSP не должен разрешать инлайновые скрипты.");
+  const decreeQueue = await request("/api/promotion-decree");
+  check(decreeQueue.status === 200 && decreeQueue.payload.nextNumber === 0,
+    "У ГКА должна открываться очередь указов с нумерацией от №000.");
 
   /* ── Статика ──────────────────────────────────────────────────────────── */
   const assets = [

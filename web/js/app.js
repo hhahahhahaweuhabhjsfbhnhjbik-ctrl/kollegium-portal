@@ -12,6 +12,7 @@ import { rpInterviewExtraCases } from "/web/js/data/rp-interviews-extra.js?v=202
 rpInterviewCases.push(...rpInterviewExtraCases);
 
 const managerRoles = ["ГКА", "ЗГКА"];
+const promotionPracticeRanks = Object.freeze({ "Стажер КА": "Юрист", "Юрист": "Адвокат" });
 const documentRoles = ["Юрист", "Адвокат", "Ст.Адвокат", ...managerRoles];
 const memoItems = [
   "Представиться и проверить личность / полномочия доверителя.",
@@ -83,6 +84,8 @@ let activityReportPhotoUrl = "";
 let activityReportPhotoRequest = 0;
 let photoViewerReturnFocus = null;
 let currentView = "dashboard";
+let promotionPracticeState = null;
+let promotionDecreeState = null;
 let discordDmEnabled = true;
 let discordSettings = null;
 let aiLawsAnswer = "";
@@ -104,6 +107,7 @@ const viewPaths = {
   laws: "/page/laws",
   rating: "/page/rating",
   audit: "/page/audit",
+  decrees: "/page/decrees",
   awards: "/page/awards",
   reports: "/page/reports"
 };
@@ -619,6 +623,7 @@ async function navigate(name) {
     awards: loadAwards,
     rating: loadRating,
     audit: loadAudit,
+    decrees: loadPromotionDecrees,
     reports: loadReports
   };
   try {
@@ -1157,7 +1162,8 @@ async function reviewForumLink(button) {
 function renderAppeals(applications) {
   const appeals = applications.filter((item) => ["citizen_help", "citizen_complaint"].includes(item.type));
   const careerApplications = applications.filter((item) =>
-    item.type === "exam" && Array.isArray(item.promotion_data?.lawTests));
+    item.type === "exam" && ["Стажер КА", "Юрист"].includes(item.stage_role) &&
+    (Number(item.user_id) === Number(currentUser.id) || item.promotion_data?.practiceSubmittedAt));
   const appealCards = appeals.map((item) => {
     const actions = [`<button class="btn" type="button" data-action="application-details" data-id="${Number(item.id)}">Подробнее</button>`];
     if (["ГКА", "ЗГКА", "Адвокат", "Ст.Адвокат"].includes(currentUser.role)) {
@@ -1179,27 +1185,50 @@ function renderAppeals(applications) {
   });
   const promotionCards = careerApplications.map((item) => {
     const data = item.promotion_data || {};
-    const actions = managerRoles.includes(currentUser.role) && item.status === "pending"
-      ? `<button class="btn btn-gold" type="button" data-action="review-career-promotion" data-id="${Number(item.id)}" data-status="approved">Одобрить повышение</button>
+    const canReview = Number(item.user_id) !== Number(currentUser.id) && item.status === "pending" &&
+      (currentUser.role === "ГКА" || currentUser.role === "ЗГКА" || currentUser.hasFullGkaAccess ||
+        (currentUser.role === "Ст.Адвокат" && item.stage_role === "Стажер КА"));
+    const actions = canReview
+      ? `<button class="btn btn-gold" type="button" data-action="review-career-promotion" data-id="${Number(item.id)}" data-status="approved">Принять</button>
          <button class="btn" type="button" data-action="review-career-promotion" data-id="${Number(item.id)}" data-status="rejected">Отклонить</button>`
+      : "";
+    const submitted = Boolean(data.practiceSubmittedAt);
+    const practice = submitted
+      ? (item.promotion_practice || []).map((slot) => {
+        if (slot.skipped) {
+          return `<li><strong>Слот ${Number(slot.slotNo)}:</strong> пропущен</li>`;
+        }
+        const evidence = [
+          slot.evidenceUrl
+            ? `<a href="${escapeHtml(slot.evidenceUrl)}" target="_blank" rel="noopener noreferrer">Откат / ссылка</a>`
+            : "",
+          slot.photoUrl
+            ? `<a href="${escapeHtml(slot.photoUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(slot.imageName || "Скриншот")}</a>`
+            : ""
+        ].filter(Boolean).join(" · ");
+        return `<li><strong>Слот ${Number(slot.slotNo)}:</strong> ${escapeHtml(slot.partnerName || "—")} · ${evidence || "доказательство не найдено"}</li>`;
+      }).join("")
       : "";
     return `<article class="laws-item career-promotion-application">
       <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
-        <h3>Заявка #${Number(item.id)} · ${escapeHtml(item.display_name || "Сотрудник")}: ${escapeHtml(item.stage_role)} → ${escapeHtml(item.requested_role || "")}</h3>
+        <h3>Заявка #${Number(item.id)} · ${escapeHtml(item.display_name || "Сотрудник")}: ${escapeHtml(item.stage_role)} → ${escapeHtml(item.requested_role || promotionPracticeRanks[item.stage_role])}</h3>
         ${statusBadge(item.status)}
       </div>
-      <p>${escapeHtml(item.result || item.details || "Сданы тесты по АК, УК и ПК.")}</p>
+      <p>${escapeHtml(submitted
+        ? item.result || item.details || "Практика отправлена на рассмотрение."
+        : "Черновик этапа: заполните практику совместных задержаний и отправьте заявку.")}</p>
       <div class="meta text-muted">
         ${item.stage_role === "Юрист"
           ? `Вызовы: ${Number(data.completedCalls || 0)} / ${Number(data.requiredCalls || 0)} · Пробный иск: ${escapeHtml(data.trialLawsuitReference || "не указан")} · Обзвон: ${item.interview_status === "ready" ? "готов" : "ожидает"}`
-          : "Три обязательных теста сданы."}
+          : Array.isArray(data.lawTests) ? "Три обязательных теста по АК, УК и ПК сданы." : "Обязательный карьерный тест сдан."}
       </div>
+      ${submitted ? `<details class="career-practice-evidence"><summary>Практика задержаний · доказательства</summary><ol>${practice}</ol></details>` : ""}
       ${actions ? `<div class="table-actions" style="margin-top:10px">${actions}</div>` : ""}
     </article>`;
   });
   const sections = [];
   if (appealCards.length) sections.push(`<div class="appeal-list-section"><h3>Обращения граждан</h3>${appealCards.join("")}</div>`);
-  if (promotionCards.length) sections.push(`<div class="appeal-list-section"><h3>${managerRoles.includes(currentUser.role) ? "Заявки на повышение" : "Мои этапы повышения"}</h3>${promotionCards.join("")}</div>`);
+  if (promotionCards.length) sections.push(`<div class="appeal-list-section"><h3>${managerRoles.includes(currentUser.role) || currentUser.role === "Ст.Адвокат" ? "Заявки на повышение" : "Мои этапы повышения"}</h3>${promotionCards.join("")}</div>`);
   $("#appealsList").innerHTML = sections.length ? sections.join("") : emptyState("Обращений и заявок на повышение пока нет.");
 }
 
@@ -1213,6 +1242,88 @@ async function loadAppeals() {
       `<option value="${Number(attorney.id)}">${escapeHtml(attorney.display_name)} · ${escapeHtml(attorney.role)}</option>`
     ).join("")}`;
   }
+}
+
+function getPromotionDecreeSelection() {
+  const selected = $$("[data-decree-entry]:checked", $("#promotion-decree-candidates"));
+  const applicationIds = selected.map((checkbox) => Number(checkbox.value));
+  const passports = {};
+  for (const id of applicationIds) {
+    passports[String(id)] = $(`[data-decree-passport="${id}"]`, $("#promotion-decree-candidates")).value.trim();
+  }
+  return { applicationIds, passports };
+}
+
+function renderPromotionDecreeCandidates(data) {
+  promotionDecreeState = data;
+  const number = String(Number(data.nextNumber || 0)).padStart(3, "0");
+  $("#promotion-decree-number").textContent = `Следующий №${number}`;
+  const candidates = data.candidates || [];
+  $("#promotion-decree-candidates").innerHTML = candidates.length
+    ? candidates.map((entry) => `<article class="promotion-decree-candidate">
+        <label class="promotion-decree-candidate-select">
+          <input type="checkbox" data-decree-entry value="${Number(entry.applicationId)}" checked>
+          <span><strong>${escapeHtml(entry.characterName)}</strong><small>Заявка #${Number(entry.applicationId)} · ${escapeHtml(entry.fromRole)} → ${escapeHtml(entry.toRole)}</small></span>
+        </label>
+        <label class="promotion-decree-passport">Номер паспорта
+          <input class="input" type="text" maxlength="40" data-decree-passport="${Number(entry.applicationId)}"
+            value="${escapeHtml(entry.passportId)}" placeholder="Укажите номер паспорта">
+        </label>
+      </article>`).join("")
+    : emptyState("Новых одобренных повышений для указа пока нет.");
+  $("#promotion-decree-history").innerHTML = (data.history || []).length
+    ? `<ul>${data.history.map((item) =>
+      `<li>Указ №${String(Number(item.decree_number)).padStart(3, "0")} · ${Number(item.item_count)} записей · ${escapeHtml(item.sent_at)}</li>`
+    ).join("")}</ul>`
+    : `<p class="text-muted">Отправленных указов пока нет.</p>`;
+  $("#promotion-decree-preview").value = "";
+  $("#send-promotion-decree").disabled = true;
+  $("#promotion-decree-status").textContent = candidates.length
+    ? `Доступно новых повышений: ${candidates.length}. Снимите отметку, чтобы удалить запись из этого указа.`
+    : "Все новые одобренные повышения уже включены в отправленные указы.";
+}
+
+async function loadPromotionDecrees() {
+  if (!(currentUser.role === "ГКА" || currentUser.hasFullGkaAccess)) {
+    throw new Error("Указы может формировать только ГКА.");
+  }
+  renderPromotionDecreeCandidates(await api("/api/promotion-decree"));
+}
+
+function invalidatePromotionDecreePreview(target) {
+  if (!target.closest("#promotion-decree-candidates")) return;
+  $("#promotion-decree-preview").value = "";
+  $("#send-promotion-decree").disabled = true;
+}
+
+async function previewPromotionDecree() {
+  const selection = getPromotionDecreeSelection();
+  if (!selection.applicationIds.length) throw new Error("Выберите хотя бы одно повышение для указа.");
+  const preview = await api("/api/promotion-decree/preview", {
+    method: "POST",
+    body: selection
+  });
+  $("#promotion-decree-preview").value = preview.bbcode;
+  $("#send-promotion-decree").disabled = false;
+  $("#promotion-decree-status").textContent =
+    `Предпросмотр указа №${String(Number(preview.decreeNumber)).padStart(3, "0")} · записей: ${preview.count}. Проверьте текст перед отправкой.`;
+}
+
+async function sendPromotionDecree() {
+  const selection = getPromotionDecreeSelection();
+  if (!selection.applicationIds.length || !$("#promotion-decree-preview").value) {
+    throw new Error("Сначала сформируйте предпросмотр указа.");
+  }
+  const number = String(Number(promotionDecreeState?.nextNumber || 0)).padStart(3, "0");
+  if (!window.confirm(`Отправить указ №${number} (${selection.applicationIds.length} записей) в ваш Discord?`)) return;
+  const result = await api("/api/promotion-decree/send", {
+    method: "POST",
+    body: selection
+  });
+  notify(result.logWarning
+    ? `Указ №${result.decreeNumber} отправлен в личные сообщения Discord. Предупреждение журнала: ${result.logWarning}`
+    : `Указ №${result.decreeNumber} отправлен в личные сообщения Discord.`);
+  await loadPromotionDecrees();
 }
 
 async function submitAppeal() {
@@ -1495,9 +1606,11 @@ async function loadTests() {
   const completedCount = (progress.passedSubjects || []).length;
   const isPromotionRole = ["Стажер КА", "Юрист"].includes(currentUser.role);
   if (careerApplication?.status === "pending") {
-    status.textContent = currentUser.role === "Стажер КА"
-      ? "Заявка на повышение до юриста создана автоматически. Ожидайте решения ГКА/ЗГКА."
-      : "Заявка на повышение до адвоката создана автоматически. После заполнения отчёта отметьте готовность к обзвону.";
+    status.textContent = !careerApplication.promotion_data?.practiceSubmittedAt
+      ? "Тесты сданы. Заполните практику совместных задержаний в разделе «Практика РП», затем отправьте заявку на повышение."
+      : currentUser.role === "Стажер КА"
+        ? "Заявка на повышение до юриста отправлена. Ожидайте решения ст. адвоката, ЗГКА или ГКА."
+        : "Заявка на повышение до адвоката отправлена. Ожидайте решения ЗГКА или ГКА.";
     status.classList.remove("hidden");
   } else if (careerApplication?.status === "rejected") {
     status.textContent = careerApplication.result || "Заявка отклонена. Тесты этого этапа снова доступны.";
@@ -1713,7 +1826,7 @@ async function reviewCareerPromotion(button) {
   const criteria = status === "approved" && application.stage_role === "Юрист"
     ? { callsVerified: true, trialLawsuitVerified: true, interviewPassed: true }
     : status === "approved" && application.stage_role === "Стажер КА"
-      ? { headApproved: true }
+      ? Number(application.career_flow) === 1 ? { headApproved: true } : { lectureVerified: true }
       : {};
   await api(`/api/applications/${encodeURIComponent(button.dataset.id)}/review`, {
     method: "PATCH",
@@ -1729,8 +1842,125 @@ const rpPracticeLevelNames = {
   rp_hard: "Третий уровень"
 };
 
+function renderPromotionPractice(data) {
+  const panel = $("#promotion-practice-panel");
+  panel.classList.toggle("hidden", !data.eligible);
+  if (!data.eligible) return;
+  promotionPracticeState = data;
+  $("#promotion-practice-role").textContent = data.stageRole;
+  const slots = data.slots || [];
+  const resolvedCount = slots.filter((slot) => slot.skipped ||
+    (slot.partnerName && (slot.evidenceUrl || slot.hasImage))).length;
+  $("#promotion-practice-progress").textContent = `${resolvedCount} из 6`;
+  $("#promotion-practice-slots").innerHTML = slots.map((slot) => {
+    const optional = Number(slot.slotNo) > 3;
+    const proofLinks = [
+      slot.evidenceUrl
+        ? `<a href="${escapeHtml(slot.evidenceUrl)}" target="_blank" rel="noopener noreferrer">Открыть ссылку</a>`
+        : "",
+      slot.photoUrl
+        ? `<a href="${escapeHtml(slot.photoUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(slot.imageName || "Скриншот")}</a>`
+        : ""
+    ].filter(Boolean);
+    return `<article class="promotion-practice-slot${slot.skipped ? " is-skipped" : ""}" data-practice-slot="${Number(slot.slotNo)}">
+      <div class="promotion-practice-slot-heading">
+        <h3>Слот ${Number(slot.slotNo)}</h3>
+        <span class="badge ${optional ? "badge-info" : "badge-gold"}">${optional ? "МОЖНО СКИП" : "ОБЯЗАТЕЛЬНЫЙ"}</span>
+      </div>
+      ${slot.skipped ? `<p class="promotion-practice-skipped">Слот пропущен. При желании заполните его вместо скипа.</p>` : ""}
+      <label>Другой адвокат на задержании
+        <input class="input" type="text" maxlength="80" required data-practice-partner value="${escapeHtml(slot.partnerName)}" ${data.submittedAt ? "disabled" : ""}>
+      </label>
+      <label>Ссылка на откат
+        <input class="input" type="url" maxlength="500" placeholder="https://..." data-practice-evidence value="${escapeHtml(slot.evidenceUrl)}" ${data.submittedAt ? "disabled" : ""}>
+      </label>
+      <label>Скриншот (необязательно, JPG / PNG / WebP, до 2 МБ)
+        <input class="input" type="file" accept="image/jpeg,image/png,image/webp" data-practice-image ${data.submittedAt ? "disabled" : ""}>
+      </label>
+      ${proofLinks.length ? `<p class="promotion-practice-proof">${proofLinks.join(" · ")}</p>` : ""}
+      <div class="promotion-practice-slot-actions">
+        <button class="btn btn-gold" type="button" data-action="save-promotion-practice-slot" data-slot="${Number(slot.slotNo)}"
+          ${data.submittedAt ? "disabled" : ""}>Сохранить слот</button>
+        ${optional ? `<button class="btn" type="button" data-action="skip-promotion-practice-slot" data-slot="${Number(slot.slotNo)}"
+          ${data.submittedAt ? "disabled" : ""}>Скип</button>` : ""}
+      </div>
+    </article>`;
+  }).join("");
+  const status = $("#promotion-practice-status");
+  const submitButton = $("#submit-promotion-practice");
+  const readiness = $("#promotion-practice-readiness");
+  submitButton.dataset.applicationId = String(data.applicationId || "");
+  submitButton.disabled = !data.canSubmit;
+  if (data.submittedAt) {
+    status.textContent = "Практика приложена к заявке. Старшие адвокаты и руководство увидят доказательства в разделе обращений.";
+    readiness.textContent = "Редактирование слотов закрыто после отправки.";
+  } else if (data.practiceComplete) {
+    status.textContent = "Практика выполнена: обязательные слоты заполнены, дополнительные заполнены или пропущены.";
+    readiness.textContent = data.canSubmit
+      ? "Все требования текущего этапа выполнены — можно отправить заявку."
+      : data.readinessMessage || "Сначала сдайте необходимые тесты и выполните остальные условия этапа.";
+  } else {
+    status.textContent = "Заполните три обязательных слота. Для слотов 4–6 добавьте задержание или нажмите «Скип».";
+    readiness.textContent = data.readinessMessage || "Заявка на повышение станет доступна после выполнения практики и тестов.";
+  }
+}
+
+async function loadPromotionPractice() {
+  const panel = $("#promotion-practice-panel");
+  if (!["Стажер КА", "Юрист"].includes(currentUser.role)) {
+    panel.classList.add("hidden");
+    promotionPracticeState = null;
+    return;
+  }
+  renderPromotionPractice(await api("/api/promotion-practice"));
+}
+
+async function savePromotionPracticeSlot(button) {
+  const slotNo = Number(button.dataset.slot);
+  const slot = button.closest("[data-practice-slot]");
+  const file = slot.querySelector("[data-practice-image]").files[0];
+  if (file && file.size > 2 * 1024 * 1024) {
+    throw new Error("Скриншот не должен превышать 2 МБ.");
+  }
+  const body = {
+    slotNo,
+    partnerName: slot.querySelector("[data-practice-partner]").value.trim(),
+    evidenceUrl: slot.querySelector("[data-practice-evidence]").value.trim()
+  };
+  if (file) body.image = { name: file.name, type: file.type, data: await fileAsBase64(file, "скриншот") };
+  await api("/api/promotion-practice/slots", { method: "POST", body });
+  notify(`Слот ${slotNo} сохранён.`);
+  await loadPromotionPractice();
+}
+
+async function skipPromotionPracticeSlot(button) {
+  const slotNo = Number(button.dataset.slot);
+  await api("/api/promotion-practice/slots", {
+    method: "POST",
+    body: { slotNo, skip: true }
+  });
+  notify(`Слот ${slotNo} пропущен.`);
+  await loadPromotionPractice();
+}
+
+async function submitPromotionPractice(button) {
+  const applicationId = Number(button.dataset.applicationId);
+  if (!Number.isSafeInteger(applicationId) || applicationId < 1) {
+    throw new Error("Сначала сдайте тесты и выполните условия текущего этапа.");
+  }
+  const result = await api(`/api/applications/${applicationId}/promotion-practice/submit`, { method: "POST", body: {} });
+  const warnings = [result.webhookWarning, result.notificationWarning].filter(Boolean).join(" ");
+  notify(warnings
+    ? `Заявка на повышение отправлена. Предупреждение: ${warnings}`
+    : "Заявка на повышение отправлена старшим адвокатам.");
+  await loadPromotionPractice();
+}
+
 async function loadRpPractice() {
-  const data = await api("/api/rp-practice/completions");
+  const [data] = await Promise.all([
+    api("/api/rp-practice/completions"),
+    loadPromotionPractice()
+  ]);
   rpPracticeCompleted = new Set(data.completedCaseIds || []);
   renderRpPractice();
 }
@@ -2286,16 +2516,16 @@ async function testAuditNotification(button) {
   await loadNotifications();
 }
 
-function fileAsBase64(file) {
+function fileAsBase64(file, label = "фотографию выговора") {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.addEventListener("load", () => {
       const value = String(reader.result || "");
       const comma = value.indexOf(",");
-      if (comma < 0) reject(new Error("Не удалось прочитать фотографию выговора."));
+      if (comma < 0) reject(new Error(`Не удалось прочитать ${label}.`));
       else resolve(value.slice(comma + 1));
     });
-    reader.addEventListener("error", () => reject(new Error("Не удалось прочитать фотографию выговора.")));
+    reader.addEventListener("error", () => reject(new Error(`Не удалось прочитать ${label}.`)));
     reader.readAsDataURL(file);
   });
 }
@@ -2649,6 +2879,12 @@ async function handleAction(button) {
   else if (action === "review-lawsuit") await reviewLawsuit(button);
   else if (action === "review-forum-link") await reviewForumLink(button);
   else if (action === "review-career-promotion") await reviewCareerPromotion(button);
+  else if (action === "save-promotion-practice-slot") await savePromotionPracticeSlot(button);
+  else if (action === "skip-promotion-practice-slot") await skipPromotionPracticeSlot(button);
+  else if (action === "submit-promotion-practice") await submitPromotionPractice(button);
+  else if (action === "refresh-promotion-decree") await loadPromotionDecrees();
+  else if (action === "preview-promotion-decree") await previewPromotionDecree();
+  else if (action === "send-promotion-decree") await sendPromotionDecree();
   else if (["application-details", "assign-appeal", "close-appeal"].includes(action)) await handleAppealAction(button);
   else if (action === "select-attorney") await selectAttorney(button.dataset.id);
   else if (action === "attorney-profile") await viewAttorneyProfile(button.dataset.id);
@@ -2743,6 +2979,10 @@ document.addEventListener("click", (event) => {
   }
 });
 document.addEventListener("change", (event) => {
+  if (event.target.closest("#promotion-decree-candidates")) {
+    invalidatePromotionDecreePreview(event.target);
+    return;
+  }
   if (event.target.closest("#activity-report-type")) {
     updateActivityReportFields();
     return;
@@ -2761,6 +3001,9 @@ document.addEventListener("change", (event) => {
   if (!select) return;
   const saveButton = select.closest(".member-controls").querySelector('[data-action="update-member-role"]');
   saveButton.disabled = select.value === select.dataset.originalRole;
+});
+document.addEventListener("input", (event) => {
+  if (event.target instanceof Element) invalidatePromotionDecreePreview(event.target);
 });
 
 $("#login-form").addEventListener("submit", (event) => {

@@ -38,6 +38,7 @@ const portalPageRoutes = new Set([
   "/page/laws",
   "/page/rating",
   "/page/audit",
+  "/page/decrees",
   "/page/awards",
   "/page/reports"
 ]);
@@ -533,6 +534,44 @@ function createDatabase(dbPath) {
       content BLOB NOT NULL,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS promotion_practice_slots (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      stage_role TEXT NOT NULL CHECK (stage_role IN ('Стажер КА','Юрист')),
+      slot_no INTEGER NOT NULL CHECK (slot_no BETWEEN 1 AND 6),
+      partner_name TEXT NOT NULL DEFAULT '',
+      evidence_url TEXT NOT NULL DEFAULT '',
+      image_name TEXT NOT NULL DEFAULT '',
+      image_type TEXT NOT NULL DEFAULT '',
+      image_content BLOB,
+      skipped INTEGER NOT NULL DEFAULT 0 CHECK (skipped IN (0,1)),
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, stage_role, slot_no),
+      CHECK (skipped = 0 OR slot_no > 3)
+    );
+    CREATE INDEX IF NOT EXISTS promotion_practice_stage_idx
+      ON promotion_practice_slots(stage_role, user_id, slot_no);
+    CREATE TABLE IF NOT EXISTS promotion_decree_state (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      next_number INTEGER NOT NULL DEFAULT 0 CHECK (next_number >= 0),
+      first_application_id INTEGER NOT NULL DEFAULT 0 CHECK (first_application_id >= 0),
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS promotion_decrees (
+      id INTEGER PRIMARY KEY,
+      decree_number INTEGER NOT NULL UNIQUE,
+      bbcode TEXT NOT NULL,
+      sent_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS promotion_decree_items (
+      id INTEGER PRIMARY KEY,
+      decree_id INTEGER NOT NULL REFERENCES promotion_decrees(id) ON DELETE CASCADE,
+      application_id INTEGER UNIQUE REFERENCES applications(id) ON DELETE SET NULL,
+      character_name TEXT NOT NULL,
+      passport_id TEXT NOT NULL,
+      from_role TEXT NOT NULL,
+      to_role TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS application_messages (
       id INTEGER PRIMARY KEY,
       application_id INTEGER NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
@@ -833,6 +872,8 @@ function createDatabase(dbPath) {
     CREATE INDEX IF NOT EXISTS member_employment_history_user_idx ON member_employment_history(user_id, id DESC);
     CREATE INDEX IF NOT EXISTS academy_materials_category_idx ON academy_materials(category, updated_at DESC);
   `);
+  db.prepare(`INSERT OR IGNORE INTO promotion_decree_state (id, next_number, first_application_id)
+    SELECT 1, 0, COALESCE(MAX(id), 0) FROM applications`).run();
   migrateActivityReportTypes(db);
   const userColumns = db.prepare("PRAGMA table_info(users)").all();
   if (!userColumns.some((item) => item.name === "full_gka_access")) {
@@ -1792,6 +1833,130 @@ function parseStoredJson(value, label) {
   }
 }
 
+const promotionPracticeStages = ["Стажер КА", "Юрист"];
+
+function isCareerPracticeApplication(item) {
+  return item?.type === "exam" && promotionPracticeStages.includes(item.stage_role);
+}
+
+function careerPracticeSubmitted(item) {
+  const data = parseStoredJson(item?.promotion_data_json, "отчёт о повышении");
+  return Boolean(data && typeof data === "object" && data.practiceSubmittedAt);
+}
+
+function getPromotionPracticeSlots(db, userId, stageRole, applicationId = 0) {
+  const saved = new Map(db.prepare(`SELECT slot_no, partner_name, evidence_url, image_name,
+      image_type, image_content IS NOT NULL AS has_image, skipped, updated_at
+    FROM promotion_practice_slots WHERE user_id = ? AND stage_role = ?`)
+    .all(userId, stageRole).map((slot) => [Number(slot.slot_no), slot]));
+  return Array.from({ length: 6 }, (_, index) => {
+    const slotNo = index + 1;
+    const slot = saved.get(slotNo);
+    const hasImage = Boolean(Number(slot?.has_image));
+    return {
+      slotNo,
+      partnerName: slot?.partner_name || "",
+      evidenceUrl: slot?.evidence_url || "",
+      imageName: slot?.image_name || "",
+      hasImage,
+      photoUrl: hasImage
+        ? applicationId
+          ? `/api/applications/${applicationId}/promotion-practice/${slotNo}/image`
+          : `/api/promotion-practice/slots/${slotNo}/image`
+        : "",
+      skipped: Boolean(Number(slot?.skipped)),
+      updatedAt: slot?.updated_at || ""
+    };
+  });
+}
+
+function promotionPracticeIsComplete(db, userId, stageRole) {
+  if (!promotionPracticeStages.includes(stageRole)) return false;
+  return getPromotionPracticeSlots(db, userId, stageRole).every((slot, index) => {
+    if (slot.skipped) return index >= 3;
+    return slot.partnerName.trim().length >= 2 && Boolean(slot.evidenceUrl || slot.hasImage);
+  });
+}
+
+function getCareerPromotionReadiness(db, item) {
+  if (!item || !isCareerPracticeApplication(item) || item.status !== "pending") {
+    return { ready: false, reason: "Сначала сдайте обязательные тесты текущего этапа." };
+  }
+  const data = parseStoredJson(item.promotion_data_json, "отчёт о повышении");
+  const lawBundle = Array.isArray(data.lawTests) &&
+    careerLawExamSubjects.every((subject) => data.lawTests.includes(subject));
+  const testsPassed = lawBundle
+    ? careerLawExamSubjects.every((subject) => db.prepare(`SELECT 1 FROM career_law_exam_passes
+        WHERE user_id = ? AND stage_role = ? AND subject = ?`).get(item.user_id, item.stage_role, subject))
+    : Boolean(db.prepare(`SELECT passed FROM exam_results WHERE application_id = ?
+        ORDER BY id DESC LIMIT 1`).get(item.id)?.passed);
+  if (!testsPassed) return { ready: false, reason: "Сначала сдайте обязательные тесты текущего этапа." };
+  if (!lawBundle && item.stage_role === "Стажер КА" && !data.lectureAttended) {
+    return { ready: false, reason: "Сначала подтвердите прохождение обязательной лекции." };
+  }
+  if (item.stage_role === "Юрист") {
+    const requiredCalls = Number(db.prepare("SELECT lawyer_calls_required FROM promotion_settings WHERE id = 1")
+      .get()?.lawyer_calls_required || 0);
+    if (Number(item.career_flow) === 1 && item.interview_status !== "ready") {
+      return { ready: false, reason: "Сначала заполните отчёт и отметьте готовность к обзвону." };
+    }
+    if (!requiredCalls || Number(data.completedCalls) < requiredCalls || !data.trialLawsuitReference) {
+      return { ready: false, reason: "Сначала выполните норму вызовов и укажите пробный иск." };
+    }
+  }
+  return { ready: true, reason: "" };
+}
+
+const promotionDecreeRoleTitles = Object.freeze({
+  "Юрист": "Юрист Коллегии адвокатов",
+  "Адвокат": "Адвокат Коллегии адвокатов",
+  "Ст.Адвокат": "Старший адвокат Коллегии адвокатов",
+  "ЗГКА": "Заместитель главы Коллегии адвокатов"
+});
+
+function escapeDecreeText(value) {
+  return String(value || "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ")
+    .trim().replaceAll("&", "&amp;").replaceAll("[", "&#91;").replaceAll("]", "&#93;");
+}
+
+function buildPromotionDecree(entries, decreeNumber, date = new Date()) {
+  const dateParts = new Intl.DateTimeFormat("ru-RU", {
+    day: "numeric", month: "long", year: "numeric", timeZone: "UTC"
+  }).formatToParts(date);
+  const dateValue = (type) => dateParts.find((part) => part.type === type)?.value || "";
+  const dateText = `${dateValue("day")} ${dateValue("month")} ${dateValue("year")} г.`;
+  const numberText = String(decreeNumber).padStart(3, "0");
+  const appointments = entries.map((entry, index) =>
+    `[INDENT][SIZE=5][FONT=times new roman]${index + 1}. Назначить ${escapeDecreeText(entry.characterName)} ` +
+    `(н.п.${escapeDecreeText(entry.passportId)}) на должность ` +
+    `${escapeDecreeText(promotionDecreeRoleTitles[entry.toRole] || entry.toRole)}, ` +
+    `Коллегия адвокатов штата Сан-Андреас.[/FONT][/SIZE][/INDENT]`
+  );
+  return `[TABLE width="100%"]
+[TR]
+[td][CENTER][SIZE=5][FONT=times new roman]
+[ATTACH type="full" alt="Frame 250.png"]3315458[/ATTACH][/FONT][/SIZE]
+[B][SIZE=5]ГУБЕРНАТОР ШТАТА САН-АНДРЕАС
+[ATTACH type="full" alt="gov.png"]3315459[/ATTACH][/SIZE][/B]
+[SIZE=5][FONT=times new roman]
+[B]У К А З[/B][/FONT][/SIZE][/CENTER]
+[FONT=times new roman][CENTER][SIZE=5]от ${dateText} №${numberText}
+г. Лос-Сантос[/SIZE][/CENTER][/FONT]
+[INDENT=2][/INDENT]
+[INDENT=2][FONT=times new roman][SIZE=5]Руководствуясь своими полномочиями и действующим законодательством штата Сан-Андреас,[/SIZE][/FONT]
+
+[B]п о с т а н о в л я ю:[/B][/INDENT]
+${appointments.join("\n")}
+[INDENT][SIZE=5][FONT=times new roman]${appointments.length + 1}. Настоящий указ вступает в законную силу с момента его подписания и публикации на портале штата.[/FONT][/SIZE][/INDENT]
+
+[CENTER][ATTACH type="full" alt="gov.png"]3315460[/ATTACH][SIZE=5][FONT=times new roman]
+Губернатор штата Сан-Андреас
+[B]Haru Ness[/B]
+[IMG width="297px" size="272x58"]https://imgur.com/xYtykp4.png[/IMG][/FONT][/SIZE][/CENTER][/td]
+[/TR]
+[/TABLE]`;
+}
+
 function extractLawContext(query, lawFiles) {
   const terms = [...new Set(String(query).toLocaleLowerCase("ru")
     .replace(/[^\p{L}\p{N}\s.]/gu, " ")
@@ -2097,6 +2262,78 @@ export function createPortalServer(options = {}) {
       WHERE status = 'active' AND role IN (${targetRoles.map(() => "?").join(",")}) AND id != ?`)
       .all(...targetRoles, excludeUserId);
     return Promise.all(recipients.map(({ id }) => notifyPortalUser({ userId: id, ...payload })));
+  }
+
+  let promotionDecreeSending = false;
+  function getPromotionDecreeCandidates() {
+    const state = db.prepare("SELECT first_application_id, next_number FROM promotion_decree_state WHERE id = 1").get();
+    const rows = db.prepare(`SELECT a.*, u.display_name
+      FROM applications a JOIN users u ON u.id = a.user_id
+      WHERE a.id > ? AND a.status = 'approved'
+        AND a.type IN ('exam','promotion')
+        AND NOT EXISTS (
+          SELECT 1 FROM promotion_decree_items i WHERE i.application_id = a.id
+        )
+      ORDER BY a.reviewed_at, a.id`)
+      .all(state.first_application_id);
+    const admissions = new Map();
+    for (const admission of db.prepare(`SELECT user_id, passport_id, promotion_data_json
+      FROM applications WHERE type = 'employment' AND status = 'approved'
+      ORDER BY reviewed_at DESC, id DESC`).all()) {
+      if (!admissions.has(Number(admission.user_id))) admissions.set(Number(admission.user_id), admission);
+    }
+    const candidates = [];
+    for (const item of rows) {
+      let fromRole = "";
+      if (isCareerPracticeApplication(item) && careerPracticeSubmitted(item)) {
+        fromRole = item.stage_role;
+      } else if (item.type === "promotion" && ["Ст.Адвокат", "ЗГКА"].includes(item.requested_role)) {
+        fromRole = item.requested_role === "ЗГКА" ? "Ст.Адвокат" : "Адвокат";
+      } else {
+        continue;
+      }
+      const admission = admissions.get(Number(item.user_id));
+      const admissionData = admission
+        ? parseStoredJson(admission.promotion_data_json, "заявка на вступление")
+        : {};
+      candidates.push({
+        applicationId: Number(item.id),
+        userId: Number(item.user_id),
+        characterName: String(admissionData.gtaName || item.display_name || "").trim(),
+        passportId: String(admission?.passport_id || item.passport_id || "").trim(),
+        fromRole,
+        toRole: item.requested_role || nextRank[item.stage_role],
+        reviewedAt: item.reviewed_at || ""
+      });
+    }
+    return { nextNumber: Number(state.next_number), candidates };
+  }
+
+  function resolvePromotionDecreeSelection(rawIds, rawPassports = {}) {
+    if (!Array.isArray(rawIds) || rawIds.length < 1 || rawIds.length > 100) {
+      throw new HttpError(400, "Выберите от 1 до 100 одобренных повышений.");
+    }
+    const ids = rawIds.map(Number);
+    if (ids.some((id) => !Number.isSafeInteger(id) || id < 1) || new Set(ids).size !== ids.length) {
+      throw new HttpError(400, "Список повышений содержит некорректные или повторяющиеся заявки.");
+    }
+    if (!rawPassports || typeof rawPassports !== "object" || Array.isArray(rawPassports)) {
+      throw new HttpError(400, "Некорректные номера паспортов указа.");
+    }
+    const available = new Map(getPromotionDecreeCandidates().candidates.map((entry) => [entry.applicationId, entry]));
+    const selected = ids.map((id) => {
+      const entry = available.get(id);
+      if (!entry) throw new HttpError(409, `Повышение по заявке #${id} уже недоступно для указа.`);
+      const passportId = Object.hasOwn(rawPassports, String(id))
+        ? String(rawPassports[String(id)] || "").trim()
+        : entry.passportId;
+      if (passportId.length > 40) throw new HttpError(400, "Номер паспорта не должен превышать 40 символов.");
+      if (!entry.characterName || !passportId) {
+        throw new HttpError(409, `Укажите имя персонажа и номер паспорта для заявки #${id}.`);
+      }
+      return { ...entry, passportId };
+    });
+    return selected;
   }
 
   let calendarReminderInProgress = false;
@@ -3458,6 +3695,274 @@ ${mode === "lawsuit"
           return sendJson(res, 201, { applicationId, webhookWarning });
         }
 
+        if (pathname === "/api/promotion-practice" && req.method === "GET") {
+          if (!promotionPracticeStages.includes(user.role)) {
+            throw new HttpError(403, "Практика повышения доступна стажёрам КА и юристам.");
+          }
+          const application = db.prepare(`SELECT * FROM applications
+            WHERE user_id = ? AND type = 'exam' AND stage_role = ? AND status = 'pending'
+            ORDER BY id DESC LIMIT 1`).get(user.id, user.role);
+          const readiness = getCareerPromotionReadiness(db, application);
+          const practiceComplete = promotionPracticeIsComplete(db, user.id, user.role);
+          const promotionData = application
+            ? parseStoredJson(application.promotion_data_json, "отчёт о повышении")
+            : {};
+          return sendJson(res, 200, {
+            eligible: true,
+            stageRole: user.role,
+            slots: getPromotionPracticeSlots(db, user.id, user.role, application?.id || 0),
+            applicationId: application?.id || null,
+            applicationStatus: application?.status || "",
+            submittedAt: promotionData.practiceSubmittedAt || "",
+            practiceComplete,
+            canSubmit: Boolean(application && readiness.ready && practiceComplete && !promotionData.practiceSubmittedAt),
+            readinessMessage: readiness.reason
+          });
+        }
+
+        if (pathname === "/api/promotion-practice/slots" && req.method === "POST") {
+          if (!promotionPracticeStages.includes(user.role)) {
+            throw new HttpError(403, "Практика повышения доступна стажёрам КА и юристам.");
+          }
+          const submittedApplication = db.prepare(`SELECT promotion_data_json FROM applications
+            WHERE user_id = ? AND type = 'exam' AND stage_role = ? AND status = 'pending'
+            ORDER BY id DESC LIMIT 1`).get(user.id, user.role);
+          if (submittedApplication && careerPracticeSubmitted(submittedApplication)) {
+            throw new HttpError(409, "Практика уже отправлена и закрыта для редактирования.");
+          }
+          const body = await readJson(req, 3 * 1024 * 1024);
+          const slotNo = Number(body.slotNo);
+          if (!Number.isInteger(slotNo) || slotNo < 1 || slotNo > 6) {
+            throw new HttpError(400, "Выберите один из шести слотов практики.");
+          }
+          if (body.skip === true) {
+            if (slotNo <= 3) throw new HttpError(400, "Три обязательных слота нельзя пропустить.");
+            db.prepare(`INSERT INTO promotion_practice_slots
+              (user_id, stage_role, slot_no, partner_name, evidence_url, image_name, image_type, image_content, skipped)
+              VALUES (?, ?, ?, '', '', '', '', NULL, 1)
+              ON CONFLICT(user_id, stage_role, slot_no) DO UPDATE SET
+                partner_name = '', evidence_url = '', image_name = '', image_type = '',
+                image_content = NULL, skipped = 1, updated_at = CURRENT_TIMESTAMP`)
+              .run(user.id, user.role, slotNo);
+            return sendJson(res, 200, { ok: true, skipped: true, slotNo });
+          }
+          const partnerName = String(body.partnerName || "").trim();
+          const evidenceUrl = String(body.evidenceUrl || "").trim();
+          if (partnerName.length < 2 || partnerName.length > 80) {
+            throw new HttpError(400, "Укажите имя другого адвоката (от 2 до 80 символов).");
+          }
+          if (evidenceUrl.length > 500) throw new HttpError(400, "Ссылка на доказательство слишком длинная.");
+          if (evidenceUrl) {
+            let parsedUrl;
+            try {
+              parsedUrl = new URL(evidenceUrl);
+            } catch {
+              throw new HttpError(400, "Укажите корректную ссылку на откат или скриншот.");
+            }
+            if (!["http:", "https:"].includes(parsedUrl.protocol) || parsedUrl.username || parsedUrl.password) {
+              throw new HttpError(400, "Ссылка на доказательство должна начинаться с http:// или https://.");
+            }
+          }
+          let image = null;
+          if (body.image !== undefined && body.image !== null) {
+            image = parseApplicationAttachments([body.image], {
+              maxFileBytes: 2 * 1024 * 1024,
+              maxTotalBytes: 2 * 1024 * 1024
+            })[0];
+            if (!["image/jpeg", "image/png", "image/webp"].includes(image.contentType)) {
+              throw new HttpError(400, "Скриншот должен быть в формате JPG, PNG или WebP.");
+            }
+          }
+          const previous = db.prepare(`SELECT image_name, image_type, image_content
+            FROM promotion_practice_slots WHERE user_id = ? AND stage_role = ? AND slot_no = ?`)
+            .get(user.id, user.role, slotNo);
+          const imageName = image?.name || previous?.image_name || "";
+          const imageType = image?.contentType || previous?.image_type || "";
+          const imageContent = image?.content || previous?.image_content || null;
+          if (!evidenceUrl && !imageContent) {
+            throw new HttpError(400, "Добавьте ссылку на откат или скриншот.");
+          }
+          db.prepare(`INSERT INTO promotion_practice_slots
+            (user_id, stage_role, slot_no, partner_name, evidence_url, image_name, image_type, image_content, skipped)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+            ON CONFLICT(user_id, stage_role, slot_no) DO UPDATE SET
+              partner_name = excluded.partner_name, evidence_url = excluded.evidence_url,
+              image_name = excluded.image_name, image_type = excluded.image_type,
+              image_content = excluded.image_content, skipped = 0, updated_at = CURRENT_TIMESTAMP`)
+            .run(user.id, user.role, slotNo, partnerName, evidenceUrl, imageName, imageType, imageContent);
+          return sendJson(res, 200, { ok: true, slotNo });
+        }
+
+        const submitPracticeRoute = pathname.match(/^\/api\/applications\/(\d+)\/promotion-practice\/submit$/);
+        if (submitPracticeRoute && req.method === "POST") {
+          const item = db.prepare("SELECT * FROM applications WHERE id = ?")
+            .get(Number(submitPracticeRoute[1]));
+          if (!item || item.user_id !== user.id || !isCareerPracticeApplication(item) ||
+              item.stage_role !== user.role || item.status !== "pending") {
+            throw new HttpError(404, "Заявка на повышение не найдена.");
+          }
+          const promotionData = parseStoredJson(item.promotion_data_json, "отчёт о повышении");
+          if (promotionData.practiceSubmittedAt) throw new HttpError(409, "Заявка на повышение уже отправлена.");
+          if (!promotionPracticeIsComplete(db, user.id, item.stage_role)) {
+            throw new HttpError(409, "Заполните три обязательных слота и заполните или пропустите остальные.");
+          }
+          const readiness = getCareerPromotionReadiness(db, item);
+          if (!readiness.ready) throw new HttpError(409, readiness.reason);
+          promotionData.practiceSubmittedAt = new Date().toISOString();
+          db.prepare("UPDATE applications SET promotion_data_json = ? WHERE id = ?")
+            .run(JSON.stringify(promotionData), item.id);
+          db.prepare(`INSERT INTO application_history (application_id, actor_id, event_type, details)
+            VALUES (?, ?, 'practice_submitted', 'Практика задержаний приложена к заявке на повышение.')`)
+            .run(item.id, user.id);
+          const reviewerRoles = item.stage_role === "Стажер КА"
+            ? ["Ст.Адвокат", "ЗГКА", "ГКА"]
+            : ["ЗГКА", "ГКА"];
+          const webhookWarning = await deliverWebhook(webhooks.applications, "Заявка на повышение",
+            `${user.display_name} (${item.stage_role}) отправил заявку на переход ${item.stage_role} → ${item.requested_role || nextRank[item.stage_role]}. Проверьте практику задержаний в портале.`,
+            [
+              { name: "Участник", value: user.display_name, inline: true },
+              { name: "Переход", value: `${item.stage_role} → ${item.requested_role || nextRank[item.stage_role]}`, inline: true },
+              { name: "Заявка", value: `#${item.id}`, inline: true },
+              { name: "Практика", value: "3 обязательных слота и 3 дополнительных слота приложены.", inline: false }
+            ]);
+          const notifications = await notifyPortalRoles(reviewerRoles, {
+            type: "application",
+            title: "Заявка на повышение",
+            body: `${user.display_name} отправил заявку ${item.stage_role} → ${item.requested_role}.`,
+            href: "/page/appeals"
+          }, user.id);
+          const notificationWarning = notifications.map((notification) => notification.discordWarning)
+            .filter(Boolean).join(" ");
+          return sendJson(res, 200, {
+            ok: true,
+            submittedAt: promotionData.practiceSubmittedAt,
+            webhookWarning,
+            notificationWarning
+          });
+        }
+
+        const selfPracticeImageRoute = pathname.match(/^\/api\/promotion-practice\/slots\/(\d+)\/image$/);
+        const applicationPracticeImageRoute = pathname.match(/^\/api\/applications\/(\d+)\/promotion-practice\/(\d+)\/image$/);
+        if ((selfPracticeImageRoute || applicationPracticeImageRoute) && req.method === "GET") {
+          let userId = user.id;
+          let stageRole = user.role;
+          let slotNo = Number(selfPracticeImageRoute?.[1] || applicationPracticeImageRoute?.[2]);
+          if (applicationPracticeImageRoute) {
+            const application = db.prepare("SELECT * FROM applications WHERE id = ?")
+              .get(Number(applicationPracticeImageRoute[1]));
+            if (!application || !isCareerPracticeApplication(application)) {
+              throw new HttpError(404, "Скриншот практики не найден.");
+            }
+            if (application.user_id !== user.id) {
+              if (!careerPracticeSubmitted(application)) {
+                throw new HttpError(404, "Скриншот практики не найден.");
+              }
+              assertCanReview(hasGkaAccess(user) ? "ГКА" : user.role, application);
+            }
+            userId = application.user_id;
+            stageRole = application.stage_role;
+          }
+          if (!promotionPracticeStages.includes(stageRole) || slotNo < 1 || slotNo > 6) {
+            throw new HttpError(404, "Скриншот практики не найден.");
+          }
+          const image = db.prepare(`SELECT image_name, image_type, image_content
+            FROM promotion_practice_slots
+            WHERE user_id = ? AND stage_role = ? AND slot_no = ? AND image_content IS NOT NULL`)
+            .get(userId, stageRole, slotNo);
+          if (!image) throw new HttpError(404, "Скриншот практики не найден.");
+          const fallbackName = image.image_name.replace(/[^A-Za-z0-9._-]/g, "_") || "practice-proof";
+          res.writeHead(200, {
+            "content-type": image.image_type,
+            "content-length": image.image_content.length,
+            "content-disposition": `inline; filename="${fallbackName}"`,
+            "cache-control": "private, no-store",
+            "x-content-type-options": "nosniff"
+          });
+          return res.end(image.image_content);
+        }
+
+        if (pathname === "/api/promotion-decree" && req.method === "GET") {
+          if (!hasGkaAccess(user)) throw new HttpError(403, "Указы может формировать только ГКА.");
+          const { nextNumber, candidates } = getPromotionDecreeCandidates();
+          const history = db.prepare(`SELECT d.id, d.decree_number, d.sent_at, COUNT(i.id) AS item_count
+            FROM promotion_decrees d LEFT JOIN promotion_decree_items i ON i.decree_id = d.id
+            GROUP BY d.id ORDER BY d.id DESC LIMIT 20`).all();
+          return sendJson(res, 200, { nextNumber, candidates, history });
+        }
+
+        if (pathname === "/api/promotion-decree/preview" && req.method === "POST") {
+          if (!hasGkaAccess(user)) throw new HttpError(403, "Указы может формировать только ГКА.");
+          const body = await readJson(req);
+          const entries = resolvePromotionDecreeSelection(body.applicationIds, body.passports);
+          const { nextNumber } = getPromotionDecreeCandidates();
+          return sendJson(res, 200, {
+            decreeNumber: nextNumber,
+            count: entries.length,
+            bbcode: buildPromotionDecree(entries, nextNumber),
+            entries
+          });
+        }
+
+        if (pathname === "/api/promotion-decree/send" && req.method === "POST") {
+          if (!hasGkaAccess(user)) throw new HttpError(403, "Указы может формировать только ГКА.");
+          if (promotionDecreeSending) throw new HttpError(409, "Указ уже отправляется. Подождите завершения.");
+          if (!discord.botToken) throw new HttpError(503, "Discord-бот не настроен на сервере.");
+          if (!/^\d{15,22}$/.test(user.discord_id || "")) {
+            throw new HttpError(409, "Привяжите Discord в профиле, чтобы получить указ в личные сообщения.");
+          }
+          const body = await readJson(req);
+          const entries = resolvePromotionDecreeSelection(body.applicationIds, body.passports);
+          const { nextNumber } = getPromotionDecreeCandidates();
+          const bbcode = buildPromotionDecree(entries, nextNumber);
+          promotionDecreeSending = true;
+          try {
+            const decreeNumber = String(nextNumber).padStart(3, "0");
+            const warning = await sendDiscordDirectMessage(
+              user.discord_id,
+              user,
+              user.discord_avatar_url,
+              `Указ №${decreeNumber} сформирован`,
+              `В указ включено повышений: ${entries.length}. BBCode приложен файлом для копирования.`,
+              {
+                token: discord.botToken,
+                fetchImpl: discordFetch,
+                content: `Указ №${decreeNumber} · Коллегия адвокатов`,
+                file: {
+                  name: `ukaz-${decreeNumber}.txt`,
+                  content: Buffer.from(bbcode, "utf8"),
+                  contentType: "text/plain; charset=utf-8"
+                }
+              }
+            );
+            if (warning) throw new HttpError(502, warning);
+            db.exec("BEGIN IMMEDIATE");
+            try {
+              const inserted = db.prepare(`INSERT INTO promotion_decrees
+                (decree_number, bbcode, sent_by) VALUES (?, ?, ?)`)
+                .run(nextNumber, bbcode, user.id);
+              const decreeId = Number(inserted.lastInsertRowid);
+              const insertItem = db.prepare(`INSERT INTO promotion_decree_items
+                (decree_id, application_id, character_name, passport_id, from_role, to_role)
+                VALUES (?, ?, ?, ?, ?, ?)`);
+              for (const entry of entries) {
+                insertItem.run(decreeId, entry.applicationId, entry.characterName,
+                  entry.passportId, entry.fromRole, entry.toRole);
+              }
+              db.prepare("UPDATE promotion_decree_state SET next_number = next_number + 1 WHERE id = 1")
+                .run();
+              db.exec("COMMIT");
+            } catch (error) {
+              db.exec("ROLLBACK");
+              throw error;
+            }
+            const logWarning = await deliverWebhook(webhooks.logs, `Указ №${decreeNumber} отправлен`,
+              `${user.display_name} сформировал указ о повышении (${entries.length} записей).`);
+            return sendJson(res, 200, { ok: true, decreeNumber, count: entries.length, logWarning });
+          } finally {
+            promotionDecreeSending = false;
+          }
+        }
+
         if (pathname === "/api/applications" && req.method === "GET") {
           const includeArchived = requestUrl.searchParams.get("archived") === "1";
           if (includeArchived && !hasGkaAccess(user)) throw new HttpError(403, "Архив заявок доступен только ГКА.");
@@ -3477,19 +3982,29 @@ ${mode === "lawsuit"
           if (!["ГКА", "ЗГКА"].includes(user.role)) {
             const citizenCase = (item) => ["citizen_help", "citizen_complaint"].includes(item.type);
             if (user.role === "Ст.Адвокат") rows = rows.filter((item) =>
-              item.type === "practice" || item.type === "training" || citizenCase(item) || item.user_id === user.id);
+              item.type === "practice" || item.type === "training" || citizenCase(item) ||
+              (isCareerPracticeApplication(item) && item.stage_role === "Стажер КА" &&
+                careerPracticeSubmitted(item)) || item.user_id === user.id);
             else if (user.role === "Адвокат") rows = rows.filter((item) => item.type === "practice" || citizenCase(item) || item.user_id === user.id);
             else rows = rows.filter((item) => item.user_id === user.id);
           }
-          rows = rows.map((item) => ({
-            ...item,
-            applicant_discord_username: item.user_id === user.id || item.assigned_to === user.id ||
-              ["ГКА", "ЗГКА"].includes(user.role) ? item.applicant_discord_username : "",
-            promotion_data: parseStoredJson(item.promotion_data_json, "отчёт о повышении"),
-            review_data: parseStoredJson(item.review_data_json, "проверка заявки"),
-            attachments: db.prepare(`SELECT id, file_name, content_type, length(content) AS size
-              FROM application_attachments WHERE application_id = ? ORDER BY id`).all(item.id)
-          }));
+          rows = rows.map((item) => {
+            const promotionData = parseStoredJson(item.promotion_data_json, "отчёт о повышении");
+            const canSeePractice = isCareerPracticeApplication(item) &&
+              (item.user_id === user.id || careerPracticeSubmitted(item));
+            return {
+              ...item,
+              applicant_discord_username: item.user_id === user.id || item.assigned_to === user.id ||
+                ["ГКА", "ЗГКА"].includes(user.role) ? item.applicant_discord_username : "",
+              promotion_data: promotionData,
+              review_data: parseStoredJson(item.review_data_json, "проверка заявки"),
+              promotion_practice: canSeePractice
+                ? getPromotionPracticeSlots(db, item.user_id, item.stage_role, item.id)
+                : [],
+              attachments: db.prepare(`SELECT id, file_name, content_type, length(content) AS size
+                FROM application_attachments WHERE application_id = ? ORDER BY id`).all(item.id)
+            };
+          });
           return sendJson(res, 200, { applications: rows });
         }
 
@@ -4032,6 +4547,17 @@ ${mode === "lawsuit"
           if (body.status === "approved" && ["citizen_help", "citizen_complaint"].includes(item.type)) {
             throw new HttpError(409, "Назначьте адвоката кнопкой «Взять в работу».");
           }
+          if (isCareerPracticeApplication(item)) {
+            if (!careerPracticeSubmitted(item) ||
+                !promotionPracticeIsComplete(db, item.user_id, item.stage_role)) {
+              throw new HttpError(409, "Практика задержаний не заполнена или ещё не отправлена.");
+            }
+            const currentRole = db.prepare("SELECT role FROM users WHERE id = ?").get(item.user_id)?.role;
+            if (currentRole !== item.stage_role ||
+                (item.requested_role && item.requested_role !== nextRank[item.stage_role])) {
+              throw new HttpError(409, "Заявка больше не соответствует текущей ступени участника.");
+            }
+          }
           const criteria = body.criteria && typeof body.criteria === "object" && !Array.isArray(body.criteria)
             ? body.criteria : {};
           const itemPromotionData = parseStoredJson(item.promotion_data_json, "отчёт о повышении");
@@ -4098,13 +4624,11 @@ ${mode === "lawsuit"
                 .get(item.user_id, stageRole, item.id);
               if (!exam?.passed) throw new HttpError(409, "Проверку знаний нельзя одобрить без успешно сданного теста.");
               const promotionData = itemPromotionData;
-              if (item.career_flow && item.interview_status !== "ready") {
+              if (item.career_flow && stageRole === "Юрист" && item.interview_status !== "ready") {
                 throw new HttpError(409, "Перед одобрением участник должен отметить готовность и пройти обзвон.");
               }
               if (stageRole === "Стажер КА") {
-                requireCriteria(item.career_flow
-                  ? ["interviewPassed", "headApproved"]
-                  : ["lectureVerified"]);
+                requireCriteria(item.career_flow ? ["headApproved"] : ["lectureVerified"]);
                 if (item.career_flow && !promotionData.lectureAttended) {
                   throw new HttpError(409, "В заявке не подтверждено прохождение обязательного этапа.");
                 }
@@ -4417,21 +4941,6 @@ ${mode === "lawsuit"
             value: `${question.q}\nВаш ответ: ${question.a[answers[index]]}\nПравильный ответ: ${question.a[question.correct]}`,
             inline: false
           })).filter((_, index) => answers[index] !== questions[index].correct).slice(0, 20);
-          if (careerApplicationCreated) {
-            await deliverWebhook(webhooks.applications, "Автоматическая заявка на повышение",
-              `${user.display_name} (${user.role}) сдал тесты по АК, УК и ПК. Заявка №${careerApplicationId} ожидает решения руководства.`,
-              [
-                { name: "Участник", value: user.display_name, inline: true },
-                { name: "Переход", value: `${user.role} → ${nextRank[user.role]}`, inline: true },
-                { name: "Заявка", value: `#${careerApplicationId}`, inline: true }
-              ]);
-            await notifyPortalRoles(managementRoles, {
-              type: "application",
-              title: "Заявка на повышение",
-              body: `${user.display_name} сдал АК, УК и ПК. Заявка №${careerApplicationId} ожидает решения.`,
-              href: "/page/appeals"
-            }, user.id);
-          }
           await deliverWebhook(
             webhooks.exams,
             `Результат проверки знаний: ${score}/${questions.length}`,
@@ -6047,29 +6556,42 @@ async function sendDiscordDirectMessage(discordUserId, account, avatarUrl, custo
     }
     const channel = await channelResponse.json();
     if (!channel.id) return "Discord не вернул канал личных сообщений.";
-    const messageResponse = await fetchImpl(`https://discord.com/api/v10/channels/${channel.id}/messages`, {
+    const payload = {
+      content: options.content || undefined,
+      embeds: [{
+        title: customTitle || "Discord успешно привязан",
+        description: customDescription || `Аккаунт **${account.display_name}** привязан к порталу Коллегии адвокатов.`,
+        color: 0xB09A63,
+        fields: [
+          { name: "Должность", value: account.role, inline: true },
+          { name: "Аккаунт портала", value: account.username || "не указан", inline: true }
+        ],
+        thumbnail: avatarUrl ? { url: avatarUrl } : undefined,
+        footer: { text: "Коллегия адвокатов · Mirror GTA 5 RP" },
+        timestamp: new Date().toISOString()
+      }],
+      allowed_mentions: { parse: [] }
+    };
+    const messageRequest = {
       method: "POST",
-      headers: {
-        authorization: `Bot ${token}`,
-        "content-type": "application/json"
-      },
-      body: JSON.stringify({
-        embeds: [{
-          title: customTitle || "Discord успешно привязан",
-          description: customDescription || `Аккаунт **${account.display_name}** привязан к порталу Коллегии адвокатов.`,
-          color: 0xB09A63,
-          fields: [
-            { name: "Должность", value: account.role, inline: true },
-            { name: "Аккаунт портала", value: account.username || "не указан", inline: true }
-          ],
-          thumbnail: avatarUrl ? { url: avatarUrl } : undefined,
-          footer: { text: "Коллегия адвокатов · Mirror GTA 5 RP" },
-          timestamp: new Date().toISOString()
-        }],
-        allowed_mentions: { parse: [] }
-      }),
+      headers: { authorization: `Bot ${token}` },
       signal: AbortSignal.timeout(8000)
-    });
+    };
+    if (options.file) {
+      const form = new FormData();
+      form.set("payload_json", JSON.stringify(payload));
+      form.set("files[0]", new Blob([options.file.content], {
+        type: options.file.contentType || "text/plain"
+      }), options.file.name);
+      messageRequest.body = form;
+    } else {
+      messageRequest.headers["content-type"] = "application/json";
+      messageRequest.body = JSON.stringify(payload);
+    }
+    const messageResponse = await fetchImpl(
+      `https://discord.com/api/v10/channels/${channel.id}/messages`,
+      messageRequest
+    );
     if (!messageResponse.ok) return `Discord отказал в отправке ЛС (HTTP ${messageResponse.status}).`;
     return "";
   } catch (error) {
@@ -6096,6 +6618,10 @@ function assertCanReview(role, item) {
     : item.type === "promotion"
     ? (item.requested_role === "Ст.Адвокат" || item.requested_role === "ЗГКА"
       ? role === "ГКА" : ["ГКА", "ЗГКА"].includes(role))
+    : isCareerPracticeApplication(item)
+    ? item.stage_role === "Стажер КА"
+      ? ["Ст.Адвокат", "ЗГКА", "ГКА"].includes(role)
+      : ["ЗГКА", "ГКА"].includes(role)
     : item.type === "exam" || item.type === "admin"
       ? ["ГКА", "ЗГКА"].includes(role)
       : item.type === "practice"

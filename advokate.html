@@ -208,6 +208,10 @@
           <svg class="icon"><use href="/web/icons-sprite.svg#icon-08_hr_audit"></use></svg>
           <span class="nav-label">Кадровый аудит</span>
         </button>
+        <button class="nav-item head-only hidden" data-view="decrees">
+          <svg class="icon"><use href="/web/icons-sprite.svg#icon-17_check_approved"></use></svg>
+          <span class="nav-label">Указы о повышении</span>
+        </button>
         <button class="nav-item staff-only" data-view="awards">
           <svg class="icon"><use href="/web/icons-sprite.svg#icon-12_achievements_badges"></use></svg>
           <span class="nav-label">Награды и профиль</span>
@@ -653,6 +657,24 @@
 
         <section id="view-practice" class="page-view staff-only practice-only hidden">
           <div class="card">
+            <section id="promotion-practice-panel" class="promotion-practice-panel hidden"
+              aria-labelledby="promotion-practice-title">
+              <div class="promotion-practice-heading">
+                <div>
+                  <span class="badge badge-gold">ЭТАП ПОВЫШЕНИЯ</span>
+                  <h2 id="promotion-practice-title">Совместные задержания · <span id="promotion-practice-role">—</span></h2>
+                  <p class="text-muted">Заполните три обязательных слота и прикрепите ссылку на откат или скриншот. Остальные три можно выполнить или пропустить.</p>
+                </div>
+                <span id="promotion-practice-progress" class="badge badge-info" aria-live="polite">0 из 6</span>
+              </div>
+              <p id="promotion-practice-status" class="promotion-practice-status" role="status" aria-live="polite"></p>
+              <div id="promotion-practice-slots" class="promotion-practice-slots"></div>
+              <div class="promotion-practice-submit">
+                <p id="promotion-practice-readiness" class="text-muted"></p>
+                <button id="submit-promotion-practice" class="btn btn-gold" type="button"
+                  data-action="submit-promotion-practice" disabled>Отправить заявку на повышение</button>
+              </div>
+            </section>
             <div class="rp-practice-heading">
               <div>
                 <span class="badge badge-gold">RP-ПРАКТИКА</span>
@@ -795,6 +817,35 @@
                 </thead>
                 <tbody id="auditTableBody"></tbody>
               </table>
+            </div>
+          </div>
+        </section>
+
+        <section id="view-decrees" class="page-view head-only hidden">
+          <div class="card promotion-decree-panel">
+            <div class="promotion-decree-heading">
+              <div>
+                <span class="badge badge-gold">КАДРОВЫЕ РЕШЕНИЯ</span>
+                <h2>Указы о повышении</h2>
+                <p class="text-muted">Выберите одобренные повышения, при необходимости удалите лишние записи и отправьте готовый BBCode себе в Discord.</p>
+              </div>
+              <span id="promotion-decree-number" class="badge badge-info">Следующий №000</span>
+            </div>
+            <p id="promotion-decree-status" class="promotion-decree-status" role="status" aria-live="polite"></p>
+            <div id="promotion-decree-candidates" class="promotion-decree-candidates"></div>
+            <div class="promotion-decree-actions">
+              <button class="btn" type="button" data-action="refresh-promotion-decree">Обновить список</button>
+              <button class="btn btn-gold" type="button" data-action="preview-promotion-decree">Показать предпросмотр</button>
+              <button id="send-promotion-decree" class="btn btn-gold" type="button"
+                data-action="send-promotion-decree" disabled>Сформировать и отправить</button>
+            </div>
+            <label class="promotion-decree-preview-label" for="promotion-decree-preview">Предпросмотр BBCode
+              <textarea id="promotion-decree-preview" class="input promotion-decree-preview" rows="16" readonly
+                placeholder="Выберите принятых сотрудников и нажмите «Показать предпросмотр»."></textarea>
+            </label>
+            <div class="promotion-decree-history">
+              <h3>Уже отправленные указы</h3>
+              <div id="promotion-decree-history"></div>
             </div>
           </div>
         </section>
