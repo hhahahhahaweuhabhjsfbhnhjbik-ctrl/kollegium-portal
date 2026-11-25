@@ -1,4 +1,4 @@
-const appUrl = "/api/frontend/app-part?v=20261125-5";
+const appUrl = "/api/frontend/app-part?v=20261125-6";
 const loadingStatus = document.getElementById("session-loading");
 
 async function fetchAppPart(index) {

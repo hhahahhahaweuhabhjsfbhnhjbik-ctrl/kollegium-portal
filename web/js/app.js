@@ -1,13 +1,13 @@
-import { $, $$, escapeHtml } from "/web/js/core/dom.js?v=20261125-4";
+import { $, $$, escapeHtml } from "/web/js/core/dom.js?v=20261125-6";
 import {
   applicationTypes,
   lawExamSubjects,
   lawMeta,
   rpPracticeCases,
   roles
-} from "/web/js/data/config.js?v=20261125-4";
-import { rpInterviewCases } from "/web/js/data/rp-interviews.js?v=20261125-4";
-import { rpInterviewExtraCases } from "/web/js/data/rp-interviews-extra.js?v=20261125-4";
+} from "/web/js/data/config.js?v=20261125-6";
+import { rpInterviewCases } from "/web/js/data/rp-interviews.js?v=20261125-6";
+import { rpInterviewExtraCases } from "/web/js/data/rp-interviews-extra.js?v=20261125-6";
 
 rpInterviewCases.push(...rpInterviewExtraCases);
 

@@ -2515,7 +2515,7 @@ export function createPortalServer(options = {}) {
           return;
         }
 
-        const frontendModuleMatch = pathname.match(/^\/api\/frontend\/module\/(core\/dom|data\/config|data\/rp-interviews|data\/rp-interviews-extra)\.js$/);
+        const frontendModuleMatch = pathname.match(/^\/api\/frontend\/module\/(core\/dom|data\/config|data\/rp-practice|data\/rp-interviews|data\/rp-interviews-extra)\.js$/);
         if (frontendModuleMatch && req.method === "GET") {
           const modulePath = path.join(root, "web", "js", `${frontendModuleMatch[1]}.js`);
           const moduleSource = await readFile(modulePath);

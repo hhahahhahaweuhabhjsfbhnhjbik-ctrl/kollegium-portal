@@ -101,6 +101,7 @@ try {
     ["/web/js/loader.js", "text/javascript"],
     ["/api/frontend/loader", "text/javascript"],
     ["/api/frontend/module/core/dom.js", "text/javascript"],
+    ["/api/frontend/module/data/rp-practice.js", "text/javascript"],
     ["/web/js/core/dom.js", "text/javascript"],
     ["/web/js/data/config.js", "text/javascript"],
     ["/web/data/elite-awards.json", "application/json"],
