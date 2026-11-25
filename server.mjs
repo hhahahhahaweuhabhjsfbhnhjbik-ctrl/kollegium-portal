@@ -2478,6 +2478,57 @@ export function createPortalServer(options = {}) {
       }
 
       if (pathname.startsWith("/api/")) {
+        if (pathname === "/api/frontend/loader" && req.method === "GET") {
+          const loader = await readFile(path.join(root, "web", "js", "loader.js"));
+          res.writeHead(200, {
+            "content-type": "text/javascript; charset=utf-8",
+            "content-length": loader.length,
+            "cache-control": "public, max-age=300",
+            "x-content-type-options": "nosniff"
+          });
+          res.end(loader);
+          return;
+        }
+
+        if (pathname === "/api/frontend/app-part" && req.method === "GET") {
+          const partValue = requestUrl.searchParams.get("part");
+          if (!/^(0|[1-9]\d*)$/.test(partValue || "")) {
+            throw new HttpError(400, "Некорректный номер части приложения.");
+          }
+          const appSource = await readFile(path.join(root, "web", "js", "app.js"));
+          const partIndex = Number(partValue);
+          const partCount = Math.ceil(appSource.length / frontendAssetPartSize);
+          if (!Number.isSafeInteger(partIndex) || partIndex >= partCount) {
+            throw new HttpError(404, "Часть приложения не найдена.");
+          }
+          const start = partIndex * frontendAssetPartSize;
+          const part = appSource.subarray(start, Math.min(start + frontendAssetPartSize, appSource.length));
+          res.writeHead(200, {
+            "content-type": "application/octet-stream",
+            "content-length": part.length,
+            "cache-control": "public, max-age=300",
+            "x-content-type-options": "nosniff",
+            "x-asset-part-count": String(partCount),
+            "x-asset-total-length": String(appSource.length)
+          });
+          res.end(part);
+          return;
+        }
+
+        const frontendModuleMatch = pathname.match(/^\/api\/frontend\/module\/(core\/dom|data\/config|data\/rp-interviews|data\/rp-interviews-extra)\.js$/);
+        if (frontendModuleMatch && req.method === "GET") {
+          const modulePath = path.join(root, "web", "js", `${frontendModuleMatch[1]}.js`);
+          const moduleSource = await readFile(modulePath);
+          res.writeHead(200, {
+            "content-type": "text/javascript; charset=utf-8",
+            "content-length": moduleSource.length,
+            "cache-control": "public, max-age=300",
+            "x-content-type-options": "nosniff"
+          });
+          res.end(moduleSource);
+          return;
+        }
+
         if (pathname === "/api/health" && req.method === "GET") {
           return sendJson(res, 200, {
             ok: true,

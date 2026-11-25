@@ -1,4 +1,4 @@
-const appUrl = "/web/js/app.js?v=20261125-4";
+const appUrl = "/api/frontend/app-part?v=20261125-5";
 const loadingStatus = document.getElementById("session-loading");
 
 async function fetchAppPart(index) {
@@ -43,7 +43,7 @@ async function loadApplication() {
     }
 
     const moduleSource = new TextDecoder().decode(source)
-      .replace(/(from\s+["'])\/web\/js\//g, `$1${location.origin}/web/js/`);
+      .replace(/(from\s+["'])\/web\/js\//g, `$1${location.origin}/api/frontend/module/`);
     const moduleUrl = URL.createObjectURL(new Blob([moduleSource], { type: "text/javascript" }));
     try {
       await import(moduleUrl);

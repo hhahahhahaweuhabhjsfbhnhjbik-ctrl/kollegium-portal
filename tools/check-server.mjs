@@ -78,13 +78,13 @@ try {
   check(String(page.headers.get("content-type")).includes("text/html"), "Главная страница должна отдаваться как text/html.");
   check(!/<style[\s>]/i.test(html), "В HTML не должно быть инлайновых <style>.");
   check(!/<script>[\s\S]*?\S[\s\S]*?<\/script>/i.test(html), "В HTML не должно быть инлайнового кода.");
-  check(html.includes('/web/js/loader.js'), "HTML должен подключать /web/js/loader.js.");
+  check(html.includes('/api/frontend/loader'), "HTML должен подключать загрузчик приложения.");
   check(html.includes('/web/css/theme.css'), "HTML должен подключать /web/css/theme.css.");
   check(html.includes('/web/icons-sprite.svg#icon-01_overview'), "Главная навигация должна использовать спрайт иконок.");
   for (const route of ["/page/home", "/page/iski", "/page/audit", "/page/reports"]) {
     const routePage = await request(route, { raw: true });
     check(routePage.status === 200, `Страница ${route}: HTTP ${routePage.status}`);
-    check(routePage.payload.toString("utf8").includes('/web/js/loader.js'), `Страница ${route} должна отдавать приложение.`);
+    check(routePage.payload.toString("utf8").includes('/api/frontend/loader'), `Страница ${route} должна отдавать приложение.`);
   }
 
   const csp = String(page.headers.get("content-security-policy") || "");
@@ -99,6 +99,8 @@ try {
     ["/web/css/awards.css", "text/css"],
     ["/web/js/app.js", "text/javascript"],
     ["/web/js/loader.js", "text/javascript"],
+    ["/api/frontend/loader", "text/javascript"],
+    ["/api/frontend/module/core/dom.js", "text/javascript"],
     ["/web/js/core/dom.js", "text/javascript"],
     ["/web/js/data/config.js", "text/javascript"],
     ["/web/data/elite-awards.json", "application/json"],

@@ -76,7 +76,7 @@ test("the app module can be downloaded in small, reassemblable parts", async () 
       startBot: false
     });
     const baseUrl = `http://127.0.0.1:${portal.port}`;
-    const firstResponse = await fetch(new URL("/web/js/app.js?part=0", baseUrl));
+    const firstResponse = await fetch(new URL("/api/frontend/app-part?part=0", baseUrl));
     assert.equal(firstResponse.status, 200);
     const partCount = Number(firstResponse.headers.get("x-asset-part-count"));
     const totalLength = Number(firstResponse.headers.get("x-asset-total-length"));
@@ -85,7 +85,7 @@ test("the app module can be downloaded in small, reassemblable parts", async () 
     const firstPart = Buffer.from(await firstResponse.arrayBuffer());
     const remainingParts = await Promise.all(
       Array.from({ length: partCount - 1 }, async (_, index) => {
-        const response = await fetch(new URL(`/web/js/app.js?part=${index + 1}`, baseUrl));
+        const response = await fetch(new URL(`/api/frontend/app-part?part=${index + 1}`, baseUrl));
         assert.equal(response.status, 200);
         assert.equal(Number(response.headers.get("x-asset-part-count")), partCount);
         assert.equal(Number(response.headers.get("x-asset-total-length")), totalLength);
