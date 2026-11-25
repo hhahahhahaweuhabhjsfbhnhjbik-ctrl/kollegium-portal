@@ -80,6 +80,10 @@ try {
   check(!/<script>[\s\S]*?\S[\s\S]*?<\/script>/i.test(html), "В HTML не должно быть инлайнового кода.");
   check(html.includes('/api/frontend/loader'), "HTML должен подключать загрузчик приложения.");
   check(html.includes('/web/css/loading.css'), "HTML должен сразу подключать компактные стили экрана загрузки.");
+  check(html.includes('id="network-notice"') &&
+    html.includes('У некоторых пользователей соединение с хостингом нестабильно'),
+  "Страница должна предупреждать о возможных проблемах соединения.");
+  check(html.includes('<form method="dialog">'), "Предупреждение должно закрываться без JavaScript.");
   check(!html.includes('/web/css/base.css') && !html.includes('/web/css/theme.css'),
     "Основные CSS не должны загружаться крупными прямыми запросами.");
   const loader = await request("/api/frontend/loader", { raw: true });

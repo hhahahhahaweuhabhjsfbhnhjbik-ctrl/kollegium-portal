@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Коллегия Адвокатов — Портал</title>
   <link rel="icon" type="image/png" href="/assets/site-icon.png" />
-  <link rel="stylesheet" href="/web/css/loading.css?v=20261125-8" />
+  <link rel="stylesheet" href="/web/css/loading.css?v=20261125-9" />
 </head>
 <body>
 
@@ -951,6 +951,26 @@
       </div>
     </section>
   </div>
+  <dialog id="network-notice" open aria-labelledby="network-notice-title" aria-describedby="network-notice-copy">
+    <div class="network-notice-top">
+      <span class="network-notice-label"><span aria-hidden="true"></span> Сетевое уведомление</span>
+      <form method="dialog">
+        <button class="network-notice-close" type="submit" aria-label="Закрыть уведомление">×</button>
+      </form>
+    </div>
+    <h2 id="network-notice-title">Если портал долго открывается</h2>
+    <p id="network-notice-copy">
+      У некоторых пользователей соединение с хостингом нестабильно из-за особенностей сети провайдера.
+      Если видите белый экран или загрузка зависла, попробуйте проверенное VPN-расширение браузера.
+      Если портал работает нормально, VPN включать не нужно.
+    </p>
+    <div class="network-notice-footer">
+      <span>Устанавливайте расширения только из официального магазина браузера.</span>
+      <form method="dialog">
+        <button class="network-notice-confirm" type="submit">Понятно</button>
+      </form>
+    </div>
+  </dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script type="module" src="/api/frontend/loader?v=20261125-8"></script>
 </body>
