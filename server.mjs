@@ -2651,10 +2651,10 @@ export function createPortalServer(options = {}) {
 Используй только приложенную законодательную базу. Не придумывай номера статей. Если точной нормы нет, прямо скажи: «В загруженной законодательной базе нет точной нормы по данному вопросу. Рекомендую уточнить информацию у Руководства Коллегии Адвокатов (ГКА/ЗГКА).»
 Пиши по делу, деловым языком. В юридическом документе заменяй неизвестные данные на [Указать ...], не выдумывая факты.
 ${mode === "lawsuit"
-  ? "Сначала проанализируй всю представленную ситуацию, найди применимые нормы и статьи в полной базе законов, затем составь готовую описательную часть, правовую квалификацию и просительную часть адвокатского документа."
+  ? "Сначала проанализируй ситуацию и сверь каждый возможный состав нарушения с полным текстом загруженных законов. В описательной части после изложения фактов добавь правовую оценку: для каждого предполагаемого нарушения укажи точное название нормативного акта (например, Уголовный кодекс, Процессуальный кодекс или Административный кодекс), номер статьи и часть/пункт, только если они прямо есть в базе, а также кратко объясни, какие именно описанные действия могут нарушать эту норму. Повтори проверенные ссылки в поле articles. Не подбирай статью только по номеру, не путай кодексы и не называй действия незаконными или доказанными без достаточных фактов; если точной применимой нормы нет, прямо укажи это и не выдумывай ссылку. Затем составь просительную часть адвокатского документа."
   : "Проанализируй прямой смысл вопроса пользователя, найди в полной базе все применимые нормы и статьи, объясни практический ответ понятным текстом и укажи названия документов и номера статей."}
 ${mode === "lawsuit"
-  ? `Для режима составления документа верни СТРОГО JSON без Markdown и пояснений. JSON должен содержать: template (lawsuit-supreme, lawsuit-federal, motion-supreme, motion-federal, rehabilitation или appeal), title, motionType, motionSubject, claimant, claimantId, claimantPhone, claimantEmail, passport, repName, repId, repLicense, defendant, organization, badge, facts, claims, evidence, feeProof, convictionDate, articles, feeReady, passportCopy, otherDocs, filingDate, signature. Определи подходящий шаблон по ситуации: иск — lawsuit, ходатайство или возражение — motion, реабилитация — rehabilitation, апелляция — appeal. Для Верховного суда используй supreme, для окружного — federal. Не выдумывай отсутствующие данные: используй пустую строку "" для неизвестных полей. В поле facts напиши официальный текст описательной части от первого лица заявителя/истца («Я…»), без инструкций и подстановочных пояснений: хронология событий, точное лицо ответчика, основание вызова или задержания, процессуальные нарушения и применимые статьи. В поле claims укажи только самостоятельную просительную часть суда, каждое требование с новой строки. Тайм-коды сохраняй в evidence или facts, если они были указаны пользователем.`
+  ? `Для режима составления документа верни СТРОГО JSON без Markdown и пояснений. JSON должен содержать: template (lawsuit-supreme, lawsuit-federal, motion-supreme, motion-federal, rehabilitation или appeal), title, motionType, motionSubject, claimant, claimantId, claimantPhone, claimantEmail, passport, repName, repId, repLicense, defendant, organization, badge, facts, claims, evidence, feeProof, convictionDate, articles, feeReady, passportCopy, otherDocs, filingDate, signature. Определи подходящий шаблон по ситуации: иск — lawsuit, ходатайство или возражение — motion, реабилитация — rehabilitation, апелляция — appeal. Для Верховного суда используй supreme, для окружного — federal. Не выдумывай отсутствующие данные: используй пустую строку "" для неизвестных полей. В поле facts напиши официальный текст описательной части от первого лица заявителя/истца («Я…»), без инструкций и подстановочных пояснений: хронология событий, точное лицо ответчика и основание вызова или задержания; затем отдельный абзац «Правовая оценка» с проверенными ссылками вида «статья X, часть/пункт Y [точное название кодекса/закона]» и краткой связью каждой нормы с конкретным фактом. Указывай только нормы, подтверждаемые загруженным текстом; различай Уголовный, Процессуальный и Административный кодексы, не придумывай номера, части или выводы о виновности. В поле articles перечисли те же точные нормы и их названия; если точной нормы нет, укажи это без выдуманной ссылки. В поле claims укажи только самостоятельную просительную часть суда, каждое требование с новой строки. Тайм-коды сохраняй в evidence или facts, если они были указаны пользователем.`
   : ""}
 Всегда отвечай на сам вопрос пользователя; не возвращай просто строки поиска и не ограничивайся цитатами из закона.
 Ответ дай кратко: максимум 8 пунктов и максимум 700 слов. Не повторяй вступление и не перечисляй очевидные общие советы. На ответах о задержании укажи только необходимые действия, права и применимые статьи.
@@ -5683,20 +5683,7 @@ ${mode === "lawsuit"
             body: `${user.display_name} отправил отчёт «${reference}» на одобрение.`,
             href: "/page/reports"
           }, user.id);
-          const reportWebhook = reportType === "call" ? webhooks.calls : webhooks.bails;
-          const reportWebhookLabel = reportType === "call" ? "вызовов" : "залогов";
-          const webhookWarning = reportWebhook
-            ? await deliverWebhook(reportWebhook, "Новый отчёт сотрудника",
-              `${user.display_name} отправил отчёт «${reference}» на одобрение.\n\n${details}`,
-              [
-                { name: "Тип", value: activityReportTypes[reportType], inline: true },
-                { name: "Дата события", value: occurredAt, inline: true },
-                { name: "Автор", value: `${user.display_name} · ${user.role}`, inline: true },
-                { name: "Номер или ссылка", value: reference }
-              ],
-              photo ? { name: photo.name, contentType: photo.contentType, content: photo.content } : null)
-            : `Webhook отчётов о ${reportWebhookLabel} не настроен; отчёт сохранён на сайте.`;
-          return sendJson(res, 201, { id: reportId, status: "pending", warning: webhookWarning });
+          return sendJson(res, 201, { id: reportId, status: "pending" });
         }
 
         const activityReportRoute = pathname.match(/^\/api\/activity-reports\/(\d+)$/);
@@ -5728,7 +5715,37 @@ ${mode === "lawsuit"
             }`,
             href: "/page/reports"
           });
-          return sendJson(res, 200, { ok: true, status });
+          let webhookWarning = "";
+          if (status === "approved") {
+            const reportWebhook = report.report_type === "call" ? webhooks.calls : webhooks.bails;
+            const reportWebhookLabel = report.report_type === "call" ? "вызовов" : "залогов";
+            if (!reportWebhook) {
+              webhookWarning = `Webhook отчётов о ${reportWebhookLabel} не настроен.`;
+            } else {
+              const reporter = db.prepare("SELECT display_name, role FROM users WHERE id = ?")
+                .get(report.user_id);
+              const attachment = db.prepare(`SELECT file_name, content_type, content
+                FROM activity_report_attachments WHERE report_id = ?`).get(reportId);
+              webhookWarning = await deliverWebhook(
+                reportWebhook,
+                "Одобренный отчёт сотрудника",
+                `${reporter.display_name} отправил отчёт «${report.reference}».\n\n${report.details}`,
+                [
+                  { name: "Статус", value: "Одобрено ГКА", inline: true },
+                  { name: "Тип", value: activityReportTypes[report.report_type], inline: true },
+                  { name: "Дата события", value: report.occurred_at, inline: true },
+                  { name: "Автор", value: `${reporter.display_name} · ${reporter.role}`, inline: true },
+                  { name: "Номер или ссылка", value: report.reference }
+                ],
+                attachment ? {
+                  name: attachment.file_name,
+                  contentType: attachment.content_type,
+                  content: attachment.content
+                } : null
+              );
+            }
+          }
+          return sendJson(res, 200, { ok: true, status, warning: webhookWarning });
         }
 
         if (pathname === "/api/reports/sync" && req.method === "POST") {
@@ -6060,7 +6077,7 @@ const publicWebhookChannels = ["applications", "exams", "logs"];
  * Возвращает false, если путь не относится к статике, чтобы маршрутизация
  * продолжилась обычным образом.
  */
-async function serveFrontendAsset(res, pathname, { cacheControl = "no-store, max-age=0" } = {}) {
+async function serveFrontendAsset(res, pathname, { cacheControl = "public, max-age=300" } = {}) {
   if (!pathname.startsWith("/web/")) return false;
   let decoded;
   try {

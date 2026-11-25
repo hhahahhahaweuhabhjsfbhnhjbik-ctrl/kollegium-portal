@@ -40,6 +40,30 @@ test("AI lawsuit JSON parser keeps first-person facts and separate claims", () =
   assert.equal(document.claimantId, "");
 });
 
+test("frontend assets use a short cache while the portal page stays fresh", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "portal-frontend-cache-"));
+  let portal;
+  try {
+    portal = await startPortal({
+      dbPath: path.join(directory, "portal.sqlite"),
+      host: "127.0.0.1",
+      port: 0,
+      startBot: false
+    });
+    const baseUrl = `http://127.0.0.1:${portal.port}`;
+    const [asset, page] = await Promise.all([
+      fetch(new URL("/web/css/base.css?v=cache-test", baseUrl)),
+      fetch(new URL("/", baseUrl))
+    ]);
+    assert.equal(asset.status, 200);
+    assert.equal(asset.headers.get("cache-control"), "public, max-age=300");
+    assert.equal(page.status, 200);
+    assert.equal(page.headers.get("cache-control"), "no-store, max-age=0");
+  } finally {
+    if (portal) await portal.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 async function createClient(baseUrl) {
   let cookie = "";
@@ -2081,23 +2105,14 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
     });
     assert.equal(submission.status, 201);
     assert.equal(submission.data.status, "pending");
-    assert.equal(submission.data.warning, "");
-    assert.equal(webhookBodies.length, 1);
-    assert.equal(webhookBodies[0].url, callsWebhook);
-    assert.match(webhookBodies[0].payload.embeds[0].description, /Дефф/);
-    assert.equal(webhookBodies[0].payload.embeds[0].image.url, "attachment://call-evidence.png");
-    assert.ok(webhookBodies[0].body.get("files[0]"));
+    assert.equal(webhookBodies.length, 0);
     const bailWithoutPhoto = await lawyer("/api/activity-reports", "POST", {
       reportType: "bail",
       occurredAt: "2026-10-25",
       details: "Смягчил — добился более мягкой меры для доверителя"
     });
     assert.equal(bailWithoutPhoto.status, 201);
-    assert.equal(webhookBodies.length, 2);
-    assert.equal(webhookBodies[1].url, bailsWebhook);
-    assert.equal(webhookBodies[1].payload.embeds[0].thumbnail.url, "attachment://collegium-seal.png");
-    assert.equal(webhookBodies[1].body.get("files[0]").name, "collegium-seal.png");
-    assert.equal(webhookBodies[1].body.get("files[1]"), null);
+    assert.equal(webhookBodies.length, 0);
     const bailWithPhoto = await lawyer("/api/activity-reports", "POST", {
       reportType: "bail",
       occurredAt: "2026-10-25",
@@ -2106,6 +2121,12 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
       photo: { name: "not-needed.png", type: "image/png", data: "data:image/png;base64,iVBORw0KGgo=" }
     });
     assert.equal(bailWithPhoto.status, 400);
+    const rejectedBailSubmission = await lawyer("/api/activity-reports", "POST", {
+      reportType: "bail",
+      occurredAt: "2026-10-25",
+      details: "Заявка на залог для проверки отклонения"
+    });
+    assert.equal(rejectedBailSubmission.status, 201);
     const pending = await gka("/api/activity-reports");
     assert.equal(pending.data.canReview, true);
     const pendingReport = pending.data.reports.find((item) => item.id === submission.data.id);
@@ -2125,15 +2146,42 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
     assert.equal((await deputy(`/api/activity-reports/${submission.data.id}`, "PATCH", {
       status: "approved"
     })).status, 403);
-    assert.equal((await gka(`/api/activity-reports/${submission.data.id}`, "PATCH", {
+    const rejectedBail = await gka(`/api/activity-reports/${rejectedBailSubmission.data.id}`, "PATCH", {
+      status: "rejected",
+      decision: "Нет подтверждающих материалов"
+    });
+    assert.equal(rejectedBail.status, 200);
+    assert.equal(rejectedBail.data.warning, "");
+    assert.equal(webhookBodies.length, 0);
+    const reportsAfterRejection = await gka("/api/reports?period=2026-10");
+    const reportAfterRejection = reportsAfterRejection.data.rows.find((row) => row.userId === lawyerId);
+    assert.equal(reportAfterRejection.callsReported, 1);
+    assert.equal(reportAfterRejection.bailReports, 1);
+
+    const approvedCall = await gka(`/api/activity-reports/${submission.data.id}`, "PATCH", {
       status: "approved"
-    })).status, 200);
+    });
+    assert.equal(approvedCall.status, 200);
+    assert.equal(approvedCall.data.warning, "");
+    assert.equal(webhookBodies.length, 1);
+    assert.equal(webhookBodies[0].url, callsWebhook);
+    assert.match(webhookBodies[0].payload.embeds[0].title, /Одобренный отчёт/);
+    assert.match(webhookBodies[0].payload.embeds[0].description, /Дефф/);
+    assert.equal(webhookBodies[0].payload.embeds[0].image.url, "attachment://call-evidence.png");
+    assert.ok(webhookBodies[0].body.get("files[0]"));
     assert.equal((await gka(`/api/activity-reports/${submission.data.id}`, "PATCH", {
       status: "approved"
     })).status, 409);
-    assert.equal((await gka(`/api/activity-reports/${bailWithoutPhoto.data.id}`, "PATCH", {
+    assert.equal(webhookBodies.length, 1);
+    const approvedBail = await gka(`/api/activity-reports/${bailWithoutPhoto.data.id}`, "PATCH", {
       status: "approved"
-    })).status, 200);
+    });
+    assert.equal(approvedBail.status, 200);
+    assert.equal(webhookBodies.length, 2);
+    assert.equal(webhookBodies[1].url, bailsWebhook);
+    assert.equal(webhookBodies[1].payload.embeds[0].thumbnail.url, "attachment://collegium-seal.png");
+    assert.equal(webhookBodies[1].body.get("files[0]").name, "collegium-seal.png");
+    assert.equal(webhookBodies[1].body.get("files[1]"), null);
 
     const notificationFeed = await lawyer("/api/notifications");
     const reviewNotification = notificationFeed.data.notifications.find((item) =>

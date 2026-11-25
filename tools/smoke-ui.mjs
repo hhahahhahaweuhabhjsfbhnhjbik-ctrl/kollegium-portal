@@ -193,6 +193,7 @@ const requested = [];
 const activityReportBodies = [];
 const completedRpCaseIds = new Set();
 const audioTones = [];
+let resolveAiAssistantResponse;
 const virtualConsole = new VirtualConsole();
 virtualConsole.on("jsdomError", (error) => problems.push(`jsdom: ${error.message}`));
 virtualConsole.on("error", (...args) => problems.push(`console.error: ${args.join(" ")}`));
@@ -246,7 +247,9 @@ window.fetch = async (input, options = {}) => {
     activityReportBodies.push(JSON.parse(options.body));
   }
   let payload = responses[url.pathname];
-  if (url.pathname === "/api/rp-practice/completions") {
+  if (url.pathname === "/api/ai-assistant" && method === "POST") {
+    payload = await new Promise((resolve) => { resolveAiAssistantResponse = resolve; });
+  } else if (url.pathname === "/api/rp-practice/completions") {
     payload = { completedCaseIds: [...completedRpCaseIds] };
   } else if (url.pathname === "/api/rp-practice/answer" && method === "POST") {
     const body = JSON.parse(options.body);
@@ -657,6 +660,29 @@ document.querySelector("#activity-report-details").value = "Залог прин�
 await window.submitActivityReport({ preventDefault() {} });
 check(activityReportBodies[1]?.reportType === "bail" && !("photo" in activityReportBodies[1]),
   "Отчёт о залоге должен отправляться без скриншота.");
+const insertAiButton = document.querySelector('[data-action="insert-ai-facts"]');
+check(insertAiButton.disabled, "Перенос документа ИИ должен быть недоступен до ответа.");
+document.querySelector("#ai-lawsuit-question").value = "Меня незаконно задержали.";
+const aiRequest = window.askAiAssistant("lawsuit");
+await wait(0);
+check(insertAiButton.disabled && insertAiButton.textContent.includes("Ожидайте") &&
+  document.querySelector("#ai-lawsuit-status")?.getAttribute("aria-busy") === "true",
+"Во время подготовки ответа перенос в форму должен быть отключён и показан статус ожидания.");
+resolveAiAssistantResponse({
+  answer: "{\"facts\":\"Я был задержан. Правовая оценка: статья 12.8 Уголовного кодекса.\"}",
+  mode: "lawsuit",
+  document: {
+    template: "lawsuit-supreme",
+    title: "Незаконное задержание",
+    facts: "Я был задержан. Правовая оценка: статья 12.8 Уголовного кодекса.",
+    claims: "Рассмотреть иск"
+  },
+  cooldownSeconds: 0
+});
+await aiRequest;
+check(!insertAiButton.disabled && insertAiButton.textContent === "Вставить в форму" &&
+  document.querySelector("#ai-lawsuit-status")?.getAttribute("aria-busy") === null,
+"Перенос в форму должен стать доступен только после готового ответа ИИ.");
 let confirmLogout = false;
 window.confirm = () => confirmLogout;
 await window.logout();

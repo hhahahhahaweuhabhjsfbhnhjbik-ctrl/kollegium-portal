@@ -225,15 +225,21 @@ async function askAiAssistant(mode) {
     $(lawsuit ? "#ai-lawsuit-question" : "#ai-laws-question").focus();
     return;
   }
+  const insertButton = lawsuit ? $(`[data-action="insert-ai-facts"]`) : null;
+  if (lawsuit) {
+    aiGeneratedLawsuitDocument = null;
+    aiLawsuitAnswer = "";
+    insertButton.disabled = true;
+    insertButton.textContent = "Ожидайте ответ ИИ…";
+  }
   status.className = "ai-assistant-status is-loading";
   status.textContent = lawsuit
     ? "Анализирую ситуацию по всей законодательной базе и подбираю форму документа. Это может занять больше обычного времени…"
     : "Анализирую весь комплект законов штата и формирую практический ответ. Сложный запрос может занять больше времени…";
   status.classList.remove("hidden");
+  status.setAttribute("aria-busy", "true");
   answerNode.classList.add("hidden");
   copyButton.disabled = true;
-  const insertButton = lawsuit ? $(`[data-action="insert-ai-facts"]`) : null;
-  if (insertButton) insertButton.disabled = true;
   const submitButton = $(`[data-action="${lawsuit ? "ask-ai-lawsuit" : "ask-ai-laws"}"]`);
   submitButton.disabled = true;
   try {
@@ -270,11 +276,17 @@ async function askAiAssistant(mode) {
     });
     status.className = "ai-assistant-status";
     status.textContent = "Ответ подготовлен ИИ на основе загруженной базы. Перед подачей проверьте нормы с руководством.";
+    status.removeAttribute("aria-busy");
     copyButton.disabled = false;
-    if (insertButton) insertButton.disabled = false;
+    if (insertButton) {
+      insertButton.disabled = false;
+      insertButton.textContent = "Вставить в форму";
+    }
   } catch (error) {
     status.className = "ai-assistant-status";
     status.textContent = error.message;
+    status.removeAttribute("aria-busy");
+    if (insertButton) insertButton.textContent = "Ответ не получен";
     submitButton.disabled = false;
   }
 }
@@ -2470,9 +2482,7 @@ async function submitActivityReport(event) {
   clearActivityReportPhoto();
   updateActivityReportFields();
   $("#activity-report-date").value = localDateValue();
-  notify(result.warning
-    ? `Отчёт сохранён. ${result.warning}`
-    : "Отчёт отправлен ГКА на одобрение и в журнал Discord.");
+  notify("Отчёт отправлен ГКА на одобрение. Уведомление в Discord появится после одобрения.");
   await loadActivityReports();
 }
 
@@ -2485,11 +2495,15 @@ async function reviewActivityReport(button) {
     notify("Для отказа укажите причину длиной не менее 4 символов.");
     return;
   }
-  await api(`/api/activity-reports/${encodeURIComponent(button.dataset.id)}`, {
+  const result = await api(`/api/activity-reports/${encodeURIComponent(button.dataset.id)}`, {
     method: "PATCH",
     body: { status, decision }
   });
-  notify(status === "approved" ? "Отчёт одобрен и учтён в статистике." : "Отчёт отклонён.");
+  notify(status === "approved"
+    ? result.warning
+      ? `Отчёт одобрен и учтён в статистике, но Discord не уведомлён: ${result.warning}`
+      : "Отчёт одобрен, учтён в статистике и отправлен в Discord."
+    : "Отчёт отклонён.");
   await loadReports();
 }
 
