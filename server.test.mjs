@@ -103,6 +103,45 @@ test("the app module can be downloaded in small, reassemblable parts", async () 
   }
 });
 
+test("the portal stylesheets can be downloaded in small, reassemblable parts", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "portal-stylesheet-parts-"));
+  let portal;
+  try {
+    portal = await startPortal({
+      dbPath: path.join(directory, "portal.sqlite"),
+      host: "127.0.0.1",
+      port: 0,
+      startBot: false
+    });
+    const baseUrl = `http://127.0.0.1:${portal.port}`;
+    for (const fileName of ["base.css", "theme.css", "awards.css"]) {
+      const firstResponse = await fetch(new URL(`/web/css/${fileName}?part=0`, baseUrl));
+      assert.equal(firstResponse.status, 200);
+      const partCount = Number(firstResponse.headers.get("x-asset-part-count"));
+      const totalLength = Number(firstResponse.headers.get("x-asset-total-length"));
+      assert.ok(partCount >= 1);
+      const firstPart = Buffer.from(await firstResponse.arrayBuffer());
+      const remainingParts = await Promise.all(
+        Array.from({ length: partCount - 1 }, async (_, index) => {
+          const response = await fetch(new URL(`/web/css/${fileName}?part=${index + 1}`, baseUrl));
+          assert.equal(response.status, 200);
+          assert.equal(Number(response.headers.get("x-asset-part-count")), partCount);
+          assert.equal(Number(response.headers.get("x-asset-total-length")), totalLength);
+          return Buffer.from(await response.arrayBuffer());
+        })
+      );
+      const parts = [firstPart, ...remainingParts];
+      assert.ok(parts.every((part) => part.length <= 12 * 1024));
+      const source = await readFile(new URL(`./web/css/${fileName}`, import.meta.url));
+      assert.equal(Buffer.concat(parts).length, totalLength);
+      assert.deepEqual(Buffer.concat(parts), source);
+    }
+  } finally {
+    if (portal) await portal.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 async function createClient(baseUrl) {
   let cookie = "";
   let csrf = "";

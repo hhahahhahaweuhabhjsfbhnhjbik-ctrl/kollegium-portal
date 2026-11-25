@@ -79,7 +79,13 @@ try {
   check(!/<style[\s>]/i.test(html), "В HTML не должно быть инлайновых <style>.");
   check(!/<script>[\s\S]*?\S[\s\S]*?<\/script>/i.test(html), "В HTML не должно быть инлайнового кода.");
   check(html.includes('/api/frontend/loader'), "HTML должен подключать загрузчик приложения.");
-  check(html.includes('/web/css/theme.css'), "HTML должен подключать /web/css/theme.css.");
+  check(!/<link\b[^>]*rel=["']stylesheet["']/i.test(html), "CSS не должен загружаться крупными прямыми запросами.");
+  const loader = await request("/api/frontend/loader", { raw: true });
+  const loaderSource = loader.payload.toString("utf8");
+  check(loader.status === 200, `Загрузчик оформления: HTTP ${loader.status}`);
+  for (const fileName of ["base.css", "theme.css", "awards.css"]) {
+    check(loaderSource.includes(fileName), `Загрузчик должен получать ${fileName} частями.`);
+  }
   check(html.includes('/web/icons-sprite.svg#icon-01_overview'), "Главная навигация должна использовать спрайт иконок.");
   for (const route of ["/page/home", "/page/iski", "/page/audit", "/page/reports"]) {
     const routePage = await request(route, { raw: true });

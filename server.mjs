@@ -6118,6 +6118,12 @@ const staticContentTypes = {
   ".map": "application/json; charset=utf-8"
 };
 const frontendAssetPartSize = 12 * 1024;
+const chunkableFrontendAssets = new Set([
+  "js/app.js",
+  "css/base.css",
+  "css/theme.css",
+  "css/awards.css"
+]);
 
 const webhookChannelLabels = {
   applications: "Заявки и приём в Коллегию",
@@ -6158,7 +6164,7 @@ async function serveFrontendAsset(res, pathname, {
   } catch {
     return false;
   }
-  const partValue = relative === "js/app.js" ? searchParams?.get("part") : null;
+  const partValue = chunkableFrontendAssets.has(relative) ? searchParams?.get("part") : null;
   if (partValue !== null) {
     if (!/^(0|[1-9]\d*)$/.test(partValue)) return false;
     const partIndex = Number(partValue);
