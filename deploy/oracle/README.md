@@ -77,6 +77,6 @@ Add these repository Actions secrets in GitHub → Settings → Secrets and vari
 - `ORACLE_SSH_KEY`: the private key for that VM user
 - `ORACLE_KNOWN_HOSTS`: output of `ssh-keyscan -H <VM-public-IPv4>` collected from a trusted network
 
-The workflow expects the repository at `/opt/kollegium-portal` and Docker Compose to be runnable with `sudo`. It deploys on each push to `main`; the first deployment can also be started from the Actions tab.
+The workflow expects the repository at `/opt/kollegium-portal` and Docker Compose to be runnable with `sudo`. It deploys on each push to `main`; the first deployment can also be started from the Actions tab. Add `GEMINI_API_KEY` as a repository Actions secret to have each deployment securely update the VM's `.env` before rebuilding the service. The secret is sent over the existing SSH connection and is never written to workflow logs or repository files. If it is absent, deployment still succeeds but the AI endpoint remains unconfigured.
 
 Oracle Always Free capacity and availability are not guaranteed. This setup uses a public VM, so keep the OS updated and restrict SSH access where practical.

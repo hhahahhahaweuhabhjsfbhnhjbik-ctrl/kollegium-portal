@@ -19,6 +19,7 @@ jobs:
           ORACLE_USER: ${{ secrets.ORACLE_USER }}
           ORACLE_SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
           ORACLE_KNOWN_HOSTS: ${{ secrets.ORACLE_KNOWN_HOSTS }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           set -eu
           test -n "$ORACLE_HOST"
@@ -31,6 +32,15 @@ jobs:
           chmod 600 "$HOME/.ssh/id_ed25519"
           printf '%s\n' "$ORACLE_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
+
+          if [ -n "$GEMINI_API_KEY" ]; then
+            printf '%s\n' "$GEMINI_API_KEY" | ssh -i "$HOME/.ssh/id_ed25519" \
+              -o BatchMode=yes \
+              "$ORACLE_USER@$ORACLE_HOST" \
+              'python3 -c "from pathlib import Path; import os,sys; key=sys.stdin.readline().rstrip(chr(10)+chr(13)); path=Path(\"/opt/kollegium-portal/.env\"); lines=[line for line in path.read_text().splitlines() if not line.startswith(\"GEMINI_API_KEY=\")]; lines.append(\"GEMINI_API_KEY=\"+key); tmp=path.with_name(\".env.tmp\"); tmp.write_text(\"\\n\".join(lines)+\"\\n\"); os.chmod(tmp,0o600); os.replace(tmp,path)"'
+          else
+            echo "::warning::GEMINI_API_KEY Actions secret is not set; the deployed AI API remains unconfigured."
+          fi
 
           ssh -i "$HOME/.ssh/id_ed25519" \
             -o BatchMode=yes \
