@@ -2479,7 +2479,12 @@ export function createPortalServer(options = {}) {
 
       if (pathname.startsWith("/api/")) {
         if (pathname === "/api/health" && req.method === "GET") {
-          return sendJson(res, 200, { ok: true, apiVersion: 4, maintenance: maintenanceMode });
+          return sendJson(res, 200, {
+            ok: true,
+            apiVersion: 4,
+            maintenance: maintenanceMode,
+            aiConfigured: Boolean(String(options.geminiApiKey ?? process.env.GEMINI_API_KEY ?? "").trim())
+          });
         }
 
         if (pathname === "/api/auth/register" && req.method === "POST") {

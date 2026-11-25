@@ -166,7 +166,7 @@ test("desktop server serves the portal and shuts down cleanly", async () => {
     assert.match(dockerfile, /COPY [^\r\n]*\bpamyatka_advokata\.html\b[^\r\n]*\.\//);
     assert.match(dockerfile, /^COPY photozot \.\/photozot$/m);
     const health = await fetch(`http://127.0.0.1:${portal.port}/api/health`);
-    assert.deepEqual(await health.json(), { ok: true, apiVersion: 4, maintenance: false });
+    assert.deepEqual(await health.json(), { ok: true, apiVersion: 4, maintenance: false, aiConfigured: false });
 
     portal.server.portalDb.prepare(`INSERT INTO portal_settings (key, value)
       VALUES ('maintenance_mode', 'on') ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run();
@@ -174,7 +174,7 @@ test("desktop server serves the portal and shuts down cleanly", async () => {
     assert.equal(maintenance.status, 503);
     assert.match(await maintenance.text(), /Технические работы/);
     const maintenanceHealth = await fetch(`http://127.0.0.1:${portal.port}/api/health`);
-    assert.deepEqual(await maintenanceHealth.json(), { ok: true, apiVersion: 4, maintenance: true });
+    assert.deepEqual(await maintenanceHealth.json(), { ok: true, apiVersion: 4, maintenance: true, aiConfigured: false });
 
     portal.server.portalDb.prepare("UPDATE portal_settings SET value = 'off' WHERE key = 'maintenance_mode'").run();
     assert.equal((await fetch(`http://127.0.0.1:${portal.port}/`)).status, 200);

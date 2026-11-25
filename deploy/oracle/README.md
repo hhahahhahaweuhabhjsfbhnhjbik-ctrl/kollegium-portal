@@ -30,6 +30,15 @@ Set `DOMAIN` to the DuckDNS hostname you registered, and set the Discord OAuth a
 
 Set `DISCORD_WEBHOOK_LAWYER_TEST` and `DISCORD_WEBHOOK_ATTORNEY_INTERVIEW` in the server-only `.env` to enable the corresponding promotion notifications. Keep webhook URLs out of source code and Git.
 
+Set `GEMINI_API_KEY` to the server API key for the legal assistant. Set `GEMINI_MODEL=gemini-3.5-flash-lite` and `GEMINI_FALLBACK_MODEL=gemini-2.5-flash`. After changing `.env`, restart the portal:
+
+```bash
+sudo docker compose -f deploy/oracle/compose.yaml up -d --build
+curl -fsS https://<your-DuckDNS-hostname>/api/health
+```
+
+The health response should contain `"aiConfigured":true`. Never put the real key into Git, `.env.example`, or GitHub Actions secrets unless the deployment workflow explicitly injects it through an approved secret-management step.
+
 ## 2. Configure DuckDNS and Discord
 
 Register a free subdomain at [DuckDNS](https://www.duckdns.org/), then set its IPv4 address to the VM's public IPv4. If the VM's public IP changes, update the DuckDNS record.
