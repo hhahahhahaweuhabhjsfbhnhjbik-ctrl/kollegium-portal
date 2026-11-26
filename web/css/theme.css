@@ -1460,6 +1460,8 @@ body::before {
 }
 
 .activity-report-form label { display: grid; gap: 6px; color: var(--text-secondary); font-size: 12px; }
+.activity-report-form .activity-report-trip-option { grid-template-columns: auto 1fr; align-items: start; gap: 8px; padding: 9px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); }
+.activity-report-trip-option input { margin-top: 2px; accent-color: var(--accent-gold); }
 .activity-report-form textarea { resize: vertical; }
 .activity-report-upload-hint { margin: -5px 0 0; color: var(--text-muted); font-size: 10px; line-height: 1.45; }
 .activity-report-photo-preview { display: grid; grid-template-columns: minmax(0, 120px) 1fr; align-items: center; gap: 10px; padding: 8px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: rgba(8, 12, 20, .48); }
@@ -1479,6 +1481,8 @@ body::before {
 .activity-report-heading strong { font-size: 12px; }
 .activity-report-card p { margin-top: 7px; color: var(--text-secondary); font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .activity-report-meta { margin-top: 5px; color: var(--text-muted); font-size: 10px; }
+.activity-report-trip-status { padding: 8px; border-radius: var(--radius-sm); background: rgba(212, 175, 55, .08); }
+.activity-report-trip-status strong { color: var(--text-primary); }
 .activity-report-attachment { display: inline-grid; grid-template-columns: minmax(0, 140px) 1fr; align-items: center; gap: 8px; margin-top: 8px; color: var(--text-secondary); font-size: 10px; text-decoration: none; }
 .activity-report-attachment img { display: block; width: 100%; max-height: 100px; border: 1px solid var(--border-subtle); border-radius: 6px; object-fit: cover; }
 .activity-report-attachment span { overflow-wrap: anywhere; }

@@ -216,6 +216,7 @@ const problems = [];
 const requested = [];
 const activityReportBodies = [];
 const completedRpCaseIds = new Set();
+let createdCustomCase = null;
 const audioTones = [];
 let failAttorneyRanking = false;
 let resolveAiAssistantResponse;
@@ -292,8 +293,31 @@ window.fetch = async (input, options = {}) => {
       completed: correct || completedRpCaseIds.has(body.caseId),
       explanation: correct ? "Точный ответ." : "Ответ неверный."
     };
+  } else if (url.pathname === "/api/rp-custom-cases" && method === "POST") {
+    createdCustomCase = {
+      id: "custom-401",
+      title: "Личный учебный кейс",
+      subtitle: "Разговор с офицером",
+      copName: "Офицер Miller",
+      copDept: "LSDP",
+      ownerId: user.id,
+      ownerName: user.displayName,
+      status: "private",
+      custom: true,
+      completed: false,
+      startNode: "start",
+      questions: [{ text: "Вопрос", options: ["Да", "Нет", "Позже"] }],
+      nodes: {
+        start: {
+          copText: "Опишите обстоятельства дела.",
+          choices: [{ text: "Представить позицию защиты", next: "end", delta: 5, debrief: "Ответ принят." }]
+        },
+        end: { isEnd: true, won: true, copText: "Разговор завершён." }
+      }
+    };
+    payload = { case: createdCustomCase };
   } else if (url.pathname === "/api/rp-custom-cases") {
-    payload = { cases: [] };
+    payload = { cases: createdCustomCase ? [createdCustomCase] : [] };
   } else if (url.pathname === "/api/notifications/preferences" && method === "PATCH") {
     const preference = JSON.parse(options.body);
     responses["/api/notifications"].discordDmEnabled = preference.discordDmEnabled;
@@ -590,6 +614,32 @@ check(document.querySelector("#rp-phone-subtitle")?.textContent.includes("FIB") 
 document.querySelector('[data-action="close-rp-phone"]')?.dispatchEvent(
   new window.MouseEvent("click", { bubbles: true })
 );
+document.querySelector('[data-action="open-rp-phone"]')?.dispatchEvent(
+  new window.MouseEvent("click", { bubbles: true })
+);
+await wait(10);
+document.querySelector('#rp-phone-choices [data-action="rp-phone-back"]')?.dispatchEvent(
+  new window.MouseEvent("click", { bubbles: true })
+);
+document.querySelector('#rp-phone-case-picker [data-action="create-rp-custom-case"]')?.dispatchEvent(
+  new window.MouseEvent("click", { bubbles: true })
+);
+check(document.querySelector("#rp-phone-dialog")?.classList.contains("hidden") &&
+  !document.querySelector("#document-dialog")?.classList.contains("hidden"),
+"При открытии формы личного AI Case телефон должен закрываться.");
+const personalCaseForm = document.querySelector("#rp-custom-case-form");
+personalCaseForm.querySelector("[name='details']").value = "Офицер задержал доверителя для проверки обстоятельств.";
+personalCaseForm.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+await wait(20);
+check(requested.includes("POST /api/rp-custom-cases") &&
+  document.querySelector("#document-dialog")?.classList.contains("hidden") &&
+  !document.querySelector("#rp-phone-dialog")?.classList.contains("hidden") &&
+  document.querySelector("#rp-phone-title")?.textContent === "Офицер Miller" &&
+  !document.querySelector("#rp-phone-choices")?.textContent.includes("Опубликовать"),
+"Создание личного AI Case должно отправить форму и открыть созданный диалог без публикации.");
+document.querySelector('[data-action="close-rp-phone"]')?.dispatchEvent(
+  new window.MouseEvent("click", { bubbles: true })
+);
 
 await window.navigate("laws");
 const lawsSearch = document.querySelector("#lawsSearch");
@@ -647,14 +697,20 @@ responses["/api/career-path"] = {
   started: true,
   tutorialSeen: true,
   role: "Юрист",
-  passedSubjects: ["ak", "uk", "pk"],
+  passedSubjects: [],
   allTestsPassed: true,
   lawsReviewed: true,
-  completedCaseIds: ["case-1", "case-2", "case-3"],
-  requiredCaseCount: 3,
+  completedCaseIds: [],
+  requiredCaseCount: 0,
+  generalRpPracticeCompletedCaseIds: [],
+  generalRpPracticeRequiredCount: 18,
   completedEvidenceCount: 0,
   requiredEvidenceCount: 2,
-  practiceSubmitted: false
+  practiceSubmitted: false,
+  lawyerPromotionPath: true,
+  interviewReady: false,
+  interviewPromptDismissed: false,
+  canRequestInterview: false
 };
 dom.reconfigure({ url: "http://127.0.0.1:3000/page/laws" });
 await window.enterSession({
@@ -664,6 +720,16 @@ await window.enterSession({
 check(document.querySelector("#view-laws")?.classList.contains("active") &&
   !document.querySelector("#practice-nav")?.disabled,
 "Карьерная практика должна разблокироваться из раздела законов после загрузки выполненного прогресса юриста.");
+check([...document.querySelectorAll(".career-general-practice-only")]
+  .every((element) => !element.classList.contains("hidden")),
+"Юристу должна быть доступна общая RP-практика.");
+await window.enterSession({
+  user: { ...user, role: "Стажер КА", discordLinked: false, discordAvatarUrl: "" },
+  csrfToken: "test-csrf"
+});
+check([...document.querySelectorAll(".career-general-practice-only")]
+  .every((element) => element.classList.contains("hidden")),
+"Стажёру должна быть скрыта общая RP-практика.");
 dom.reconfigure({ url: "http://127.0.0.1:3000/page/reports" });
 await window.enterSession({
   user: { ...user, discordLinked: false, discordAvatarUrl: "" },
@@ -848,7 +914,7 @@ const careerApplication = {
   career_law_passed_subjects: ["ak"],
   rp_practice_cases: [{ id: "base-case", title: "Базовый кейс", completed: false }],
   rp_practice_completed_count: 0,
-  rp_practice_required_count: 1,
+  rp_practice_required_count: 3,
   promotion_practice: [],
   career_requirements_complete: false
 };
@@ -861,8 +927,12 @@ check(careerChecklist?.querySelector(".career-requirement.is-complete")?.textCon
 window.renderAppeals([{
   ...careerApplication,
   career_law_passed_subjects: ["ak", "uk", "pk"],
-  rp_practice_cases: [{ id: "base-case", title: "Базовый кейс", completed: true }],
-  rp_practice_completed_count: 1,
+  rp_practice_cases: [
+    { id: "base-case-1", title: "Базовый кейс 1", completed: true },
+    { id: "base-case-2", title: "Базовый кейс 2", completed: true },
+    { id: "base-case-3", title: "Базовый кейс 3", completed: true }
+  ],
+  rp_practice_completed_count: 3,
   career_requirements_complete: true
 }]);
 check(document.querySelectorAll('[data-action="review-career-promotion"]').length === 2 &&
@@ -874,7 +944,7 @@ window.renderCareerPath({
   passedSubjects: [],
   allTestsPassed: false,
   completedCaseIds: [],
-  requiredCaseCount: 1,
+  requiredCaseCount: 3,
   completedEvidenceCount: 0,
   requiredEvidenceCount: 0,
   practiceSubmitted: false
@@ -887,7 +957,7 @@ window.renderCareerPath({
   passedSubjects: ["ak", "uk", "pk"],
   allTestsPassed: true,
   completedCaseIds: [],
-  requiredCaseCount: 1,
+  requiredCaseCount: 3,
   completedEvidenceCount: 0,
   requiredEvidenceCount: 0,
   practiceSubmitted: false
@@ -895,6 +965,58 @@ window.renderCareerPath({
 check(!careerPracticeNav.disabled &&
   Boolean(document.querySelector('[data-action="career-path-open-ai"]')),
 "После сдачи тестов переход к карьерному AI Case должен открываться.");
+window.renderCareerPath({
+  role: "Стажер КА",
+  passedSubjects: ["ak", "uk", "pk"],
+  allTestsPassed: true,
+  completedCaseIds: ["case-1", "case-2", "case-3"],
+  requiredCaseCount: 3,
+  practiceSubmitted: false
+});
+check(!document.querySelector('[data-action="career-path-open-ai"]') &&
+  document.querySelector("#open-rp-phone")?.disabled,
+"После трёх кейсов стажёру не нужно повторно проходить или запускать AI Case.");
+window.renderCareerPath({
+  role: "Юрист",
+  passedSubjects: [],
+  allTestsPassed: true,
+  lawsReviewed: true,
+  completedCaseIds: [],
+  requiredCaseCount: 0,
+  generalRpPracticeCompletedCaseIds: [],
+  generalRpPracticeRequiredCount: 18,
+  completedEvidenceCount: 0,
+  requiredEvidenceCount: 2,
+  practiceSubmitted: false,
+  lawyerPromotionPath: true,
+  canRequestInterview: false,
+  interviewReady: false
+});
+check(document.querySelector('[data-action="career-path-open-ai"]')?.textContent.includes("Открыть AI Case") &&
+  !document.querySelector("#open-rp-phone")?.disabled &&
+  document.querySelector("#career-path-tasks")?.textContent.includes("0/18") &&
+  Boolean(document.querySelector('[data-target="general"]')),
+"Юрист должен иметь постоянный доступ к AI Case и видеть прогресс ситуационных кейсов.");
+window.renderCareerPath({
+  role: "Юрист",
+  passedSubjects: [],
+  allTestsPassed: true,
+  lawsReviewed: true,
+  completedCaseIds: [],
+  requiredCaseCount: 0,
+  generalRpPracticeCompletedCaseIds: Array.from({ length: 18 }, (_, index) => `rp-${index}`),
+  generalRpPracticeRequiredCount: 18,
+  completedEvidenceCount: 2,
+  requiredEvidenceCount: 2,
+  practiceSubmitted: false,
+  lawyerPromotionPath: true,
+  canRequestInterview: true,
+  interviewReady: false
+});
+check(Boolean(document.querySelector('[data-action="career-interview-ready"]')) &&
+  !document.querySelector("#topbar-career-interview-ready")?.classList.contains("hidden") &&
+  !document.querySelector('[data-target="submit"]'),
+"После 18 кейсов и двух вызовов юристу открывается готовность к обзвону, а не обычная заявка.");
 let confirmLogout = false;
 window.confirm = () => confirmLogout;
 await window.logout();

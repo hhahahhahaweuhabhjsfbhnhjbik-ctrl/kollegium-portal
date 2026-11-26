@@ -48,6 +48,11 @@ export function parseGiveawayCommand(content) {
   return match ? (match[1] || "help").toLowerCase() : null;
 }
 
+export function parsePointCommand(content) {
+  const match = /^!point\s+#(\d+)\s+(\d+)$/i.exec(String(content || "").trim());
+  return match ? { userId: Number(match[1]), points: Number(match[2]) } : null;
+}
+
 export function canControlService({ authorId, ownerId, isAdministrator }) {
   return authorId === ownerId || isAdministrator === true;
 }
@@ -317,6 +322,7 @@ export function startDiscordBot({
   onServiceCommand,
   onServiceRestart,
   onGiveawayCommand,
+  onPointCommand,
   onPresence,
   healthUrl
 }) {
@@ -342,7 +348,9 @@ export function startDiscordBot({
   client.on(Events.MessageCreate, (message) => {
     const techAction = parseTechCommand(message.content);
     const giveawayAction = parseGiveawayCommand(message.content);
-    if ((!techAction && !giveawayAction) || message.author.bot || message.guildId !== guildId) return;
+    const pointCommand = parsePointCommand(message.content);
+    if ((!techAction && !giveawayAction && !pointCommand) ||
+        message.author.bot || message.guildId !== guildId) return;
 
     void (async () => {
       if (!canControlService({
@@ -371,6 +379,27 @@ export function startDiscordBot({
           content: String(response).slice(0, 1900),
           allowedMentions: { parse: [], repliedUser: false }
         });
+        return;
+      }
+
+      if (pointCommand) {
+        if (!onPointCommand) throw new Error("Начисление баллов не настроено.");
+        try {
+          const response = await onPointCommand(
+            pointCommand.userId,
+            pointCommand.points,
+            message.author.id
+          );
+          await message.reply({
+            content: String(response).slice(0, 1900),
+            allowedMentions: { parse: [], repliedUser: false }
+          });
+        } catch (error) {
+          await message.reply({
+            content: `Не удалось начислить баллы: ${error.message}`,
+            allowedMentions: { parse: [], repliedUser: false }
+          });
+        }
         return;
       }
 

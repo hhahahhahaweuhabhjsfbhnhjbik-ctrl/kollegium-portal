@@ -11,6 +11,7 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env server.mjs",
     "create-admin": "node --env-file-if-exists=.env server.mjs create-admin",
+    "demo:accounts": "node tools/create-demo-accounts.mjs",
     "test": "node --test",
     "check:ui": "node tools/audit-ui.mjs && node tools/smoke-ui.mjs",
     "check:server": "node tools/check-server.mjs",

@@ -2,6 +2,7 @@
 data/portal.sqlite
 data/portal.sqlite-shm
 data/portal.sqlite-wal
+data/demo-portal.sqlite*
 node_modules/
 release/
 

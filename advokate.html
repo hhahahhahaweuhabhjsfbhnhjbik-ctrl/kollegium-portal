@@ -271,6 +271,11 @@
             <svg class="icon icon-sm"><use href="/web/icons-sprite.svg#icon-09_reports_system"></use></svg>
             <span>Отчётность</span>
           </button>
+          <button class="btn btn-gold career-path-only hidden" id="topbar-career-interview-ready" type="button"
+            data-action="career-interview-ready">Готов к обзвону</button>
+          <span class="badge badge-info career-path-only hidden" id="topbar-career-interview-status" role="status">
+            Готовность к обзвону отправлена
+          </span>
           <div class="notification-center">
             <button class="icon-button notification-toggle" id="notification-toggle" type="button" data-action="toggle-notifications"
               aria-label="Открыть уведомления" aria-controls="notification-panel" aria-expanded="false" title="Уведомления">
@@ -650,7 +655,7 @@
             <section class="card col-span-12 law-exams-panel" aria-labelledby="career-exam-title">
               <span class="badge badge-gold">ЭКЗАМЕНЫ НА ЭТАПЕ · <span id="law-exam-role">—</span></span>
               <h3 id="career-exam-title">Экзамены по кодексам</h3>
-              <p id="career-exam-description" class="text-muted">Сдайте административный, уголовный и процессуальный кодексы. После успешной сдачи тест закроется печатью.</p>
+              <p id="career-exam-description" class="text-muted">Экзамены по АК, УК и ПК обязательны для перехода со стажёра в юристы.</p>
               <div id="law-exam-buttons" class="law-exam-grid" aria-live="polite"></div>
               <p id="law-exam-progress-note" class="law-test-hint text-muted"></p>
               <div id="law-promotion-report" class="law-promotion-report hidden">
@@ -719,7 +724,7 @@
               <div>
                 <span class="badge badge-gold">RP-ПРАКТИКА</span>
                 <h2>Разбор ситуационных кейсов</h2>
-                <p class="text-muted">Тренировочные кейсы, не экзамен и не этап повышения. Выберите сложность, ответьте и получите результат с пояснением и ссылкой на норму.</p>
+                <p class="text-muted">Юристу нужно пройти все 18 кейсов для повышения до адвоката. Выберите уровень, ответьте на вопросы и получите результат с пояснением и ссылкой на норму.</p>
               </div>
             </div>
             <div class="rp-practice-controls career-general-practice-only" role="group" aria-label="Выберите уровень RP-практики">
@@ -968,6 +973,10 @@
                     <option value="bail">Залог</option>
                   </select>
                 </label>
+                <label class="activity-report-trip-option hidden" id="activity-report-lawyer-trip-field">
+                  <input id="activity-report-lawyer-trip" type="checkbox">
+                  <span>Ездил с юристом — запросить 2 балла вместо 1 (после подтверждения ГКА/ЗГКА)</span>
+                </label>
                 <label>Дата события<input class="input" id="activity-report-date" type="date" required></label>
                 <p class="text-muted">Нумерация будет назначена автоматически после отправки.</p>
                 <label>Описание<textarea class="input" id="activity-report-details" minlength="4" maxlength="2000" rows="4" required placeholder="Дефф / Недефф / Смягчил — добавьте пояснение при необходимости"></textarea></label>
@@ -1024,6 +1033,21 @@
       <div class="career-intro-actions career-offer-actions">
         <button class="btn btn-outline" type="button" data-action="answer-career-promotion-offer" data-decision="no">Позже · на главную</button>
         <button class="btn btn-gold" type="button" data-action="answer-career-promotion-offer" data-decision="yes">Да, подать заявку</button>
+      </div>
+    </section>
+  </div>
+  <div id="career-interview-offer-dialog" class="modal hidden" role="dialog" aria-modal="true"
+    aria-labelledby="career-interview-offer-title" aria-describedby="career-interview-offer-description">
+    <section class="card modal-card career-offer-modal">
+      <button class="btn modal-close" type="button" data-action="answer-career-interview-offer"
+        data-decision="later" aria-label="Закрыть">×</button>
+      <span class="career-offer-eyebrow">КАРЬЕРНЫЙ МАРШРУТ</span>
+      <h2 id="career-interview-offer-title">Практика завершена</h2>
+      <p id="career-interview-offer-description">Вы прошли ситуационные кейсы и подтвердили совместные вызовы. Можно отметить готовность к обзвону.</p>
+      <p class="career-offer-note">Можно отложить приглашение: кнопка «Готов к обзвону» останется сверху сайта.</p>
+      <div class="career-intro-actions career-offer-actions">
+        <button class="btn btn-outline" type="button" data-action="answer-career-interview-offer" data-decision="later">Позже</button>
+        <button class="btn btn-gold" type="button" data-action="answer-career-interview-offer" data-decision="join">Сразу присоединиться</button>
       </div>
     </section>
   </div>
@@ -1144,6 +1168,6 @@
     </div>
   </dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="/api/frontend/loader?v=20261126-9"></script>
+  <script type="module" src="/api/frontend/loader?v=20261126-13"></script>
 </body>
 </html>
