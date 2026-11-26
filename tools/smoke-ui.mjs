@@ -231,6 +231,7 @@ const dom = new JSDOM(html, {
 const { window } = dom;
 const { document } = window;
 window.matchMedia = () => ({ matches: false });
+window.HTMLElement.prototype.scrollIntoView = function scrollIntoView() {};
 window.HTMLDialogElement.prototype.showModal = function showModal() { this.setAttribute("open", ""); };
 window.HTMLDialogElement.prototype.close = function close() { this.removeAttribute("open"); };
 window.AudioContext = class {
@@ -284,6 +285,8 @@ window.fetch = async (input, options = {}) => {
       completed: correct || completedRpCaseIds.has(body.caseId),
       explanation: correct ? "Точный ответ." : "Ответ неверный."
     };
+  } else if (url.pathname === "/api/rp-custom-cases") {
+    payload = { cases: [] };
   } else if (url.pathname === "/api/notifications/preferences" && method === "PATCH") {
     const preference = JSON.parse(options.body);
     responses["/api/notifications"].discordDmEnabled = preference.discordDmEnabled;
@@ -367,9 +370,9 @@ check(!sidebar?.querySelector(".sidebar-scroll [data-view='rating'], .sidebar-sc
   sidebar?.querySelector(".sidebar-footer [data-view='rating']") &&
   sidebar?.querySelector(".sidebar-footer [data-view='audit']") &&
   sidebar?.querySelector(".sidebar-footer [data-view='awards']") &&
-  sidebar?.querySelector(".sidebar-footer [data-view='giveaway']") &&
+  sidebar?.querySelector(".sidebar-scroll [data-view='giveaway']") &&
   sidebar?.querySelector(".sidebar-footer [data-view='reports']"),
-"Рейтинги, управление и отчёты должны находиться в нижнем блоке сайдбара.");
+"Премии должны быть среди основных разделов, а рейтинги и отчёты — в нижнем блоке сайдбара.");
 check(document.querySelector("#audit-search")?.closest("#view-audit") &&
   themeCss.includes(".audit-table-wrap { max-height:") &&
   themeCss.includes("overflow: auto"),
@@ -388,7 +391,11 @@ const careerButton = document.querySelector("#careerBranchBtn");
 const careerSubmenu = document.querySelector("#careerSubmenu");
 check(careerButton?.textContent.includes("Начало пути"), "Раздел обучения должен называться «Начало пути».");
 check(careerSubmenu?.textContent.includes("Тесты") &&
-  careerSubmenu.textContent.includes("Практика РП"), "Подветки экзаменов и практики не отображаются.");
+  careerSubmenu.textContent.includes("Практика РП") &&
+  careerSubmenu.textContent.includes("Мой путь"), "Подветки пути, экзаменов и практики не отображаются.");
+check(document.querySelector("#view-career") && document.querySelector("#career-path-tasks") &&
+  document.querySelector("[data-action='start-career-path']"),
+"Страница «Мой путь» и кнопка старта должны быть в интерфейсе.");
 careerButton?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
 await wait(5);
 check(careerButton?.getAttribute("aria-expanded") === "false" && !careerSubmenu?.classList.contains("open"),
@@ -538,7 +545,7 @@ document.querySelector('#rp-phone-choices [data-index="0"]')?.dispatchEvent(
   new window.MouseEvent("click", { bubbles: true })
 );
 await wait(10);
-check(document.querySelector("#rp-phone-choices")?.textContent.includes("Следующий кейс") &&
+check(document.querySelector("#rp-phone-choices")?.textContent.includes("Назад к делам") &&
   document.querySelector("#rp-phone-choices")?.textContent.includes("Повторить диалог") &&
   document.querySelector(".rp-phone-end-actions .rp-phone-repeat") &&
   document.querySelector("#rp-phone-messages")?.textContent.includes("доверитель освобождён"),
@@ -549,6 +556,19 @@ document.querySelector("#rp-phone-sound-toggle")?.dispatchEvent(
 check(document.querySelector("#rp-phone-sound-toggle")?.getAttribute("aria-pressed") === "false" &&
   document.querySelector("#rp-phone-sound-toggle")?.textContent.includes("выключен"),
 "Звуковые эффекты должны отключаться отдельной кнопкой.");
+document.querySelector('#rp-phone-choices [data-action="rp-phone-back"]')?.dispatchEvent(
+  new window.MouseEvent("click", { bubbles: true })
+);
+check(!document.querySelector("#rp-phone-case-picker")?.classList.contains("hidden") &&
+  document.querySelectorAll("#rp-phone-case-picker .rp-phone-scenario").length === 4,
+"Кнопка «Назад к делам» должна сразу возвращать к выбору кейса без перезагрузки.");
+document.querySelector('#rp-phone-case-picker [data-case-id="case_fib_interrogation"]')?.dispatchEvent(
+  new window.MouseEvent("click", { bubbles: true })
+);
+await wait(10);
+check(document.querySelector("#rp-phone-subtitle")?.textContent.includes("FIB") &&
+  document.querySelector("#rp-phone-messages .msg-cop"),
+"После возврата можно сразу выбрать и открыть другое дело.");
 document.querySelector('[data-action="close-rp-phone"]')?.dispatchEvent(
   new window.MouseEvent("click", { bubbles: true })
 );
@@ -605,6 +625,32 @@ for (const [route, view] of [
   check(document.querySelector(`#view-${view}`)?.classList.contains("active"),
     `Прямой маршрут ${route} должен открывать раздел «${view}» даже без привязки Discord.`);
 }
+responses["/api/career-path"] = {
+  started: true,
+  tutorialSeen: true,
+  role: "Юрист",
+  passedSubjects: ["ak", "uk", "pk"],
+  allTestsPassed: true,
+  lawsReviewed: true,
+  completedCaseIds: ["case-1", "case-2", "case-3"],
+  requiredCaseCount: 3,
+  completedEvidenceCount: 0,
+  requiredEvidenceCount: 2,
+  practiceSubmitted: false
+};
+dom.reconfigure({ url: "http://127.0.0.1:3000/page/laws" });
+await window.enterSession({
+  user: { ...user, role: "Юрист", discordLinked: false, discordAvatarUrl: "" },
+  csrfToken: "test-csrf"
+});
+check(document.querySelector("#view-laws")?.classList.contains("active") &&
+  !document.querySelector("#practice-nav")?.disabled,
+"Карьерная практика должна разблокироваться из раздела законов после загрузки выполненного прогресса юриста.");
+dom.reconfigure({ url: "http://127.0.0.1:3000/page/reports" });
+await window.enterSession({
+  user: { ...user, discordLinked: false, discordAvatarUrl: "" },
+  csrfToken: "test-csrf"
+});
 check(!document.querySelector("#user-avatar img") &&
   document.querySelector("#user-avatar")?.textContent === "АВ",
 "Если Discord не привязан, аватар должен возвращаться к инициалам.");
@@ -754,6 +800,19 @@ await aiRequest;
 check(!insertAiButton.disabled && insertAiButton.textContent === "Вставить в форму" &&
   document.querySelector("#ai-lawsuit-status")?.getAttribute("aria-busy") === null,
 "Перенос в форму должен стать доступен только после готового ответа ИИ.");
+document.querySelector("#ai-lawsuit-question").value = "Какая статья применяется?";
+const lawsuitQuestionRequest = window.askAiAssistant("lawsuit");
+await wait(0);
+resolveAiAssistantResponse({
+  answer: "Система исков предназначена только для подготовки исковых документов. Используйте ИИ-помощник в разделе «Законодательство».",
+  mode: "lawsuit",
+  document: null,
+  cooldownSeconds: 0
+});
+await lawsuitQuestionRequest;
+check(insertAiButton.disabled && insertAiButton.textContent === "Только для готового иска" &&
+  document.querySelector("#ai-lawsuit-answer")?.textContent.includes("разделе «Законодательство»"),
+"В системе исков нельзя вставлять консультационный ответ как текст иска, вопрос направляется к консультанту по законам.");
 let confirmLogout = false;
 window.confirm = () => confirmLogout;
 await window.logout();

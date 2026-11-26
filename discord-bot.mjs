@@ -313,6 +313,7 @@ export function startDiscordBot({
   onDiscordCitizenRequest,
   onPortalCommand,
   onPortalAction,
+  onRpCaseReview,
   onServiceCommand,
   onServiceRestart,
   onGiveawayCommand,
@@ -609,6 +610,35 @@ export function startDiscordBot({
         }
       })().catch((error) => {
         console.error("Discord task approval interaction failed:", error.message);
+      });
+      return;
+    }
+
+    const rpCaseReview = interaction.isButton()
+      ? /^portal:rp-case-review:(\d+):(approved|rejected)$/.exec(interaction.customId)
+      : null;
+    if (rpCaseReview) {
+      void (async () => {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        try {
+          if (interaction.guildId !== guildId || !onRpCaseReview) {
+            throw new Error("Согласование AI Case доступно только на сервере Коллегии.");
+          }
+          const result = await onRpCaseReview(
+            interaction.user.id,
+            interactionRoleIds(interaction),
+            Number(rpCaseReview[1]),
+            rpCaseReview[2]
+          );
+          await interaction.message.edit({ components: [] }).catch((error) => {
+            console.warn("Could not disable reviewed AI Case buttons:", error.message);
+          });
+          await interaction.editReply({ content: result, allowedMentions: { parse: [] } });
+        } catch (error) {
+          await interaction.editReply({ content: error.message, allowedMentions: { parse: [] } });
+        }
+      })().catch((error) => {
+        console.error("Discord AI Case review interaction failed:", error.message);
       });
       return;
     }

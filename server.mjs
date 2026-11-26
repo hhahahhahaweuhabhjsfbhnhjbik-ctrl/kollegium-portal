@@ -8,8 +8,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
 import { startDiscordBot } from "./discord-bot.mjs";
-import { WEBHOOK_CHANNELS, createWebhookDispatcher, describeWebhook, sendWebhook } from "./webhooks.mjs";
+import { WEBHOOK_CHANNELS, createWebhookDispatcher, describeWebhook, isDiscordWebhookUrl, sendWebhook } from "./webhooks.mjs";
 import { rpPracticeCases } from "./web/js/data/rp-practice.js";
+import { rpInterviewCases } from "./web/js/data/rp-interviews.js";
+import { rpInterviewExtraCases } from "./web/js/data/rp-interviews-extra.js";
 
 const scrypt = promisify(scryptCallback);
 const root = path.dirname(fileURLToPath(import.meta.url));
@@ -18,10 +20,16 @@ const citizenRole = "Гражданин";
 const managementRoles = ["ГКА", "ЗГКА"];
 const careerLawExamRoles = ["Стажер КА", "Юрист", "Адвокат"];
 const careerLawExamSubjects = ["ak", "uk", "pk"];
+const careerLawyerJointCallsRequired = 2;
 const activityReportTypes = Object.freeze({
   call: "Вызов",
   bail: "Залог"
 });
+const activityReportCallRoles = new Set(["Адвокат", "Ст.Адвокат", "ЗГКА", "ГКА"]);
+const giveawayPointsPerReport = Object.freeze({ call: 1, bail: 2 });
+const rpCaseOfficerDepartments = new Set(["LSDP", "FIB", "LSSD", "USSS"]);
+const rpCaseQuestionCounts = Object.freeze([0, 3, 6, 12, 24, 48]);
+const careerRpPracticeCases = Object.freeze([...rpInterviewCases, ...rpInterviewExtraCases].slice(0, 3));
 const activityReportPhotoMaxBytes = 15 * 1024 * 1024;
 const auditTestNotificationTypes = Object.freeze({
   role: { title: "Тест: изменение должности", body: "Проверка уведомления кадрового аудита об изменении должности." },
@@ -30,6 +38,7 @@ const auditTestNotificationTypes = Object.freeze({
 });
 const portalPageRoutes = new Set([
   "/page/home",
+  "/page/career",
   "/page/memo",
   "/page/appeals",
   "/page/iski",
@@ -600,6 +609,7 @@ function createDatabase(dbPath) {
       report_type TEXT NOT NULL CHECK (report_type IN ('call','lawsuit','prosecutor_complaint','bail')),
       occurred_at TEXT NOT NULL,
       reference TEXT NOT NULL,
+      reference_url TEXT NOT NULL DEFAULT '',
       details TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
       decision TEXT NOT NULL DEFAULT '',
@@ -667,6 +677,14 @@ function createDatabase(dbPath) {
       completed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (user_id, stage_role, subject)
     );
+    CREATE TABLE IF NOT EXISTS career_path_progress (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      stage_role TEXT NOT NULL CHECK (stage_role IN ('Стажер КА','Юрист')),
+      started_at TEXT,
+      tutorial_seen_at TEXT,
+      laws_reviewed_at TEXT,
+      PRIMARY KEY (user_id, stage_role)
+    );
     CREATE TABLE IF NOT EXISTS attestations (
       id INTEGER PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id),
@@ -684,6 +702,37 @@ function createDatabase(dbPath) {
       completed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (user_id, case_id)
     );
+    CREATE TABLE IF NOT EXISTS rp_career_practice_completions (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      stage_role TEXT NOT NULL CHECK (stage_role IN ('Стажер КА','Юрист')),
+      case_id TEXT NOT NULL,
+      completed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, stage_role, case_id)
+    );
+    CREATE TABLE IF NOT EXISTS rp_career_practice_sessions (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      stage_role TEXT NOT NULL CHECK (stage_role IN ('Стажер КА','Юрист')),
+      case_id TEXT NOT NULL,
+      node_id TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS rp_custom_cases (
+      id INTEGER PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      source_details TEXT NOT NULL,
+      difficulty INTEGER NOT NULL CHECK (difficulty BETWEEN 1 AND 5),
+      officer_kindness INTEGER NOT NULL CHECK (officer_kindness BETWEEN 1 AND 5),
+      depth INTEGER NOT NULL CHECK (depth BETWEEN 1 AND 5),
+      scenario_json TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'private' CHECK (status IN ('private','pending','public','rejected')),
+      completed_at TEXT,
+      reviewed_by INTEGER REFERENCES users(id),
+      reviewed_at TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS rp_custom_cases_status_idx ON rp_custom_cases(status, id DESC);
+    CREATE INDEX IF NOT EXISTS rp_custom_cases_user_idx ON rp_custom_cases(user_id, id DESC);
     CREATE TABLE IF NOT EXISTS documents (
       id INTEGER PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id),
@@ -941,6 +990,7 @@ function createDatabase(dbPath) {
     }
   }
   for (const [table, column, definition] of [
+    ["activity_reports", "reference_url", "TEXT NOT NULL DEFAULT ''"],
     ["calendar_events", "archived_at", "TEXT"],
     ["calendar_events", "archive_run_id", "INTEGER REFERENCES weekly_reset_runs(id)"],
     ["absence_requests", "archived_at", "TEXT"],
@@ -1570,6 +1620,12 @@ function buildAttorneyRanking(db, period) {
       (SELECT COUNT(*) FROM applications a WHERE a.assigned_to = u.id
         AND a.type IN ('citizen_help','citizen_complaint') AND a.completed_at IS NOT NULL
           AND (? IS NULL OR julianday(a.completed_at) >= julianday(?))) AS cases_closed,
+      (SELECT COUNT(*) FROM activity_reports ar WHERE ar.user_id = u.id
+        AND ar.report_type = 'call' AND ar.status = 'approved'
+          AND (? IS NULL OR julianday(ar.created_at) >= julianday(?))) AS call_count,
+      (SELECT COUNT(*) FROM activity_reports ar WHERE ar.user_id = u.id
+        AND ar.report_type = 'bail' AND ar.status = 'approved'
+          AND (? IS NULL OR julianday(ar.created_at) >= julianday(?))) AS bail_count,
       (SELECT COUNT(DISTINCT h.task_id) FROM task_history h
         JOIN task_assignees ta ON ta.task_id = h.task_id
         WHERE ta.user_id = u.id AND h.to_status = 'completed'
@@ -1579,7 +1635,7 @@ function buildAttorneyRanking(db, period) {
     FROM users u LEFT JOIN lawyer_reviews r ON r.lawyer_id = u.id
       AND (? IS NULL OR julianday(r.created_at) >= julianday(?))
     WHERE u.status = 'active' AND u.role IN ('Адвокат', 'Ст.Адвокат')
-    GROUP BY u.id`).all(...Array(12).fill(periodStart))
+    GROUP BY u.id`).all(...Array(16).fill(periodStart))
     .map((attorney) => {
       const metrics = {
         documentsApproved: Number(attorney.document_count),
@@ -1594,6 +1650,8 @@ function buildAttorneyRanking(db, period) {
         cases_handled: Number(attorney.cases_handled),
         document_count: Number(attorney.document_count),
         lawsuit_count: Number(attorney.lawsuit_count),
+        calls: Number(attorney.call_count),
+        bails: Number(attorney.bail_count),
         completed_task_count: Number(attorney.completed_tasks),
         average_rating: Number(Number(attorney.average_rating).toFixed(1))
       };
@@ -1655,9 +1713,41 @@ export function applyGiveawayCommand(db, action, discordUserId) {
   }
 }
 
+function backfillCurrentWeekGiveawayReports(db, state, week) {
+  const markerKey = "giveaway_backfilled_week_start";
+  const marker = db.prepare("SELECT value FROM portal_settings WHERE key = ?").get(markerKey);
+  if (marker?.value === week.start) return;
+
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.prepare(`INSERT OR IGNORE INTO giveaway_report_eligibility (report_id,campaign_epoch,week_start)
+      SELECT r.id, ?, ? FROM activity_reports r
+      WHERE r.status = 'approved' AND r.report_type IN ('call','bail')
+        AND r.occurred_at >= ? AND r.occurred_at <= ?
+        AND NOT EXISTS (SELECT 1 FROM giveaway_report_eligibility e WHERE e.report_id = r.id)`)
+      .run(state.campaign_epoch, week.start, week.start, week.end);
+    db.prepare(`INSERT OR IGNORE INTO giveaway_point_entries
+      (report_id,user_id,report_type,points,campaign_epoch,week_start)
+      SELECT r.id,r.user_id,r.report_type,
+        CASE r.report_type WHEN 'call' THEN ? WHEN 'bail' THEN ? END, ?, ?
+      FROM activity_reports r JOIN giveaway_report_eligibility e ON e.report_id = r.id
+      WHERE r.status = 'approved' AND r.report_type IN ('call','bail')
+        AND e.campaign_epoch = ? AND e.week_start = ?`)
+      .run(giveawayPointsPerReport.call, giveawayPointsPerReport.bail,
+        state.campaign_epoch, week.start, state.campaign_epoch, week.start);
+    db.prepare(`INSERT INTO portal_settings (key,value) VALUES (?,?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(markerKey, week.start);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
 function getGiveawayLeaderboard(db) {
   const state = db.prepare("SELECT enabled, campaign_epoch, updated_at FROM giveaway_state WHERE id = 1").get();
   const week = getGiveawayWeekWindow();
+  backfillCurrentWeekGiveawayReports(db, state, week);
   const standings = db.prepare(`SELECT u.id AS user_id, u.display_name, u.role,
       COALESCE(SUM(p.points), 0) AS points,
       COALESCE(SUM(CASE WHEN p.report_type = 'call' THEN 1 ELSE 0 END), 0) AS calls,
@@ -1686,7 +1776,7 @@ function getGiveawayLeaderboard(db) {
     weekEnd: week.end,
     timeZone: "Europe/Moscow",
     prize: 300000,
-    pointsPerReport: { call: 1, bail: 2 },
+    pointsPerReport: giveawayPointsPerReport,
     totalPoints: standings.reduce((total, item) => total + item.points, 0),
     participantCount: standings.length,
     standings
@@ -1968,12 +2058,76 @@ function careerPracticeSubmitted(item) {
   return Boolean(data && typeof data === "object" && data.practiceSubmittedAt);
 }
 
-function getPromotionPracticeSlots(db, userId, stageRole, applicationId = 0) {
+function hasCareerLawBundle(data) {
+  return Array.isArray(data?.lawTests) &&
+    careerLawExamSubjects.every((subject) => data.lawTests.includes(subject));
+}
+
+function getCareerPathProgressRow(db, userId, stageRole) {
+  db.prepare(`INSERT OR IGNORE INTO career_path_progress (user_id, stage_role)
+    VALUES (?, ?)`).run(userId, stageRole);
+  return db.prepare(`SELECT started_at, tutorial_seen_at, laws_reviewed_at
+    FROM career_path_progress WHERE user_id = ? AND stage_role = ?`)
+    .get(userId, stageRole);
+}
+
+function getCareerLawPasses(db, userId, stageRole) {
+  return db.prepare(`SELECT subject FROM career_law_exam_passes
+    WHERE user_id = ? AND stage_role = ?`).all(userId, stageRole).map((item) => item.subject);
+}
+
+function requireNextCareerLawExam(db, user, subject) {
+  if (!promotionPracticeStages.includes(user.role)) return;
+  const path = getCareerPathProgressRow(db, user.id, user.role);
+  if (user.role === "Юрист" && !path.laws_reviewed_at) {
+    throw new HttpError(409, "Сначала изучите законодательство и отметьте это в разделе «Мой путь».");
+  }
+  const passedSubjects = getCareerLawPasses(db, user.id, user.role);
+  if (passedSubjects.includes(subject)) {
+    throw new HttpError(409, "Этот тест уже сдан на текущей ступени.");
+  }
+  const nextSubject = careerLawExamSubjects.find((item) => !passedSubjects.includes(item));
+  if (subject !== nextSubject) {
+    const labels = { ak: "АК", uk: "УК", pk: "ПК" };
+    throw new HttpError(409, `Сначала завершите следующий доступный тест: ${labels[nextSubject] || "по порядку"}.`);
+  }
+}
+
+function requireCareerPracticeUnlocked(db, user) {
+  if (!promotionPracticeStages.includes(user.role)) return;
+  const path = getCareerPathProgressRow(db, user.id, user.role);
+  if (user.role === "Юрист" && !path.laws_reviewed_at) {
+    throw new HttpError(409, "Сначала изучите законодательство в разделе «Мой путь».");
+  }
+  const passedSubjects = getCareerLawPasses(db, user.id, user.role);
+  if (!careerLawExamSubjects.every((subject) => passedSubjects.includes(subject))) {
+    throw new HttpError(409, "Сначала последовательно сдайте тесты по АК, УК и ПК.");
+  }
+}
+
+function getCareerRpPracticeState(db, userId, stageRole) {
+  const caseIds = careerRpPracticeCases.map((item) => item.id);
+  const completedCaseIds = db.prepare(`SELECT case_id FROM rp_career_practice_completions
+    WHERE user_id = ? AND stage_role = ?`).all(userId, stageRole)
+    .map((item) => item.case_id).filter((caseId) => caseIds.includes(caseId));
+  const requiredCount = stageRole === "Стажер КА" ? 1 : 3;
+  return {
+    cases: careerRpPracticeCases.map(({ id, title, subtitle }) => ({ id, title, subtitle })),
+    caseIds,
+    completedCaseIds,
+    requiredCount
+  };
+}
+
+function getPromotionPracticeSlots(db, userId, stageRole, applicationId = 0, { lawBundle = false } = {}) {
   const saved = new Map(db.prepare(`SELECT slot_no, partner_name, evidence_url, image_name,
       image_type, image_content IS NOT NULL AS has_image, skipped, updated_at
     FROM promotion_practice_slots WHERE user_id = ? AND stage_role = ?`)
     .all(userId, stageRole).map((slot) => [Number(slot.slot_no), slot]));
-  return Array.from({ length: 6 }, (_, index) => {
+  const slotCount = lawBundle
+    ? stageRole === "Юрист" ? careerLawyerJointCallsRequired : 0
+    : 6;
+  return Array.from({ length: slotCount }, (_, index) => {
     const slotNo = index + 1;
     const slot = saved.get(slotNo);
     const hasImage = Boolean(Number(slot?.has_image));
@@ -1994,9 +2148,14 @@ function getPromotionPracticeSlots(db, userId, stageRole, applicationId = 0) {
   });
 }
 
-function promotionPracticeIsComplete(db, userId, stageRole) {
+function promotionPracticeIsComplete(db, userId, stageRole, { lawBundle = false } = {}) {
   if (!promotionPracticeStages.includes(stageRole)) return false;
-  return getPromotionPracticeSlots(db, userId, stageRole).every((slot, index) => {
+  if (lawBundle && stageRole === "Стажер КА") return true;
+  return getPromotionPracticeSlots(db, userId, stageRole, 0, { lawBundle }).every((slot, index) => {
+    if (lawBundle) {
+      return !slot.skipped && slot.partnerName.trim().length >= 2 &&
+        Boolean(slot.evidenceUrl || slot.hasImage);
+    }
     if (slot.skipped) return index >= 3;
     return slot.partnerName.trim().length >= 2 && Boolean(slot.evidenceUrl || slot.hasImage);
   });
@@ -2007,8 +2166,7 @@ function getCareerPromotionReadiness(db, item) {
     return { ready: false, reason: "Сначала сдайте обязательные тесты текущего этапа." };
   }
   const data = parseStoredJson(item.promotion_data_json, "отчёт о повышении");
-  const lawBundle = Array.isArray(data.lawTests) &&
-    careerLawExamSubjects.every((subject) => data.lawTests.includes(subject));
+  const lawBundle = hasCareerLawBundle(data);
   const testsPassed = lawBundle
     ? careerLawExamSubjects.every((subject) => db.prepare(`SELECT 1 FROM career_law_exam_passes
         WHERE user_id = ? AND stage_role = ? AND subject = ?`).get(item.user_id, item.stage_role, subject))
@@ -2019,6 +2177,22 @@ function getCareerPromotionReadiness(db, item) {
     return { ready: false, reason: "Сначала подтвердите прохождение обязательной лекции." };
   }
   if (item.stage_role === "Юрист") {
+    if (lawBundle) {
+      const practice = getCareerRpPracticeState(db, item.user_id, item.stage_role);
+      if (practice.completedCaseIds.length < practice.requiredCount) {
+        return { ready: false, reason: `Пройдите три базовых AI Case: ${practice.completedCaseIds.length}/3.` };
+      }
+      const evidenceCount = getPromotionPracticeSlots(db, item.user_id, item.stage_role, 0, { lawBundle })
+        .filter((slot) => !slot.skipped && slot.partnerName.trim().length >= 2 &&
+          Boolean(slot.evidenceUrl || slot.hasImage)).length;
+      if (evidenceCount < careerLawyerJointCallsRequired) {
+        return {
+          ready: false,
+          reason: `Прикрепите два подтверждения совместных вызовов с адвокатом: ${evidenceCount}/${careerLawyerJointCallsRequired}.`
+        };
+      }
+      return { ready: true, reason: "" };
+    }
     const requiredCalls = Number(db.prepare("SELECT lawyer_calls_required FROM promotion_settings WHERE id = 1")
       .get()?.lawyer_calls_required || 0);
     if (Number(item.career_flow) === 1 && item.interview_status !== "ready") {
@@ -2026,6 +2200,11 @@ function getCareerPromotionReadiness(db, item) {
     }
     if (!requiredCalls || Number(data.completedCalls) < requiredCalls || !data.trialLawsuitReference) {
       return { ready: false, reason: "Сначала выполните норму вызовов и укажите пробный иск." };
+    }
+  } else if (item.stage_role === "Стажер КА" && lawBundle) {
+    const practice = getCareerRpPracticeState(db, item.user_id, item.stage_role);
+    if (practice.completedCaseIds.length < practice.requiredCount) {
+      return { ready: false, reason: `Пройдите один базовый AI Case: ${practice.completedCaseIds.length}/1.` };
     }
   }
   return { ready: true, reason: "" };
@@ -2117,6 +2296,112 @@ export function isAssistantRequestAllowed(question) {
   return text.length >= 3;
 }
 
+function parseGeneratedRpCustomCase(answer, expectedQuestionCount) {
+  const jsonText = String(answer || "")
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  let generated;
+  try {
+    generated = JSON.parse(jsonText);
+  } catch {
+    throw new HttpError(502, "ИИ вернул кейс в некорректном формате. Попробуйте создать его ещё раз.");
+  }
+  const text = (value, min, max) => typeof value === "string" && value.trim().length >= min &&
+    value.trim().length <= max ? value.trim() : "";
+  const title = text(generated.title, 3, 100);
+  const subtitle = text(generated.subtitle, 3, 240);
+  const copName = text(generated.copName, 2, 80);
+  const copDept = text(generated.copDept, 1, 16);
+  if (!title || !subtitle || !copName || !rpCaseOfficerDepartments.has(copDept) ||
+      !Array.isArray(generated.questions) || generated.questions.length !== expectedQuestionCount) {
+    throw new HttpError(502, "ИИ вернул неполный кейс. Проверьте запрос и попробуйте ещё раз.");
+  }
+
+  const questions = generated.questions.map((question) => {
+    const prompt = text(question?.text, 5, 600);
+    const explanation = text(question?.explanation, 5, 600);
+    if (!prompt || !explanation || !Array.isArray(question.options) || question.options.length !== 3 ||
+        !Number.isInteger(question.correctIndex) || question.correctIndex < 0 || question.correctIndex > 2) {
+      throw new HttpError(502, "ИИ вернул вопрос с некорректными вариантами ответа.");
+    }
+    const options = question.options.map((option) => text(option, 2, 300));
+    if (options.some((option) => !option)) {
+      throw new HttpError(502, "ИИ вернул пустой вариант ответа.");
+    }
+    return { text: prompt, explanation, options, correctIndex: question.correctIndex };
+  });
+  const nodes = {};
+  questions.forEach((question, index) => {
+    const next = index === questions.length - 1 ? "result" : `question-${index + 1}`;
+    nodes[`question-${index}`] = {
+      copText: question.text,
+      choices: question.options.map((option, answerIndex) => ({
+        text: option,
+        delta: answerIndex === question.correctIndex ? 5 : -4,
+        debrief: answerIndex === question.correctIndex
+          ? question.explanation
+          : `Ответ неверный. ${question.explanation}`,
+        next
+      }))
+    };
+  });
+  nodes.result = {
+    copText: "Разговор завершён. Оцените результат по тому, удалось ли защитить доверителя.",
+    isEnd: true,
+    won: true
+  };
+  return {
+    title,
+    subtitle,
+    copName,
+    copDept,
+    startNode: "question-0",
+    nodes,
+    questions
+  };
+}
+
+function presentRpCustomCase(row) {
+  let stored;
+  try {
+    stored = JSON.parse(row.scenario_json);
+  } catch {
+    throw new Error(`Сохранённый AI Case №${row.id} повреждён.`);
+  }
+  const { questions, ...scenario } = stored;
+  return {
+    id: `custom-${Number(row.id)}`,
+    ...scenario,
+    custom: true,
+    ownerId: Number(row.user_id),
+    status: row.status,
+    completed: Boolean(row.completed_at),
+    questions
+  };
+}
+
+function reviewRpCustomCaseFromDiscord(db, discordUserId, memberRoleIds, roleIds, caseId, status) {
+  const reviewer = db.prepare(`SELECT id, role, status, full_gka_access FROM users
+    WHERE discord_id = ?`).get(String(discordUserId || ""));
+  if (!reviewer || reviewer.status !== "active") {
+    throw new Error("Привяжите Discord к активному аккаунту руководства на портале.");
+  }
+  const expectedRoleId = roleIds[reviewer.role];
+  if (!expectedRoleId || !memberRoleIds.includes(expectedRoleId)) {
+    throw new Error("Роль Discord не совпадает с должностью аккаунта портала.");
+  }
+  if (!hasGkaAccess(reviewer)) throw new Error("Публикации AI Case может одобрять только ГКА.");
+  if (!["approved", "rejected"].includes(status)) throw new Error("Некорректное решение по AI Case.");
+  const result = db.prepare(`UPDATE rp_custom_cases SET status = ?, reviewed_by = ?,
+    reviewed_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'`)
+    .run(status === "approved" ? "public" : "rejected", reviewer.id, caseId);
+  if (result.changes !== 1) throw new Error("Заявка на публикацию уже рассмотрена или не найдена.");
+  return status === "approved"
+    ? `AI Case №${caseId} опубликован в общей библиотеке.`
+    : `Публикация AI Case №${caseId} отклонена. Автор сможет пройти кейс ещё раз и отправить его повторно.`;
+}
+
 export function parseGeneratedLawsuitDocument(answer) {
   if (typeof answer !== "string") return null;
   const jsonText = answer
@@ -2168,6 +2453,7 @@ export function parseGeneratedLawsuitDocument(answer) {
   };
 }
 
+const lawsuitAssistantRedirect = "Система исков предназначена только для подготовки исковых документов. По вопросам законодательства и юридической консультации используйте ИИ-помощник в разделе «Законодательство».";
 
 export function createPortalServer(options = {}) {
   const dbPath = options.dbPath || process.env.DB_PATH || path.join(root, "data", "portal.sqlite");
@@ -2183,6 +2469,7 @@ export function createPortalServer(options = {}) {
     ?? "";
   webhooks.calls ??= options.webhookCalls ?? process.env.DISCORD_WEBHOOK_CALLS ?? "";
   webhooks.bails ??= options.webhookBails ?? process.env.DISCORD_WEBHOOK_BAILS ?? "";
+  webhooks.casePublication ??= options.webhookCasePublication ?? process.env.DISCORD_WEBHOOK_CASE_PUBLICATION ?? "";
   webhooks.weeklyReports ??= options.webhookWeeklyReports ?? process.env.DISCORD_WEBHOOK_WEEKLY_REPORTS ?? "";
   webhooks.logs ??= options.webhookLogs ?? process.env.DISCORD_WEBHOOK_LOGS ?? "";
   webhooks.health ??= options.webhookHealth ?? process.env.DISCORD_WEBHOOK_HEALTH ?? "";
@@ -3055,24 +3342,15 @@ export function createPortalServer(options = {}) {
             .sort((left, right) => left.name.localeCompare(right.name, "ru"))
             .map((law) => `### ПОЛНЫЙ ТЕКСТ: ${law.name}\n${law.text}`)
             .join("\n\n");
-          const systemInstruction = `Ты — официальный ИИ-ассистент и юридический консультант Коллегии Адвокатов штата San Andreas (сервер Mirror).
-Твоя единственная задача — помогать адвокатам, стажерам и гражданам разбираться в законодательной базе и составлять официальные юридические документы.
-Отвечай только на вопросы о законодательстве штата San Andreas, процессуальных действиях и юридических документах.
-На оффтоп ответь кратким отказом и напоминанием, что помогаешь только по законам штата San Andreas.
-Разговорные RP-формулировки типа «кавулили», «задержали», «под статью», «что говорить» считай юридическим описанием ситуации. Не отказывай только из-за непрофессиональной речи или отсутствия точного названия статьи.
-Используй только приложенную законодательную базу. Не придумывай номера статей. Если точной нормы нет, прямо скажи: «В загруженной законодательной базе нет точной нормы по данному вопросу. Рекомендую уточнить информацию у Руководства Коллегии Адвокатов (ГКА/ЗГКА).»
-Пиши по делу, деловым языком. В юридическом документе заменяй неизвестные данные на [Указать ...], не выдумывая факты.
-${mode === "lawsuit"
-  ? "Сначала проанализируй ситуацию и сверь каждый возможный состав нарушения с полным текстом загруженных законов. В описательной части после изложения фактов добавь правовую оценку: для каждого предполагаемого нарушения укажи точное название нормативного акта (например, Уголовный кодекс, Процессуальный кодекс или Административный кодекс), номер статьи и часть/пункт, только если они прямо есть в базе, а также кратко объясни, какие именно описанные действия могут нарушать эту норму. Повтори проверенные ссылки в поле articles. Не подбирай статью только по номеру, не путай кодексы и не называй действия незаконными или доказанными без достаточных фактов; если точной применимой нормы нет, прямо укажи это и не выдумывай ссылку. Затем составь просительную часть адвокатского документа."
-  : "Проанализируй прямой смысл вопроса пользователя, найди в полной базе все применимые нормы и статьи, объясни практический ответ понятным текстом и укажи названия документов и номера статей."}
-${mode === "lawsuit"
-  ? `Для режима составления документа верни СТРОГО JSON без Markdown и пояснений. JSON должен содержать: template (lawsuit-supreme, lawsuit-federal, motion-supreme, motion-federal, rehabilitation или appeal), title, motionType, motionSubject, claimant, claimantId, claimantPhone, claimantEmail, passport, repName, repId, repLicense, defendant, organization, badge, facts, claims, evidence, feeProof, convictionDate, articles, feeReady, passportCopy, otherDocs, filingDate, signature. Определи подходящий шаблон по ситуации: иск — lawsuit, ходатайство или возражение — motion, реабилитация — rehabilitation, апелляция — appeal. Для Верховного суда используй supreme, для окружного — federal. Не выдумывай отсутствующие данные: используй пустую строку "" для неизвестных полей. В поле facts напиши официальный текст описательной части от первого лица заявителя/истца («Я…»), без инструкций и подстановочных пояснений: хронология событий, точное лицо ответчика и основание вызова или задержания; затем отдельный абзац «Правовая оценка» с проверенными ссылками вида «статья X, часть/пункт Y [точное название кодекса/закона]» и краткой связью каждой нормы с конкретным фактом. Указывай только нормы, подтверждаемые загруженным текстом; различай Уголовный, Процессуальный и Административный кодексы, не придумывай номера, части или выводы о виновности. В поле articles перечисли те же точные нормы и их названия; если точной нормы нет, укажи это без выдуманной ссылки. В поле claims укажи только самостоятельную просительную часть суда, каждое требование с новой строки. Тайм-коды сохраняй в evidence или facts, если они были указаны пользователем.`
-  : ""}
-Всегда отвечай на сам вопрос пользователя; не возвращай просто строки поиска и не ограничивайся цитатами из закона.
-Ответ дай кратко: максимум 8 пунктов и максимум 700 слов. Не повторяй вступление и не перечисляй очевидные общие советы. На ответах о задержании укажи только необходимые действия, права и применимые статьи.
-Не показывай Markdown-маркеры в ответе: не используй решётки, двойные звездочки и тройные кавычки-кода для оформления.
-Пиши заголовки обычными строками, нумерованные пункты как «1.», «2.» и короткие пункты как обычный текст.
-Не используй таблицы и блоки кода.
+          const systemInstruction = mode === "lawsuit"
+            ? `Ты — помощник только для составления исковых документов в системе исков Коллегии Адвокатов.
+Не отвечай на юридические вопросы и не давай консультаций, объяснений законов, статей или действий. Если пользователь задаёт вопрос или просит консультацию, не анализируй и не отвечай по существу: верни только эту фразу без JSON и дополнительных пояснений: «${lawsuitAssistantRedirect}»
+Если пользователь описывает обстоятельства дела, воспринимай это как просьбу подготовить проект иска. Составляй документ только по предоставленным фактам. Используй исключительно приложенную законодательную базу; не придумывай факты, статьи, части и пункты. Неизвестные данные оставляй пустыми. Если точной нормы нет, укажи это в правовой оценке без выдуманной ссылки.
+Для запроса на подготовку документа верни СТРОГО JSON без Markdown и пояснений. JSON должен содержать: template (lawsuit-supreme, lawsuit-federal, motion-supreme, motion-federal, rehabilitation или appeal), title, motionType, motionSubject, claimant, claimantId, claimantPhone, claimantEmail, passport, repName, repId, repLicense, defendant, organization, badge, facts, claims, evidence, feeProof, convictionDate, articles, feeReady, passportCopy, otherDocs, filingDate, signature. Определи подходящий шаблон по ситуации: иск — lawsuit, ходатайство или возражение — motion, реабилитация — rehabilitation, апелляция — appeal. Для Верховного суда используй supreme, для окружного — federal. В поле facts напиши официальный текст описательной части от первого лица заявителя/истца («Я…»), затем правовую оценку с проверенными ссылками на нормы и связью каждой нормы с фактами. Различай Уголовный, Процессуальный и Административный кодексы. В поле articles перечисли только подтверждённые базой нормы и их названия. В поле claims укажи только требования к суду, каждое с новой строки. Тайм-коды сохраняй в evidence или facts.`
+            : `Ты — юридический консультант Коллегии Адвокатов штата San Andreas (сервер Mirror).
+Отвечай только на вопросы о законодательстве штата San Andreas и процессуальных действиях. На оффтоп ответь кратким отказом.
+Разговорные RP-формулировки типа «кавулили», «задержали», «под статью», «что говорить» считай юридическим описанием ситуации. Используй только приложенную законодательную базу и не придумывай номера статей. Если точной нормы нет, прямо скажи: «В загруженной законодательной базе нет точной нормы по данному вопросу. Рекомендую уточнить информацию у Руководства Коллегии Адвокатов (ГКА/ЗГКА).»
+Проанализируй вопрос пользователя, найди применимые нормы и объясни практический ответ кратко и по делу. Не показывай Markdown-маркеры, не используй таблицы и блоки кода.
 Ниже передана полная загруженная законодательная база штата.`;
           const model = String(options.geminiModel ?? process.env.GEMINI_MODEL ?? "gemini-3.5-flash-lite").trim();
           const fallbackModel = String(options.geminiFallbackModel ?? process.env.GEMINI_FALLBACK_MODEL ?? "gemini-2.5-flash").trim();
@@ -3136,7 +3414,7 @@ ${mode === "lawsuit"
             .trim();
           if (!answer) throw new HttpError(502, "ИИ-сервис не вернул текст ответа.");
           const exactRefusal = "Запрос отклонен. Я консультирую исключительно по законодательной базе штата San Andreas и составлению адвокатских документов.";
-          if (answer === exactRefusal) {
+          if (mode !== "lawsuit" && answer === exactRefusal) {
             const legalHint = /(?:стать[ияеию]|ук|пк|ак|закон|адвокат|прокуратур|суд|задерж|кавул|кинули|подозре|обвин|иск|жалоб|дорожн|трудов)/iu.test(question);
             if (legalHint) {
               const retryModel = modelCandidates.find((candidate) => candidate !== model) || model;
@@ -3167,13 +3445,98 @@ ${mode === "lawsuit"
           let document = null;
           if (mode === "lawsuit") {
             document = parseGeneratedLawsuitDocument(answer);
+            if (!document?.title.trim() || !document?.facts.trim() || !document?.claims.trim()) {
+              document = null;
+              applyAiCooldown(session.user_id);
+              return sendJson(res, 200, {
+                answer: lawsuitAssistantRedirect,
+                mode,
+                document: null,
+                cooldownSeconds: 60
+              });
+            }
           }
           applyAiCooldown(session.user_id);
           return sendJson(res, 200, { answer, mode, document, cooldownSeconds: 60 });
         }
 
+        if (pathname === "/api/rp-career-practice" && req.method === "GET") {
+          if (!promotionPracticeStages.includes(user.role)) {
+            throw new HttpError(403, "Карьерная AI-практика доступна стажёрам КА и юристам.");
+          }
+          requireCareerPracticeUnlocked(db, user);
+          const progress = getCareerRpPracticeState(db, user.id, user.role);
+          return sendJson(res, 200, {
+            stageRole: user.role,
+            ...progress
+          });
+        }
+
+        if (pathname === "/api/rp-career-practice/start" && req.method === "POST") {
+          if (!promotionPracticeStages.includes(user.role)) {
+            throw new HttpError(403, "Карьерная AI-практика доступна стажёрам КА и юристам.");
+          }
+          requireCareerPracticeUnlocked(db, user);
+          const body = requireObject(await readJson(req));
+          const caseId = String(body.caseId || "");
+          const scenario = careerRpPracticeCases.find((item) => item.id === caseId);
+          if (!scenario) throw new HttpError(404, "Карьерный RP-кейс не найден.");
+          if (getCareerRpPracticeState(db, user.id, user.role).completedCaseIds.includes(caseId)) {
+            throw new HttpError(409, "Этот карьерный RP-кейс уже пройден.");
+          }
+          db.prepare(`INSERT INTO rp_career_practice_sessions (user_id, stage_role, case_id, node_id)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET stage_role = excluded.stage_role,
+              case_id = excluded.case_id, node_id = excluded.node_id, updated_at = CURRENT_TIMESTAMP`)
+            .run(user.id, user.role, caseId, scenario.startNode);
+          return sendJson(res, 200, { started: true });
+        }
+
+        if (pathname === "/api/rp-career-practice/answer" && req.method === "POST") {
+          if (!promotionPracticeStages.includes(user.role)) {
+            throw new HttpError(403, "Карьерная AI-практика доступна стажёрам КА и юристам.");
+          }
+          requireCareerPracticeUnlocked(db, user);
+          const body = requireObject(await readJson(req));
+          const caseId = String(body.caseId || "");
+          const choiceIndex = body.choiceIndex;
+          const session = db.prepare(`SELECT stage_role, case_id, node_id FROM rp_career_practice_sessions
+            WHERE user_id = ?`).get(user.id);
+          if (!session || session.stage_role !== user.role || session.case_id !== caseId) {
+            throw new HttpError(409, "Сначала начните этот карьерный RP-кейс.");
+          }
+          const scenario = careerRpPracticeCases.find((item) => item.id === caseId);
+          const currentNode = scenario?.nodes?.[session.node_id];
+          const choice = currentNode?.choices?.[choiceIndex];
+          const nextNode = choice ? scenario.nodes[choice.next] : null;
+          if (!Number.isInteger(choiceIndex) || !nextNode) {
+            throw new HttpError(400, "Выберите доступный ответ в карьерном RP-кейсе.");
+          }
+          const finished = Boolean(nextNode.isEnd);
+          const completed = finished && nextNode.won === true;
+          if (finished) {
+            db.prepare("DELETE FROM rp_career_practice_sessions WHERE user_id = ?").run(user.id);
+            if (completed) {
+              db.prepare(`INSERT OR IGNORE INTO rp_career_practice_completions
+                (user_id, stage_role, case_id) VALUES (?, ?, ?)`).run(user.id, user.role, caseId);
+            }
+          } else {
+            db.prepare(`UPDATE rp_career_practice_sessions SET node_id = ?, updated_at = CURRENT_TIMESTAMP
+              WHERE user_id = ?`).run(choice.next, user.id);
+          }
+          const progress = getCareerRpPracticeState(db, user.id, user.role);
+          return sendJson(res, 200, {
+            finished,
+            completed,
+            completedCaseIds: progress.completedCaseIds
+          });
+        }
+
         if (pathname === "/api/rp-practice/completions" && req.method === "GET") {
           if (user.role === citizenRole) throw new HttpError(403, "RP-практика доступна только сотрудникам Коллегии.");
+          if (promotionPracticeStages.includes(user.role)) {
+            throw new HttpError(403, "Сначала завершите карьерный путь; общая RP-практика откроется после повышения до адвоката.");
+          }
           const completedCaseIds = db.prepare(
             "SELECT case_id FROM rp_practice_completions WHERE user_id = ? ORDER BY completed_at"
           ).all(user.id).map((row) => row.case_id);
@@ -3182,6 +3545,9 @@ ${mode === "lawsuit"
 
         if (pathname === "/api/rp-practice/answer" && req.method === "POST") {
           if (user.role === citizenRole) throw new HttpError(403, "RP-практика доступна только сотрудникам Коллегии.");
+          if (promotionPracticeStages.includes(user.role)) {
+            throw new HttpError(403, "Сначала завершите карьерный путь; общая RP-практика откроется после повышения до адвоката.");
+          }
           const body = requireObject(await readJson(req));
           const caseId = String(body.caseId || "").trim();
           const answerIndex = body.answerIndex;
@@ -3204,6 +3570,182 @@ ${mode === "lawsuit"
             completed: completed || correct,
             explanation: correct ? question.explanation : "Ответ неверный. Попробуйте выбрать другой вариант."
           });
+        }
+
+        if (pathname === "/api/rp-custom-cases" && req.method === "GET") {
+          if (user.role === citizenRole) throw new HttpError(403, "AI Case доступен только сотрудникам Коллегии.");
+          if (promotionPracticeStages.includes(user.role)) {
+            throw new HttpError(403, "Сначала завершите карьерный путь; пользовательские AI Case откроются после повышения до адвоката.");
+          }
+          const cases = db.prepare(`SELECT c.*, u.display_name AS owner_name
+            FROM rp_custom_cases c JOIN users u ON u.id = c.user_id
+            WHERE c.status = 'public' OR c.user_id = ?
+            ORDER BY CASE c.status WHEN 'public' THEN 0 ELSE 1 END, c.id DESC`)
+            .all(user.id)
+            .map((row) => ({ ...presentRpCustomCase(row), ownerName: row.owner_name }));
+          return sendJson(res, 200, { cases });
+        }
+
+        if (pathname === "/api/rp-custom-cases" && req.method === "POST") {
+          if (user.role === citizenRole) throw new HttpError(403, "Создавать AI Case могут только сотрудники Коллегии.");
+          if (promotionPracticeStages.includes(user.role)) {
+            throw new HttpError(403, "Стажёрам КА и юристам доступны только базовые карьерные AI-практики.");
+          }
+          const body = requireObject(await readJson(req));
+          const sourceDetails = String(body.details || "").trim();
+          const difficulty = Number(body.difficulty);
+          const officerKindness = Number(body.officerKindness);
+          const depth = Number(body.depth);
+          if (sourceDetails.length < 10 || sourceDetails.length > 1500 ||
+              !Number.isInteger(difficulty) || difficulty < 1 || difficulty > 5 ||
+              !Number.isInteger(officerKindness) || officerKindness < 1 || officerKindness > 5 ||
+              !Number.isInteger(depth) || depth < 1 || depth > 5) {
+            throw new HttpError(400, "Опишите ситуацию (10–1500 символов) и задайте три уровня от 1 до 5.");
+          }
+          const geminiKey = String(options.geminiApiKey ?? process.env.GEMINI_API_KEY ?? "").trim();
+          if (!geminiKey) throw new HttpError(503, "ИИ-сервис не настроен. Добавьте ключ сервера.");
+          const cooldownSeconds = consumeAiCooldown(session.user_id);
+          if (cooldownSeconds) throw new HttpError(429, `Повторный запрос доступен через ${cooldownSeconds} с.`);
+          const expectedQuestionCount = rpCaseQuestionCounts[depth];
+          const examples = [...rpInterviewCases, ...rpInterviewExtraCases].slice(0, 8).map((scenario) => {
+            const first = scenario.nodes[scenario.startNode];
+            return `${scenario.title}: ${first?.copText || scenario.subtitle}`;
+          }).join("\n");
+          const prompt = `Составь один игровой AI Case для тренировки адвоката в RP.
+Основа ситуации пользователя: ${sourceDetails}
+Сложность: ${difficulty}/5; задаёт сложность ситуации и правильных решений.
+Доброта сотрудника: ${officerKindness}/5 (1 — грубый и несговорчивый, 5 — доброжелательный).
+Углублённое понимание дела: ${depth}/5; по нему определяется число вопросов — строго ${expectedQuestionCount}. Учитывай также тонкость вопросов и юридических деталей.
+Выбери ведомство строго из LSDP, FIB, LSSD, USSS. Не придумывай ссылки и номера статей.
+Примеры тона существующей базы:
+${examples}
+Верни только JSON: {"title":"...","subtitle":"...","copName":"...","copDept":"LSDP|FIB|LSSD|USSS","questions":[{"text":"реплика госслужащего","options":["ответ 1","ответ 2","ответ 3"],"correctIndex":0,"explanation":"почему правильный вариант лучше"}]}.
+Нужно ровно ${expectedQuestionCount} вопросов, ровно 3 ответа в каждом, один лучший ответ. Вопросы должны образовывать последовательный разговор, не повторяться. Все строки на русском языке.`;
+          const model = String(options.geminiModel ?? process.env.GEMINI_MODEL ?? "gemini-3.5-flash-lite").trim();
+          let generationResponse;
+          try {
+            generationResponse = await (options.geminiFetch || globalThis.fetch)(
+              `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+              {
+                method: "POST",
+                headers: { "content-type": "application/json", "x-goog-api-key": geminiKey },
+                body: JSON.stringify({
+                  systemInstruction: {
+                    parts: [{ text: "Ты создаёшь только безопасные учебные RP-диалоги. Никогда не выходи за заданную JSON-схему." }]
+                  },
+                  contents: [{ role: "user", parts: [{ text: prompt }] }],
+                  generationConfig: { temperature: 0.6, maxOutputTokens: Math.min(16000, expectedQuestionCount * 320) }
+                }),
+                signal: AbortSignal.timeout(60000)
+              }
+            );
+          } catch {
+            throw new HttpError(502, "Не удалось связаться с ИИ-сервисом. Попробуйте позже.");
+          }
+          const responseBody = await generationResponse.json().catch(() => ({}));
+          if (!generationResponse.ok) {
+            throw new HttpError(502, "ИИ-сервис не смог создать кейс. Попробуйте позже.");
+          }
+          const answer = (responseBody.candidates?.[0]?.content?.parts || [])
+            .map((part) => typeof part.text === "string" ? part.text : "")
+            .filter(Boolean)
+            .join("\n")
+            .trim();
+          const scenario = parseGeneratedRpCustomCase(answer, expectedQuestionCount);
+          scenario.difficulty = difficulty;
+          scenario.officerKindness = officerKindness;
+          scenario.depth = depth;
+          const created = db.prepare(`INSERT INTO rp_custom_cases
+            (user_id,title,source_details,difficulty,officer_kindness,depth,scenario_json)
+            VALUES (?,?,?,?,?,?,?)`)
+            .run(user.id, scenario.title, sourceDetails, difficulty, officerKindness, depth, JSON.stringify(scenario));
+          applyAiCooldown(session.user_id);
+          const row = db.prepare("SELECT * FROM rp_custom_cases WHERE id = ?").get(Number(created.lastInsertRowid));
+          return sendJson(res, 201, { case: presentRpCustomCase(row) });
+        }
+
+        const rpCustomCaseRoute = pathname.match(/^\/api\/rp-custom-cases\/(\d+)\/(complete|publish)$/);
+        if (rpCustomCaseRoute && req.method === "POST") {
+          if (user.role === citizenRole) throw new HttpError(403, "AI Case доступен только сотрудникам Коллегии.");
+          if (promotionPracticeStages.includes(user.role)) {
+            throw new HttpError(403, "Сначала завершите карьерный путь; пользовательские AI Case откроются после повышения до адвоката.");
+          }
+          const caseId = Number(rpCustomCaseRoute[1]);
+          const action = rpCustomCaseRoute[2];
+          const customCase = db.prepare("SELECT * FROM rp_custom_cases WHERE id = ?").get(caseId);
+          if (!customCase) throw new HttpError(404, "Пользовательский AI Case не найден.");
+          if (Number(customCase.user_id) !== Number(user.id)) {
+            throw new HttpError(403, "Управлять своим AI Case может только его автор.");
+          }
+          if (action === "publish" && promotionPracticeStages.includes(user.role)) {
+            throw new HttpError(403, "Стажёры КА и юристы не могут публиковать пользовательские AI Case.");
+          }
+          if (action === "complete") {
+            db.prepare(`UPDATE rp_custom_cases SET completed_at = COALESCE(completed_at, CURRENT_TIMESTAMP)
+              WHERE id = ?`).run(caseId);
+            return sendJson(res, 200, { completed: true });
+          }
+          if (!customCase.completed_at) throw new HttpError(409, "Сначала пройдите этот кейс до конца.");
+          if (customCase.status === "pending") throw new HttpError(409, "Кейс уже ожидает решения ГКА.");
+          if (customCase.status === "public") throw new HttpError(409, "Кейс уже опубликован.");
+          if (!isDiscordWebhookUrl(webhooks.casePublication) || !discord.botToken) {
+            throw new HttpError(503, "Настройте новый DISCORD_WEBHOOK_CASE_PUBLICATION и Discord-бота для согласования AI Case.");
+          }
+          db.prepare("UPDATE rp_custom_cases SET status = 'pending' WHERE id = ?").run(caseId);
+          try {
+            const webhookResponse = await discordFetch(webhooks.casePublication, {
+              method: "GET",
+              signal: AbortSignal.timeout(10000)
+            });
+            if (!webhookResponse.ok) throw new Error("webhook lookup failed");
+            const webhookInfo = await webhookResponse.json();
+            if (!/^\d{15,22}$/.test(String(webhookInfo.channel_id || "")) ||
+                (discord.guildId && webhookInfo.guild_id !== discord.guildId)) {
+              throw new Error("webhook channel is not in the configured guild");
+            }
+            const attachmentJson = JSON.stringify({
+              caseId,
+              title: customCase.title,
+              sourceDetails: customCase.source_details,
+              difficulty: customCase.difficulty,
+              officerKindness: customCase.officer_kindness,
+              depth: customCase.depth,
+              scenario: JSON.parse(customCase.scenario_json)
+            }, null, 2);
+            const form = new FormData();
+            form.append("payload_json", JSON.stringify({
+              content: `Новый AI Case №${caseId} от ${user.display_name}. Полный список вопросов и ответов приложен в JSON.`,
+              embeds: [{
+                title: customCase.title,
+                description: `Сложность: ${customCase.difficulty}/5 · Доброта сотрудника: ${customCase.officer_kindness}/5 · Глубина: ${customCase.depth}/5\nЗапрошено ${rpCaseQuestionCounts[customCase.depth]} вопросов.\nАвтор: ${user.display_name}`,
+                color: 15844367
+              }],
+              components: [{
+                type: 1,
+                components: [
+                  { type: 2, style: 3, label: "Разрешить", custom_id: `portal:rp-case-review:${caseId}:approved` },
+                  { type: 2, style: 4, label: "Отклонить", custom_id: `portal:rp-case-review:${caseId}:rejected` }
+                ]
+              }],
+              allowed_mentions: { parse: [] }
+            }));
+            form.append("files[0]", new Blob([attachmentJson], { type: "application/json" }), `ai-case-${caseId}.json`);
+            const messageResponse = await discordFetch(
+              `https://discord.com/api/v10/channels/${webhookInfo.channel_id}/messages`,
+              {
+                method: "POST",
+                headers: { authorization: `Bot ${discord.botToken}` },
+                body: form,
+                signal: AbortSignal.timeout(15000)
+              }
+            );
+            if (!messageResponse.ok) throw new Error(`message send failed (${messageResponse.status})`);
+          } catch {
+            db.prepare("UPDATE rp_custom_cases SET status = 'private' WHERE id = ? AND status = 'pending'")
+              .run(caseId);
+            throw new HttpError(502, "Не удалось отправить кейс в Discord. Проверьте конфигурацию webhook и права бота.");
+          }
+          return sendJson(res, 200, { status: "pending" });
         }
 
         if (pathname === "/api/discord/status" && req.method === "GET") {
@@ -3784,6 +4326,77 @@ ${mode === "lawsuit"
           return sendJson(res, 200, { lawyerCallsRequired });
         }
 
+        if (pathname === "/api/career-path" && req.method === "GET") {
+          if (!promotionPracticeStages.includes(user.role)) {
+            throw new HttpError(403, "Пошаговый карьерный путь доступен стажёрам КА и юристам.");
+          }
+          const path = getCareerPathProgressRow(db, user.id, user.role);
+          const passedSubjects = getCareerLawPasses(db, user.id, user.role);
+          const practice = getCareerRpPracticeState(db, user.id, user.role);
+          const slots = user.role === "Юрист"
+            ? getPromotionPracticeSlots(db, user.id, user.role, 0, { lawBundle: true })
+            : [];
+          const application = db.prepare(`SELECT status, promotion_data_json FROM applications
+            WHERE user_id = ? AND type = 'exam' AND stage_role = ?
+            ORDER BY id DESC LIMIT 1`).get(user.id, user.role);
+          const promotionData = application
+            ? parseStoredJson(application.promotion_data_json, "отчёт о повышении")
+            : {};
+          const completedEvidenceCount = slots.filter((slot) => !slot.skipped &&
+            slot.partnerName.trim().length >= 2 && Boolean(slot.evidenceUrl || slot.hasImage)).length;
+          return sendJson(res, 200, {
+            role: user.role,
+            started: Boolean(path.started_at),
+            tutorialSeen: Boolean(path.tutorial_seen_at),
+            lawsReviewed: Boolean(path.laws_reviewed_at),
+            lawsReviewedAt: path.laws_reviewed_at || "",
+            passedSubjects,
+            allTestsPassed: careerLawExamSubjects.every((subject) => passedSubjects.includes(subject)),
+            completedCaseIds: practice.completedCaseIds,
+            requiredCaseCount: practice.requiredCount,
+            completedEvidenceCount,
+            requiredEvidenceCount: user.role === "Юрист" ? careerLawyerJointCallsRequired : 0,
+            applicationStatus: application?.status || "",
+            practiceSubmitted: Boolean(promotionData.practiceSubmittedAt)
+          });
+        }
+
+        if (pathname === "/api/career-path/start" && req.method === "POST") {
+          if (!promotionPracticeStages.includes(user.role)) {
+            throw new HttpError(403, "Пошаговый карьерный путь доступен стажёрам КА и юристам.");
+          }
+          db.prepare(`INSERT INTO career_path_progress (user_id, stage_role, started_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(user_id, stage_role) DO UPDATE SET
+              started_at = COALESCE(career_path_progress.started_at, CURRENT_TIMESTAMP)`)
+            .run(user.id, user.role);
+          return sendJson(res, 200, { started: true });
+        }
+
+        if (pathname === "/api/career-path/tutorial-seen" && req.method === "POST") {
+          if (!promotionPracticeStages.includes(user.role)) {
+            throw new HttpError(403, "Подсказки карьерного пути доступны стажёрам КА и юристам.");
+          }
+          db.prepare(`INSERT INTO career_path_progress (user_id, stage_role, tutorial_seen_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(user_id, stage_role) DO UPDATE SET
+              tutorial_seen_at = COALESCE(career_path_progress.tutorial_seen_at, CURRENT_TIMESTAMP)`)
+            .run(user.id, user.role);
+          return sendJson(res, 200, { tutorialSeen: true });
+        }
+
+        if (pathname === "/api/career-path/study" && req.method === "POST") {
+          if (user.role !== "Юрист") {
+            throw new HttpError(403, "Отметка изучения законодательства предусмотрена для этапа юриста.");
+          }
+          db.prepare(`INSERT INTO career_path_progress (user_id, stage_role, laws_reviewed_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(user_id, stage_role) DO UPDATE SET
+              laws_reviewed_at = COALESCE(career_path_progress.laws_reviewed_at, CURRENT_TIMESTAMP)`)
+            .run(user.id, user.role);
+          return sendJson(res, 200, { lawsReviewed: true });
+        }
+
         if (pathname === "/api/exams/start" && req.method === "POST") {
           if (!examBank[user.role] || !nextRank[user.role]) {
             throw new HttpError(403, "Для вашей роли нет программы повышения на портале.");
@@ -3827,17 +4440,28 @@ ${mode === "lawsuit"
             WHERE user_id = ? AND type = 'exam' AND stage_role = ? AND status = 'pending'
             ORDER BY id DESC LIMIT 1`).get(user.id, user.role);
           const readiness = getCareerPromotionReadiness(db, application);
-          const practiceComplete = promotionPracticeIsComplete(db, user.id, user.role);
           const promotionData = application
             ? parseStoredJson(application.promotion_data_json, "отчёт о повышении")
             : {};
+          const lawBundle = application ? hasCareerLawBundle(promotionData) : true;
+          const practiceComplete = promotionPracticeIsComplete(db, user.id, user.role, { lawBundle });
+          const rpPractice = getCareerRpPracticeState(db, user.id, user.role);
+          const slots = getPromotionPracticeSlots(db, user.id, user.role, application?.id || 0, { lawBundle });
+          const completedEvidence = slots.filter((slot) => !slot.skipped && slot.partnerName.trim().length >= 2 &&
+            Boolean(slot.evidenceUrl || slot.hasImage)).length;
           return sendJson(res, 200, {
             eligible: true,
             stageRole: user.role,
-            slots: getPromotionPracticeSlots(db, user.id, user.role, application?.id || 0),
+            slots,
             applicationId: application?.id || null,
             applicationStatus: application?.status || "",
             submittedAt: promotionData.practiceSubmittedAt || "",
+            offerDeclinedAt: promotionData.offerDeclinedAt || "",
+            lawBundle,
+            rpPracticeCompletedCaseIds: rpPractice.completedCaseIds,
+            rpPracticeRequiredCount: lawBundle ? rpPractice.requiredCount : 0,
+            evidenceCompletedCount: completedEvidence,
+            evidenceRequiredCount: lawBundle && user.role === "Юрист" ? careerLawyerJointCallsRequired : 0,
             practiceComplete,
             canSubmit: Boolean(application && readiness.ready && practiceComplete && !promotionData.practiceSubmittedAt),
             readinessMessage: readiness.reason
@@ -3848,18 +4472,37 @@ ${mode === "lawsuit"
           if (!promotionPracticeStages.includes(user.role)) {
             throw new HttpError(403, "Практика повышения доступна стажёрам КА и юристам.");
           }
+          if (user.role === "Стажер КА") {
+            throw new HttpError(403, "Стажёру не нужно прикладывать задержания с адвокатом.");
+          }
+          requireCareerPracticeUnlocked(db, user);
+          if (user.role === "Юрист") {
+            const practice = getCareerRpPracticeState(db, user.id, user.role);
+            if (practice.completedCaseIds.length < practice.requiredCount) {
+              throw new HttpError(409, "Сначала пройдите три карьерных AI Case.");
+            }
+          }
           const submittedApplication = db.prepare(`SELECT promotion_data_json FROM applications
             WHERE user_id = ? AND type = 'exam' AND stage_role = ? AND status = 'pending'
             ORDER BY id DESC LIMIT 1`).get(user.id, user.role);
           if (submittedApplication && careerPracticeSubmitted(submittedApplication)) {
             throw new HttpError(409, "Практика уже отправлена и закрыта для редактирования.");
           }
+          const submittedData = submittedApplication
+            ? parseStoredJson(submittedApplication.promotion_data_json, "отчёт о повышении")
+            : {};
+          const lawBundle = submittedApplication ? hasCareerLawBundle(submittedData) : true;
+          if (lawBundle && user.role === "Стажер КА") {
+            throw new HttpError(403, "Стажёру не нужно прикладывать задержания с адвокатом.");
+          }
           const body = await readJson(req, 3 * 1024 * 1024);
           const slotNo = Number(body.slotNo);
-          if (!Number.isInteger(slotNo) || slotNo < 1 || slotNo > 6) {
-            throw new HttpError(400, "Выберите один из шести слотов практики.");
+          const maxSlot = lawBundle ? careerLawyerJointCallsRequired : 6;
+          if (!Number.isInteger(slotNo) || slotNo < 1 || slotNo > maxSlot) {
+            throw new HttpError(400, `Выберите один из ${maxSlot} слотов практики.`);
           }
           if (body.skip === true) {
+            if (lawBundle) throw new HttpError(400, "Оба подтверждения вызовов с адвокатом обязательны.");
             if (slotNo <= 3) throw new HttpError(400, "Три обязательных слота нельзя пропустить.");
             db.prepare(`INSERT INTO promotion_practice_slots
               (user_id, stage_role, slot_no, partner_name, evidence_url, image_name, image_type, image_content, skipped)
@@ -3927,27 +4570,37 @@ ${mode === "lawsuit"
           }
           const promotionData = parseStoredJson(item.promotion_data_json, "отчёт о повышении");
           if (promotionData.practiceSubmittedAt) throw new HttpError(409, "Заявка на повышение уже отправлена.");
-          if (!promotionPracticeIsComplete(db, user.id, item.stage_role)) {
-            throw new HttpError(409, "Заполните три обязательных слота и заполните или пропустите остальные.");
+          const lawBundle = hasCareerLawBundle(promotionData);
+          if (!promotionPracticeIsComplete(db, user.id, item.stage_role, { lawBundle })) {
+            throw new HttpError(409, lawBundle && item.stage_role === "Юрист"
+              ? "Заполните оба обязательных подтверждения вызовов с адвокатом."
+              : "Заполните практику текущего этапа.");
           }
           const readiness = getCareerPromotionReadiness(db, item);
           if (!readiness.ready) throw new HttpError(409, readiness.reason);
           promotionData.practiceSubmittedAt = new Date().toISOString();
+          delete promotionData.offerDeclinedAt;
           db.prepare("UPDATE applications SET promotion_data_json = ? WHERE id = ?")
             .run(JSON.stringify(promotionData), item.id);
           db.prepare(`INSERT INTO application_history (application_id, actor_id, event_type, details)
             VALUES (?, ?, 'practice_submitted', 'Практика задержаний приложена к заявке на повышение.')`)
             .run(item.id, user.id);
-          const reviewerRoles = item.stage_role === "Стажер КА"
-            ? ["Ст.Адвокат", "ЗГКА", "ГКА"]
-            : ["ЗГКА", "ГКА"];
+          const reviewerRoles = lawBundle
+            ? managementRoles
+            : item.stage_role === "Стажер КА"
+              ? ["Ст.Адвокат", "ЗГКА", "ГКА"]
+              : ["ЗГКА", "ГКА"];
           const webhookWarning = await deliverWebhook(webhooks.applications, "Заявка на повышение",
             `${user.display_name} (${item.stage_role}) отправил заявку на переход ${item.stage_role} → ${item.requested_role || nextRank[item.stage_role]}. Проверьте практику задержаний в портале.`,
             [
               { name: "Участник", value: user.display_name, inline: true },
               { name: "Переход", value: `${item.stage_role} → ${item.requested_role || nextRank[item.stage_role]}`, inline: true },
               { name: "Заявка", value: `#${item.id}`, inline: true },
-              { name: "Практика", value: "3 обязательных слота и 3 дополнительных слота приложены.", inline: false }
+              { name: "Практика", value: lawBundle
+                ? item.stage_role === "Стажер КА"
+                  ? "Один базовый AI Case пройден."
+                  : "Три базовых AI Case пройдены; приложены подтверждения двух совместных вызовов с адвокатом."
+                : "Практика задержаний приложена.", inline: false }
             ]);
           const notifications = await notifyPortalRoles(reviewerRoles, {
             type: "application",
@@ -3963,6 +4616,29 @@ ${mode === "lawsuit"
             webhookWarning,
             notificationWarning
           });
+        }
+
+        const declinePromotionOfferRoute = pathname.match(/^\/api\/applications\/(\d+)\/promotion-practice\/decline$/);
+        if (declinePromotionOfferRoute && req.method === "POST") {
+          const item = db.prepare("SELECT * FROM applications WHERE id = ?")
+            .get(Number(declinePromotionOfferRoute[1]));
+          if (!item || item.user_id !== user.id || !isCareerPracticeApplication(item) ||
+              item.stage_role !== user.role || item.status !== "pending") {
+            throw new HttpError(404, "Предложение о повышении не найдено.");
+          }
+          const promotionData = parseStoredJson(item.promotion_data_json, "отчёт о повышении");
+          if (!hasCareerLawBundle(promotionData) || promotionData.practiceSubmittedAt) {
+            throw new HttpError(409, "Предложение о подаче заявки недоступно.");
+          }
+          const readiness = getCareerPromotionReadiness(db, item);
+          const practiceComplete = promotionPracticeIsComplete(db, user.id, item.stage_role, { lawBundle: true });
+          if (!readiness.ready || !practiceComplete) {
+            throw new HttpError(409, readiness.reason || "Сначала выполните все условия повышения.");
+          }
+          promotionData.offerDeclinedAt = new Date().toISOString();
+          db.prepare("UPDATE applications SET promotion_data_json = ? WHERE id = ?")
+            .run(JSON.stringify(promotionData), item.id);
+          return sendJson(res, 200, { declined: true });
         }
 
         const selfPracticeImageRoute = pathname.match(/^\/api\/promotion-practice\/slots\/(\d+)\/image$/);
@@ -4116,6 +4792,10 @@ ${mode === "lawsuit"
             const promotionData = parseStoredJson(item.promotion_data_json, "отчёт о повышении");
             const canSeePractice = isCareerPracticeApplication(item) &&
               (item.user_id === user.id || careerPracticeSubmitted(item));
+            const lawBundle = hasCareerLawBundle(promotionData);
+            const careerRpProgress = canSeePractice && lawBundle
+              ? getCareerRpPracticeState(db, item.user_id, item.stage_role)
+              : null;
             return {
               ...item,
               applicant_discord_username: item.user_id === user.id || item.assigned_to === user.id ||
@@ -4123,8 +4803,10 @@ ${mode === "lawsuit"
               promotion_data: promotionData,
               review_data: parseStoredJson(item.review_data_json, "проверка заявки"),
               promotion_practice: canSeePractice
-                ? getPromotionPracticeSlots(db, item.user_id, item.stage_role, item.id)
+                ? getPromotionPracticeSlots(db, item.user_id, item.stage_role, item.id, { lawBundle })
                 : [],
+              rp_practice_completed_count: careerRpProgress?.completedCaseIds.length || 0,
+              rp_practice_required_count: careerRpProgress?.requiredCount || 0,
               attachments: db.prepare(`SELECT id, file_name, content_type, length(content) AS size
                 FROM application_attachments WHERE application_id = ? ORDER BY id`).all(item.id)
             };
@@ -4667,13 +5349,22 @@ ${mode === "lawsuit"
           const item = db.prepare("SELECT * FROM applications WHERE id = ?").get(Number(applicationReview[1]));
           if (!item) throw new HttpError(404, "Заявка не найдена.");
           assertCanReview(hasGkaAccess(user) ? "ГКА" : user.role, item);
+          const reviewPromotionData = item.type === "exam"
+            ? parseStoredJson(item.promotion_data_json, "отчёт о повышении")
+            : {};
+          const reviewUsesLawBundle = item.type === "exam" && hasCareerLawBundle(reviewPromotionData);
+          if (reviewUsesLawBundle && !managementRoles.includes(user.role)) {
+            throw new HttpError(403, "Заявки по карьерному этапу рассматривают только ГКА и ЗГКА.");
+          }
           if (item.status !== "pending") throw new HttpError(409, "По этой заявке уже вынесено решение.");
           if (body.status === "approved" && ["citizen_help", "citizen_complaint"].includes(item.type)) {
             throw new HttpError(409, "Назначьте адвоката кнопкой «Взять в работу».");
           }
           if (isCareerPracticeApplication(item)) {
             if (!careerPracticeSubmitted(item) ||
-                !promotionPracticeIsComplete(db, item.user_id, item.stage_role)) {
+                !promotionPracticeIsComplete(db, item.user_id, item.stage_role, {
+                  lawBundle: hasCareerLawBundle(parseStoredJson(item.promotion_data_json, "отчёт о повышении"))
+                })) {
               throw new HttpError(409, "Практика задержаний не заполнена или ещё не отправлена.");
             }
             const currentRole = db.prepare("SELECT role FROM users WHERE id = ?").get(item.user_id)?.role;
@@ -4685,8 +5376,7 @@ ${mode === "lawsuit"
           const criteria = body.criteria && typeof body.criteria === "object" && !Array.isArray(body.criteria)
             ? body.criteria : {};
           const itemPromotionData = parseStoredJson(item.promotion_data_json, "отчёт о повышении");
-          const lawBundle = item.type === "exam" && Array.isArray(itemPromotionData.lawTests) &&
-            careerLawExamSubjects.every((subject) => itemPromotionData.lawTests.includes(subject));
+          const lawBundle = item.type === "exam" && hasCareerLawBundle(itemPromotionData);
           const requireCriteria = (names) => {
             const missing = names.filter((name) => criteria[name] !== true);
             if (missing.length) throw new HttpError(400, "Перед одобрением подтвердите все пункты проверки.");
@@ -4717,18 +5407,15 @@ ${mode === "lawsuit"
                   item.requested_role !== nextRank[stageRole]) {
                 throw new HttpError(409, "Заявка больше не соответствует текущей ступени или не все три теста сданы.");
               }
+              const readiness = getCareerPromotionReadiness(db, item);
+              if (!readiness.ready) throw new HttpError(409, readiness.reason);
               if (stageRole === "Стажер КА") {
                 requireCriteria(["headApproved"]);
               } else if (stageRole === "Юрист") {
-                if (item.interview_status !== "ready") {
-                  throw new HttpError(409, "Перед одобрением участник должен пройти обзвон и отметить готовность.");
-                }
-                requireCriteria(["callsVerified", "trialLawsuitVerified", "interviewPassed"]);
-                const requiredCalls = Number(db.prepare("SELECT lawyer_calls_required FROM promotion_settings WHERE id = 1")
-                  .get().lawyer_calls_required);
-                if (!requiredCalls || Number(itemPromotionData.completedCalls) < requiredCalls ||
-                    !itemPromotionData.trialLawsuitReference) {
-                  throw new HttpError(409, "Не выполнены заявленные условия перехода юриста в адвокаты.");
+                requireCriteria(["practiceVerified"]);
+                if (getCareerRpPracticeState(db, item.user_id, stageRole).completedCaseIds.length < 3 ||
+                    !promotionPracticeIsComplete(db, item.user_id, stageRole, { lawBundle: true })) {
+                  throw new HttpError(409, "Не выполнены практики и совместные задержания для перехода в адвокаты.");
                 }
               } else {
                 throw new HttpError(409, "Повышение по комплекту тестов доступно только со ступени стажёра или юриста.");
@@ -4892,16 +5579,19 @@ ${mode === "lawsuit"
         if (pathname === "/api/exams/law-progress" && req.method === "GET") {
           if (user.role === citizenRole) throw new HttpError(403, "Тесты по законодательству доступны только сотрудникам Коллегии.");
           const available = careerLawExamRoles.includes(user.role);
-          const passedSubjects = available
-            ? db.prepare(`SELECT subject FROM career_law_exam_passes
-                WHERE user_id = ? AND stage_role = ? ORDER BY completed_at`)
-              .all(user.id, user.role).map((item) => item.subject)
-            : [];
+          const passedSubjects = available ? getCareerLawPasses(db, user.id, user.role) : [];
+          const path = promotionPracticeStages.includes(user.role)
+            ? getCareerPathProgressRow(db, user.id, user.role)
+            : null;
           const settings = db.prepare("SELECT lawyer_calls_required FROM promotion_settings WHERE id = 1").get();
           return sendJson(res, 200, {
             available,
             stageRole: user.role,
             passedSubjects,
+            nextSubject: promotionPracticeStages.includes(user.role)
+              ? careerLawExamSubjects.find((subject) => !passedSubjects.includes(subject)) || ""
+              : "",
+            lawsReviewed: user.role !== "Юрист" || Boolean(path?.laws_reviewed_at),
             lawyerCallsRequired: Number(settings.lawyer_calls_required),
             message: available ? "" : "Экзамены по АК, УК и ПК доступны стажёрам, юристам и адвокатам."
           });
@@ -4922,6 +5612,7 @@ ${mode === "lawsuit"
                   WHERE user_id = ? AND stage_role = ? AND subject = ?`).get(user.id, user.role, subject)) {
                 throw new HttpError(409, "Этот тест уже сдан на текущей ступени.");
               }
+              requireNextCareerLawExam(db, user, subject);
             }
             return sendJson(res, 200, {
               track: lawExamTitles[subject],
@@ -4981,6 +5672,7 @@ ${mode === "lawsuit"
                   WHERE user_id = ? AND stage_role = ? AND subject = ?`).get(user.id, user.role, subject)) {
                 throw new HttpError(409, "Этот тест уже сдан на текущей ступени.");
               }
+              requireNextCareerLawExam(db, user, subject);
             }
             track = `law:${subject}`;
           } else if (attestationId) {
@@ -5089,7 +5781,6 @@ ${mode === "lawsuit"
           let nicknameWarning = "";
           let interviewStatus = "not_required";
           let promotedUser = null;
-          if (careerApplicationCreated && user.role === "Юрист") interviewStatus = "waiting";
           if (application?.career_flow && passed) {
             if (application.stage_role === "Стажер КА") {
               interviewStatus = "waiting";
@@ -5112,8 +5803,7 @@ ${mode === "lawsuit"
           return sendJson(res, 200, {
             score, total: questions.length, passed, subject,
             applicationCreated: careerApplicationCreated,
-            interviewRequired: Boolean((application?.career_flow && passed) ||
-              (careerApplicationCreated && user.role === "Юрист")),
+            interviewRequired: Boolean(application?.career_flow && passed),
             interviewStatus, applicationId: careerApplicationId || application?.id || null,
             user: promotedUser, discordWarning, nicknameWarning
           });
@@ -5153,7 +5843,6 @@ ${mode === "lawsuit"
         }
 
         if (pathname === "/api/giveaway" && req.method === "GET") {
-          if (user.role === citizenRole) throw new HttpError(403, "Рейтинг премии доступен только сотрудникам Коллегии.");
           return sendJson(res, 200, getGiveawayLeaderboard(db));
         }
 
@@ -5544,6 +6233,10 @@ ${mode === "lawsuit"
               (SELECT COUNT(*) FROM documents d WHERE d.user_id = u.id AND d.forum_status = 'approved') AS document_count,
               (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
                 WHERE l.user_id = u.id AND d.forum_status = 'approved') AS lawsuit_count,
+              (SELECT COUNT(*) FROM activity_reports ar WHERE ar.user_id = u.id
+                AND ar.report_type = 'call' AND ar.status = 'approved') AS approved_call_count,
+              (SELECT COUNT(*) FROM activity_reports ar WHERE ar.user_id = u.id
+                AND ar.report_type = 'bail' AND ar.status = 'approved') AS approved_bail_count,
               (SELECT COUNT(*) FROM applications a WHERE (a.assigned_to = u.id OR a.user_id = u.id) AND a.completed_at IS NOT NULL) AS closed_case_count,
               COUNT(r.id) AS review_count, COALESCE(AVG(r.rating), 0) AS average_rating
             FROM users u LEFT JOIN lawyer_reviews r ON r.lawyer_id = u.id
@@ -5575,7 +6268,11 @@ ${mode === "lawsuit"
               (SELECT COUNT(*) FROM applications a WHERE a.assigned_to = u.id AND a.completed_at IS NOT NULL
                 AND a.type IN ('citizen_help','citizen_complaint')) AS closed_case_count,
               (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
-                WHERE l.user_id = u.id AND d.forum_status = 'approved') AS lawsuit_count
+                WHERE l.user_id = u.id AND d.forum_status = 'approved') AS lawsuit_count,
+              (SELECT COUNT(*) FROM activity_reports ar WHERE ar.user_id = u.id
+                AND ar.report_type = 'call' AND ar.status = 'approved') AS approved_call_count,
+              (SELECT COUNT(*) FROM activity_reports ar WHERE ar.user_id = u.id
+                AND ar.report_type = 'bail' AND ar.status = 'approved') AS approved_bail_count
             FROM users u
             WHERE u.role != 'Гражданин' AND u.status = 'active'
             ORDER BY CASE u.role
@@ -6283,26 +6980,38 @@ ${mode === "lawsuit"
 
         if (pathname === "/api/activity-reports" && req.method === "GET") {
           if (user.role === citizenRole) throw new HttpError(403, "Сдавать отчёты могут только сотрудники Коллегии.");
+          if (user.role === "Юрист") {
+            throw new HttpError(403, "Отчёты по вызовам и залогам откроются после одобрения заявки на адвоката.");
+          }
           const reports = hasGkaAccess(user)
             ? db.prepare(`SELECT r.*, a.file_name AS attachment_name, u.display_name AS reporter_name, u.role AS reporter_role,
                 reviewer.display_name AS reviewer_name
               FROM activity_reports r JOIN users u ON u.id = r.user_id
               LEFT JOIN activity_report_attachments a ON a.report_id = r.id
               LEFT JOIN users reviewer ON reviewer.id = r.reviewed_by
-              WHERE r.report_type IN ('call', 'bail')
-              ORDER BY CASE r.status WHEN 'pending' THEN 0 ELSE 1 END, r.id DESC LIMIT 200`).all()
+              WHERE r.report_type IN ('call', 'bail') AND
+                (r.status = 'pending' OR r.id IN (
+                  SELECT recent.id FROM activity_reports recent
+                  WHERE recent.report_type IN ('call', 'bail') AND recent.status != 'pending'
+                  ORDER BY recent.id DESC LIMIT 3
+                ))
+              ORDER BY CASE r.status WHEN 'pending' THEN 0 ELSE 1 END, r.id DESC`).all()
             : db.prepare(`SELECT r.*, a.file_name AS attachment_name, u.display_name AS reporter_name, u.role AS reporter_role,
                 reviewer.display_name AS reviewer_name
               FROM activity_reports r JOIN users u ON u.id = r.user_id
               LEFT JOIN activity_report_attachments a ON a.report_id = r.id
               LEFT JOIN users reviewer ON reviewer.id = r.reviewed_by
-              WHERE r.user_id = ? AND r.report_type IN ('call', 'bail') ORDER BY r.id DESC LIMIT 100`).all(user.id);
+              WHERE r.user_id = ? AND r.report_type IN ('call', 'bail')
+              ORDER BY r.id DESC LIMIT 3`).all(user.id);
           return sendJson(res, 200, { reports, canReview: hasGkaAccess(user) });
         }
 
         const activityReportPhotoRoute = pathname.match(/^\/api\/activity-reports\/(\d+)\/photo$/);
         if (activityReportPhotoRoute && req.method === "GET") {
           if (user.role === citizenRole) throw new HttpError(403, "Фото отчётов доступны только сотрудникам Коллегии.");
+          if (user.role === "Юрист") {
+            throw new HttpError(403, "Отчёты по вызовам и залогам откроются после одобрения заявки на адвоката.");
+          }
           const reportId = Number(activityReportPhotoRoute[1]);
           const report = db.prepare("SELECT user_id FROM activity_reports WHERE id = ?").get(reportId);
           if (!report) throw new HttpError(404, "Отчёт не найден.");
@@ -6323,15 +7032,36 @@ ${mode === "lawsuit"
 
         if (pathname === "/api/activity-reports" && req.method === "POST") {
           if (user.role === citizenRole) throw new HttpError(403, "Сдавать отчёты могут только сотрудники Коллегии.");
+          if (user.role === "Юрист") {
+            throw new HttpError(403, "Отчёты по вызовам и залогам откроются после одобрения заявки на адвоката.");
+          }
           const body = await readJson(req, 22 * 1024 * 1024);
           const reportType = String(body.reportType || "");
           const occurredAt = String(body.occurredAt || "");
           const details = String(body.details || "").trim();
+          const referenceUrl = String(body.referenceUrl || "").trim();
           const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(occurredAt)
             ? new Date(`${occurredAt}T00:00:00Z`)
             : null;
           if (!Object.hasOwn(activityReportTypes, reportType)) {
             throw new HttpError(400, "Выберите тип отчёта.");
+          }
+          if (reportType === "call" && !activityReportCallRoles.has(user.role)) {
+            throw new HttpError(403, "Отчёты о вызовах с ссылкой доступны начиная с должности «Юрист».");
+          }
+          if (reportType === "call") {
+            let parsedReferenceUrl;
+            try {
+              parsedReferenceUrl = new URL(referenceUrl);
+            } catch {
+              throw new HttpError(400, "Добавьте корректную ссылку на вызов.");
+            }
+            if (!["http:", "https:"].includes(parsedReferenceUrl.protocol) ||
+                parsedReferenceUrl.username || parsedReferenceUrl.password || referenceUrl.length > 500) {
+              throw new HttpError(400, "Ссылка на вызов должна быть корректным HTTP(S)-адресом до 500 символов.");
+            }
+          } else if (referenceUrl) {
+            throw new HttpError(400, "Ссылка на вызов указывается только для отчёта о вызове.");
           }
           if (!parsedDate || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== occurredAt) {
             throw new HttpError(400, "Укажите корректную дату события.");
@@ -6356,8 +7086,9 @@ ${mode === "lawsuit"
           let reference;
           try {
             const created = db.prepare(`INSERT INTO activity_reports
-              (user_id, report_type, occurred_at, reference, details) VALUES (?, ?, ?, ?, ?)`)
-              .run(user.id, reportType, occurredAt, "", details);
+              (user_id, report_type, occurred_at, reference, reference_url, details)
+              VALUES (?, ?, ?, ?, ?, ?)`)
+              .run(user.id, reportType, occurredAt, "", referenceUrl, details);
             reportId = Number(created.lastInsertRowid);
             reference = `${reportType === "call" ? "Вызов" : "Залог"} №${reportId}`;
             db.prepare("UPDATE activity_reports SET reference = ? WHERE id = ?").run(reference, reportId);
@@ -6410,7 +7141,7 @@ ${mode === "lawsuit"
             if (status === "approved") {
               const eligible = db.prepare(`SELECT campaign_epoch, week_start FROM giveaway_report_eligibility
                 WHERE report_id = ?`).get(reportId);
-              const points = report.report_type === "call" ? 1 : report.report_type === "bail" ? 2 : 0;
+              const points = giveawayPointsPerReport[report.report_type] || 0;
               if (eligible && points) {
                 db.prepare(`INSERT OR IGNORE INTO giveaway_point_entries
                   (report_id, user_id, report_type, points, campaign_epoch, week_start)
@@ -6453,7 +7184,10 @@ ${mode === "lawsuit"
                   { name: "Тип", value: activityReportTypes[report.report_type], inline: true },
                   { name: "Дата события", value: report.occurred_at, inline: true },
                   { name: "Автор", value: `${reporter.display_name} · ${reporter.role}`, inline: true },
-                  { name: "Номер или ссылка", value: report.reference }
+                  { name: "Номер отчёта", value: report.reference },
+                  ...(report.reference_url
+                    ? [{ name: "Ссылка на вызов", value: report.reference_url }]
+                    : [])
                 ],
                 attachment ? {
                   name: attachment.file_name,
@@ -7096,6 +7830,7 @@ export async function startPortal(options = {}) {
     exams: process.env.DISCORD_WEBHOOK_EXAMS || "",
     calls: process.env.DISCORD_WEBHOOK_CALLS || "",
     bails: process.env.DISCORD_WEBHOOK_BAILS || "",
+    casePublication: process.env.DISCORD_WEBHOOK_CASE_PUBLICATION || "",
     logs: process.env.DISCORD_WEBHOOK_LOGS || "",
     health: process.env.DISCORD_WEBHOOK_HEALTH || ""
   };
@@ -7184,6 +7919,8 @@ export async function startPortal(options = {}) {
           }
         }
       }),
+    onRpCaseReview: (discordUserId, memberRoleIds, caseId, status) =>
+      reviewRpCustomCaseFromDiscord(db, discordUserId, memberRoleIds, roleIds, caseId, status),
     onGiveawayCommand: (action, discordUserId) => applyGiveawayCommand(db, action, discordUserId),
     onServiceCommand: (action) => {
       if (action === "restart") return "Перезапускаю портал и Discord-бота. Обычно это занимает около минуты.";

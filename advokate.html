@@ -177,6 +177,13 @@
           <svg class="icon icon-sm nav-chevron" id="careerChevron"><use href="#icon-chevron-down"></use></svg>
         </button>
         <div class="nav-submenu open staff-only" id="careerSubmenu">
+          <button class="nav-subitem career-path-only hidden" data-view="career">
+            <span class="nav-subitem-label">
+              <svg class="icon icon-sm"><use href="/web/icons-sprite.svg#icon-05_getting_started"></use></svg>
+              <span>Мой путь</span>
+            </span>
+            <span class="nav-sub-badge nav-sub-badge-test">Путь</span>
+          </button>
           <button class="nav-subitem" data-view="tests">
             <span class="nav-subitem-label">
               <svg class="icon icon-sm"><use href="/web/icons-sprite.svg#icon-28_training_exam"></use></svg>
@@ -187,7 +194,7 @@
           <button class="nav-subitem" id="practice-nav" data-view="practice">
             <span class="nav-subitem-label">
               <svg class="icon icon-sm"><use href="/web/icons-sprite.svg#icon-16_folder_docs"></use></svg>
-              <span>Практика РП</span>
+              <span id="practice-nav-label">Практика РП</span>
             </span>
             <span class="nav-sub-badge nav-sub-badge-practice">Кейсы</span>
           </button>
@@ -195,6 +202,10 @@
         <button class="nav-item staff-only" data-view="laws">
           <svg class="icon"><use href="/web/icons-sprite.svg#icon-06_legislation"></use></svg>
           <span class="nav-label">Законодательство</span>
+        </button>
+        <button class="nav-item" data-view="giveaway">
+          <svg class="icon"><use href="/web/icons-sprite.svg#icon-12_achievements_badges"></use></svg>
+          <span class="nav-label">Премии</span>
         </button>
       </div>
       <div class="sidebar-footer">
@@ -215,10 +226,6 @@
         <button class="nav-item staff-only" data-view="awards">
           <svg class="icon"><use href="/web/icons-sprite.svg#icon-12_achievements_badges"></use></svg>
           <span class="nav-label">Награды и профиль</span>
-        </button>
-        <button class="nav-item staff-only" data-view="giveaway">
-          <svg class="icon"><use href="/web/icons-sprite.svg#icon-12_achievements_badges"></use></svg>
-          <span class="nav-label">Премии</span>
         </button>
         <div class="nav-footer-reports staff-only">
           <div class="nav-group-title">ФИКСАЦИЯ ОТЧЁТОВ</div>
@@ -316,6 +323,9 @@
                 <button class="btn btn-gold manager-only hidden" type="button" data-view="reports">
                   <svg class="icon icon-sm"><use href="/web/icons-sprite.svg#icon-09_reports_system"></use></svg> Отчётность
                 </button>
+                <button class="btn btn-gold career-path-only hidden" type="button" data-action="start-career-path">
+                  <svg class="icon icon-sm"><use href="/web/icons-sprite.svg#icon-05_getting_started"></use></svg> Показать мой путь
+                </button>
               </div>
             </div>
 
@@ -354,7 +364,7 @@
                 <button class="quick-action-link staff-only" type="button" data-view="tests">
                   <span class="quick-action-icon">01</span><span><strong>Экзамены</strong><small>Проверить знания</small></span><b aria-hidden="true">→</b>
                 </button>
-                <button class="quick-action-link staff-only practice-only hidden" type="button" data-view="practice">
+                <button class="quick-action-link staff-only practice-only career-general-practice-only hidden" type="button" data-view="practice">
                   <span class="quick-action-icon">RP</span><span><strong>RP-практика</strong><small>Разобрать ситуацию</small></span><b aria-hidden="true">→</b>
                 </button>
                 <button class="quick-action-link document-only hidden" type="button" data-view="lawsuits">
@@ -379,6 +389,29 @@
           </div>
         </section>
 
+        <section id="view-career" class="page-view staff-only career-path-only hidden">
+          <div class="grid-12">
+            <section class="card col-span-12 career-path-hero">
+              <span class="badge badge-gold">МОЙ ПУТЬ · <span id="career-path-role">—</span></span>
+              <h2>Пошаговое развитие</h2>
+              <p id="career-path-summary" class="text-muted">Загрузка прогресса…</p>
+              <div class="career-path-progress-track" aria-label="Прогресс карьерного пути">
+                <span id="career-path-progress-bar"></span>
+              </div>
+              <p id="career-path-progress-label" class="career-path-progress-label" aria-live="polite"></p>
+            </section>
+            <section class="card col-span-12" aria-labelledby="career-path-tasks-title">
+              <div class="section-heading">
+                <div>
+                  <h3 id="career-path-tasks-title">Этапы обучения</h3>
+                  <p class="text-muted">Выполняйте задания по порядку. Следующий шаг откроется после завершения предыдущего.</p>
+                </div>
+              </div>
+              <div id="career-path-tasks" class="career-path-tasks" aria-live="polite"></div>
+            </section>
+          </div>
+        </section>
+
         <section id="view-lawsuits" class="page-view document-only hidden">
           <div class="card">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; flex-wrap: wrap; gap: 12px;">
@@ -395,18 +428,18 @@
                 <div class="ai-assistant-brand">
                   <img class="ai-assistant-avatar" src="/assets/law-association-seal.png" alt="ИИ-помощник Коллегии адвокатов">
                   <div>
-                    <h3 id="ai-lawsuit-title">Юридический ИИ-помощник</h3>
-                    <p>Описательная часть с проверенными ссылками на статьи и план действий</p>
+                    <h3 id="ai-lawsuit-title">ИИ для составления исков</h3>
+                    <p>Подготовка проекта иска по обстоятельствам дела. Вопросы о законах задавайте консультанту в разделе «Законодательство».</p>
                   </div>
                 </div>
                 <span class="ai-assistant-online"><i></i> Готов к работе</span>
               </div>
-              <label class="ai-assistant-label" for="ai-lawsuit-question">Опишите ситуацию</label>
-              <textarea id="ai-lawsuit-question" class="input ai-assistant-input" rows="4" maxlength="8000" placeholder="Например: сотрудник задержал меня на ЗОТ, не назвал основание, не предоставил до свидания с адвокатом..."></textarea>
-              <p class="ai-thinking-note">ИИ читает всю загруженную законодательную базу штата: ответ может занять больше обычного времени.</p>
+              <label class="ai-assistant-label" for="ai-lawsuit-question">Опишите обстоятельства для иска</label>
+              <textarea id="ai-lawsuit-question" class="input ai-assistant-input" rows="4" maxlength="8000" placeholder="Кто, когда и что сделал; какие доказательства есть и чего вы просите у суда."></textarea>
+              <p class="ai-thinking-note">Этот ИИ только готовит проект иска. Для вопросов о статьях, законах и действиях обратитесь к консультанту в разделе «Законодательство».</p>
               <div class="ai-assistant-actions">
                 <button class="btn btn-gold" type="button" data-action="ask-ai-lawsuit">
-                  <svg class="icon icon-sm"><use href="/web/icons-sprite.svg#icon-23_motion_petition"></use></svg> Составить документ
+                  <svg class="icon icon-sm"><use href="/web/icons-sprite.svg#icon-23_motion_petition"></use></svg> Составить иск
                 </button>
                 <button class="btn" type="button" data-action="copy-ai-lawsuit" disabled>Скопировать ответ</button>
                 <button class="btn" type="button" data-action="insert-ai-facts" disabled>Вставить в форму</button>
@@ -634,6 +667,8 @@
                 </form>
               </div>
               <div id="law-career-application-status" class="law-career-application-status hidden" role="status"></div>
+              <button id="request-promotion-from-tests" class="btn btn-gold hidden" type="button"
+                data-action="submit-promotion-practice">Подать заявку на повышение</button>
               <div class="quick-links-inline" aria-label="Быстрые переходы">
                 <span>Материалы:</span>
                 <button class="text-button" type="button" data-view="laws">Открыть базу законов →</button>
@@ -667,9 +702,9 @@
                 <div>
                   <span class="badge badge-gold">ЭТАП ПОВЫШЕНИЯ</span>
                   <h2 id="promotion-practice-title">Совместные задержания · <span id="promotion-practice-role">—</span></h2>
-                  <p class="text-muted">Заполните три обязательных слота и прикрепите ссылку на откат или скриншот. Остальные три можно выполнить или пропустить.</p>
+                  <p id="promotion-practice-instructions" class="text-muted">Для юриста нужны два подтверждения совместных вызовов с адвокатом.</p>
                 </div>
-                <span id="promotion-practice-progress" class="badge badge-info" aria-live="polite">0 из 6</span>
+                <span id="promotion-practice-progress" class="badge badge-info" aria-live="polite">0/2</span>
               </div>
               <p id="promotion-practice-status" class="promotion-practice-status" role="status" aria-live="polite"></p>
               <div id="promotion-practice-slots" class="promotion-practice-slots"></div>
@@ -679,14 +714,14 @@
                   data-action="submit-promotion-practice" disabled>Отправить заявку на повышение</button>
               </div>
             </section>
-            <div class="rp-practice-heading">
+            <div class="rp-practice-heading career-general-practice-only">
               <div>
                 <span class="badge badge-gold">RP-ПРАКТИКА</span>
                 <h2>Разбор ситуационных кейсов</h2>
                 <p class="text-muted">Тренировочные кейсы, не экзамен и не этап повышения. Выберите сложность, ответьте и получите результат с пояснением и ссылкой на норму.</p>
               </div>
             </div>
-            <div class="rp-practice-controls" role="group" aria-label="Выберите уровень RP-практики">
+            <div class="rp-practice-controls career-general-practice-only" role="group" aria-label="Выберите уровень RP-практики">
               <button class="rp-level-button" type="button" data-action="start-rp-practice" data-level="rp_easy" aria-pressed="false">
                 <span class="rp-level-number">01</span><strong>Первый уровень</strong><small>Базовые ситуации · 6 кейсов</small>
               </button>
@@ -697,7 +732,7 @@
                 <span class="rp-level-number">03</span><strong>Третий уровень</strong><small>Сложные ситуации · 6 кейсов</small>
               </button>
             </div>
-            <div id="rp-practice-content" class="rp-practice-content" aria-live="polite">
+            <div id="rp-practice-content" class="rp-practice-content career-general-practice-only" aria-live="polite">
               <div class="rp-practice-empty">Выберите уровень, чтобы увидеть короткие RP-кейсы. Верно решённые кейсы будут закрыты.</div>
             </div>
             <article class="card rp-phone-launch">
@@ -706,7 +741,7 @@
                 <h3>Диалог с сотрудником</h3>
                 <p class="text-muted">Отдельный режим с ветвящимися вопросами, реакцией офицера и разбором каждого ответа.</p>
               </div>
-              <button class="btn btn-gold" type="button" data-action="open-rp-phone">Открыть AI Case</button>
+              <button id="open-rp-phone" class="btn btn-gold" type="button" data-action="open-rp-phone">Открыть AI Case</button>
             </article>
           </div>
         </section>
@@ -750,7 +785,7 @@
           </div>
         </section>
 
-        <section id="view-giveaway" class="page-view staff-only hidden">
+        <section id="view-giveaway" class="page-view">
           <div class="card giveaway-page">
             <section class="giveaway-hero" aria-labelledby="giveaway-title">
               <div class="giveaway-hero-copy">
@@ -821,6 +856,8 @@
                     <th>Должность</th>
                     <th>Обращения</th>
                     <th>Иски</th>
+                    <th>Вызовы</th>
+                    <th>Залоги</th>
                     <th>Баллы</th>
                   </tr>
                 </thead>
@@ -919,6 +956,11 @@
             <div class="card col-span-5">
               <h2>Сдать отчёт</h2>
               <p class="text-muted">Номер отчёта присваивается автоматически. Фото-доказательство требуется только для вызова.</p>
+              <div id="activity-report-restriction" class="empty-state hidden" role="status">
+                Обычные отчёты по вызовам и залогам откроются после одобрения заявки на адвоката.
+                Пока завершите карьерные тесты и практику в разделе «Практика РП».
+                <button class="text-button" type="button" data-view="practice">Перейти к практике →</button>
+              </div>
               <form id="activity-report-form" class="activity-report-form">
                 <label>Тип события
                   <select class="input" id="activity-report-type" required>
@@ -929,6 +971,9 @@
                 <label>Дата события<input class="input" id="activity-report-date" type="date" required></label>
                 <p class="text-muted">Нумерация будет назначена автоматически после отправки.</p>
                 <label>Описание<textarea class="input" id="activity-report-details" minlength="4" maxlength="2000" rows="4" required placeholder="Дефф / Недефф / Смягчил — добавьте пояснение при необходимости"></textarea></label>
+                <label id="activity-report-link-field" class="hidden">Ссылка на вызов
+                  <input class="input" id="activity-report-link" type="url" maxlength="500" placeholder="https://...">
+                </label>
                 <label id="activity-report-photo-field">Фото-доказательство
                   <input class="input" id="activity-report-photo" type="file" accept="image/jpeg,image/png,image/webp">
                 </label>
@@ -969,6 +1014,21 @@
       <h2 id="document-dialog-title">Документ</h2>
       <div id="document-dialog-body"></div>
     </div>
+  </div>
+  <div id="career-promotion-offer-dialog" class="modal hidden" role="dialog" aria-modal="true"
+    aria-labelledby="career-promotion-offer-title" aria-describedby="career-promotion-offer-description">
+    <section class="card modal-card career-offer-modal">
+      <button class="btn modal-close" type="button" data-action="answer-career-promotion-offer"
+        data-decision="no" aria-label="Закрыть">×</button>
+      <span class="career-offer-eyebrow">КАРЬЕРНЫЙ МАРШРУТ</span>
+      <h2 id="career-promotion-offer-title">Этап повышения завершён</h2>
+      <p id="career-promotion-offer-description"></p>
+      <p class="career-offer-note">Можно отправить заявку сейчас или вернуться к своему пути позже с главной страницы.</p>
+      <div class="career-intro-actions career-offer-actions">
+        <button class="btn btn-outline" type="button" data-action="answer-career-promotion-offer" data-decision="no">Позже · на главную</button>
+        <button class="btn btn-gold" type="button" data-action="answer-career-promotion-offer" data-decision="yes">Да, подать заявку</button>
+      </div>
+    </section>
   </div>
   <div id="quiz-dialog" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="quiz-title">
     <form class="card modal-card" id="quiz-form">
@@ -1087,6 +1147,6 @@
     </div>
   </dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="/api/frontend/loader?v=20261125-8"></script>
+  <script type="module" src="/api/frontend/loader?v=20261126-4"></script>
 </body>
 </html>

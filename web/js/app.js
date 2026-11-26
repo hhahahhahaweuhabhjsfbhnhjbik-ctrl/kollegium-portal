@@ -1,13 +1,13 @@
-import { $, $$, escapeHtml } from "/web/js/core/dom.js?v=20261125-6";
+import { $, $$, escapeHtml } from "/web/js/core/dom.js?v=20261126-2";
 import {
   applicationTypes,
   lawExamSubjects,
   lawMeta,
   rpPracticeCases,
   roles
-} from "/web/js/data/config.js?v=20261125-6";
-import { rpInterviewCases } from "/web/js/data/rp-interviews.js?v=20261125-6";
-import { rpInterviewExtraCases } from "/web/js/data/rp-interviews-extra.js?v=20261125-6";
+} from "/web/js/data/config.js?v=20261126-2";
+import { rpInterviewCases } from "/web/js/data/rp-interviews.js?v=20261126-2";
+import { rpInterviewExtraCases } from "/web/js/data/rp-interviews-extra.js?v=20261126-2";
 
 rpInterviewCases.push(...rpInterviewExtraCases);
 
@@ -71,9 +71,15 @@ let rpPracticeLevel = null;
 let rpPracticeCompleted = new Set();
 let rpPracticeFeedback = new Map();
 let rpPhoneSession = null;
+let rpPhoneAnswerPending = false;
 let rpPhoneReturnFocus = null;
 let rpPhoneSoundEnabled = true;
 let rpPhoneAudioContext = null;
+let rpPhoneCustomCases = [];
+let rpCareerPracticeProgress = null;
+let careerPathState = null;
+let careerOfferPromptActive = false;
+let careerOfferApplicationId = 0;
 let activeStampDrag = null;
 let lawExamJustPassed = "";
 let loadedLaws = [];
@@ -101,6 +107,7 @@ const activityReportLabels = {
 };
 const viewPaths = {
   dashboard: "/page/home",
+  career: "/page/career",
   memo: "/page/memo",
   appeals: "/page/appeals",
   lawsuits: "/page/iski",
@@ -205,7 +212,7 @@ function setAiCooldown(seconds) {
       if (aiCooldownSeconds <= 0) {
         button.disabled = false;
         button.innerHTML = lawsuit
-          ? '<svg class="icon icon-sm"><use href="/web/icons-sprite.svg#icon-23_motion_petition"></use></svg> Составить документ'
+          ? '<svg class="icon icon-sm"><use href="/web/icons-sprite.svg#icon-23_motion_petition"></use></svg> Составить иск'
           : '<svg class="icon icon-sm"><use href="/web/icons-sprite.svg#icon-15_search_archive"></use></svg> Получить ответ';
         button.removeAttribute("aria-label");
       }
@@ -241,7 +248,7 @@ async function askAiAssistant(mode) {
   }
   status.className = "ai-assistant-status is-loading";
   status.textContent = lawsuit
-    ? "Анализирую ситуацию по всей законодательной базе и подбираю форму документа. Это может занять больше обычного времени…"
+    ? "Готовлю проект иска по описанным обстоятельствам…"
     : "Анализирую весь комплект законов штата и формирую практический ответ. Сложный запрос может занять больше времени…";
   status.classList.remove("hidden");
   status.setAttribute("aria-busy", "true");
@@ -262,7 +269,7 @@ async function askAiAssistant(mode) {
       const generated = Boolean(aiGeneratedLawsuitDocument);
       aiLawsuitAnswer = data.document?.facts
         ? `${data.document.facts}${data.document.claims ? `\n\nТребования:\n${data.document.claims}` : ""}`
-        : answer;
+        : "";
       if (generated) {
         const courtName = data.document.template.includes("supreme")
           ? "Верховный суд"
@@ -282,12 +289,16 @@ async function askAiAssistant(mode) {
       answerNode.scrollIntoView({ behavior: "smooth", block: "nearest" });
     });
     status.className = "ai-assistant-status";
-    status.textContent = "Ответ подготовлен ИИ на основе загруженной базы. Перед подачей проверьте нормы с руководством.";
+    status.textContent = lawsuit
+      ? aiGeneratedLawsuitDocument
+        ? "Проект иска подготовлен. Проверьте все сведения перед подачей."
+        : "Система исков составляет только иски. Для вопросов о законах используйте консультанта в разделе «Законодательство»."
+      : "Ответ подготовлен ИИ на основе загруженной базы. Перед подачей проверьте нормы с руководством.";
     status.removeAttribute("aria-busy");
     copyButton.disabled = false;
     if (insertButton) {
-      insertButton.disabled = false;
-      insertButton.textContent = "Вставить в форму";
+      insertButton.disabled = !aiGeneratedLawsuitDocument;
+      insertButton.textContent = aiGeneratedLawsuitDocument ? "Вставить в форму" : "Только для готового иска";
     }
   } catch (error) {
     status.className = "ai-assistant-status";
@@ -335,23 +346,7 @@ function applyGeneratedLawsuitDocument(document) {
 }
 
 function insertAiLawsuitFacts() {
-  if (!aiGeneratedLawsuitDocument) {
-    if (aiLawsuitAnswer) {
-      const field = $('[data-lawsuit-field="facts"]');
-      if (!field) {
-        $("#lawsuit-form").classList.remove("hidden");
-        renderLawsuitFields();
-      }
-      const factsField = $('[data-lawsuit-field="facts"]');
-      if (factsField) {
-        factsField.value = aiLawsuitAnswer;
-        renderLawsuitPreview();
-        factsField.focus();
-        notify("Описательная часть вставлена в форму.");
-      }
-    }
-    return;
-  }
+  if (!aiGeneratedLawsuitDocument) return;
   applyGeneratedLawsuitDocument(aiGeneratedLawsuitDocument);
 }
 
@@ -478,18 +473,26 @@ function applyRoleVisibility() {
   const citizen = currentUser.role === "Гражданин";
   const manager = isManager();
   const hasPractice = currentUser.role !== "Гражданин";
+  const careerPathRole = Object.hasOwn(promotionPracticeRanks, currentUser.role);
   setHidden(".staff-only", citizen);
   setHidden(".citizen-only", !citizen);
   setHidden(".manager-only", !manager);
   setHidden(".head-only", currentUser.role !== "ГКА" && !currentUser.hasFullGkaAccess);
   setHidden(".document-only", !canUseDocuments());
   setHidden(".practice-only", !hasPractice);
+  setHidden(".career-path-only", !careerPathRole);
+  setHidden(".career-general-practice-only", careerPathRole);
   const practiceNav = $("#practice-nav");
-  practiceNav.disabled = !hasPractice;
-  practiceNav.classList.toggle("locked", !hasPractice);
-  practiceNav.setAttribute("aria-disabled", String(!hasPractice));
+  const practiceLocked = !hasPractice || careerPathRole;
+  practiceNav.disabled = practiceLocked;
+  practiceNav.classList.toggle("locked", practiceLocked);
+  practiceNav.setAttribute("aria-disabled", String(practiceLocked));
   if (hasPractice) practiceNav.dataset.view = "practice";
   else practiceNav.removeAttribute("data-view");
+  if (careerPathRole) $("#open-rp-phone").disabled = true;
+  $("#practice-nav-label").textContent = careerPathRole ? "Карьерная практика" : "Практика РП";
+  careerPathState = null;
+  updateActivityReportFields();
   $("#appeals-list-card").classList.toggle("col-span-8", citizen);
   $("#appeals-list-card").classList.toggle("col-span-12", !citizen);
   $("#active-user-name").textContent = currentUser.displayName;
@@ -537,6 +540,13 @@ async function enterSession(session) {
   $("#pending-screen").classList.add("hidden");
   $("#app-shell").classList.remove("hidden");
   applyRoleVisibility();
+  if (Object.hasOwn(promotionPracticeRanks, currentUser.role)) {
+    try {
+      await loadCareerPath({ showIntro: false });
+    } catch (error) {
+      notify(`Не удалось загрузить прогресс карьерного пути: ${error.message}`);
+    }
+  }
   const requestedView = viewsByPath.get(window.location.pathname) || "dashboard";
   await navigate(viewIsAllowed(requestedView) ? requestedView : "dashboard");
   try {
@@ -571,14 +581,20 @@ function emptyState(message) {
   return `<div class="empty-state">${escapeHtml(message)}</div>`;
 }
 
-function openModal(title, content) {
+function openModal(title, content, purpose = "") {
+  const dialog = $("#document-dialog");
+  dialog.dataset.purpose = purpose;
+  dialog.querySelector(".modal-card").classList.toggle("career-intro-modal", purpose === "career-path-intro");
   $("#document-dialog-title").textContent = title;
   $("#document-dialog-body").innerHTML = content;
-  $("#document-dialog").classList.remove("hidden");
+  dialog.classList.remove("hidden");
 }
 
 function closeModal() {
-  $("#document-dialog").classList.add("hidden");
+  const dialog = $("#document-dialog");
+  dialog.classList.add("hidden");
+  dialog.dataset.purpose = "";
+  dialog.querySelector(".modal-card").classList.remove("career-intro-modal");
 }
 
 function openPhotoViewer(url, label, trigger) {
@@ -617,6 +633,7 @@ async function navigate(name) {
   $$("[data-view]").forEach((button) => button.classList.toggle("active", button.dataset.view === name));
   const loaders = {
     dashboard: loadDashboard,
+    career: loadCareerPath,
     lawsuits: loadLawsuits,
     appeals: loadAppeals,
     laws: loadLaws,
@@ -635,6 +652,210 @@ async function navigate(name) {
   } catch (error) {
     notify(error.message);
   }
+}
+
+function careerPathTaskMarkup(task, index) {
+  const stateClass = task.done ? "is-complete" : task.locked ? "is-locked" : "is-current";
+  const status = task.done ? "Выполнено" : task.locked ? "Закрыто" : "Текущий шаг";
+  return `<article class="career-path-task ${stateClass}">
+    <span class="career-path-task-number">${String(index + 1).padStart(2, "0")}</span>
+    <div class="career-path-task-copy">
+      <strong>${escapeHtml(task.title)}</strong>
+      <small>${escapeHtml(task.description)}</small>
+    </div>
+    <div class="career-path-task-actions">
+      <span class="career-path-task-status">${status}</span>
+      ${task.action || ""}
+    </div>
+  </article>`;
+}
+
+function renderCareerPath(data) {
+  careerPathState = data;
+  const role = data.role;
+  const passedSubjects = new Set(data.passedSubjects || []);
+  const allTestsPassed = Boolean(data.allTestsPassed);
+  const lawsReady = role !== "Юрист" || Boolean(data.lawsReviewed);
+  const completedCases = (data.completedCaseIds || []).length;
+  const requiredCases = Number(data.requiredCaseCount || (role === "Юрист" ? 3 : 1));
+  const casesReady = completedCases >= requiredCases;
+  const callsReady = Number(data.completedEvidenceCount || 0) >= Number(data.requiredEvidenceCount || 0);
+  const practiceSubmitted = Boolean(data.practiceSubmitted);
+  const tasks = [];
+
+  if (role === "Юрист") {
+    tasks.push({
+      title: "Изучить законодательство",
+      description: "Откройте базу законов, изучите нужные материалы, затем вернитесь сюда и подтвердите шаг.",
+      done: lawsReady,
+      locked: false,
+      action: lawsReady ? "" : `<button class="btn" type="button" data-view="laws">Открыть законы</button>
+        <button class="btn btn-gold" type="button" data-action="career-path-study">Изучил · продолжить</button>`
+    });
+  }
+
+  const examLabels = { ak: "АК", uk: "УК", pk: "ПК" };
+  const examDescriptions = {
+    ak: "Первый тест этапа. После успешной сдачи откроется следующий.",
+    uk: "Откроется после сдачи АК.",
+    pk: "Последний тест по кодексам. Откроется после сдачи УК."
+  };
+  for (const [index, subject] of ["ak", "uk", "pk"].entries()) {
+    const done = passedSubjects.has(subject);
+    const priorPassed = index === 0 || passedSubjects.has(["ak", "uk", "pk"][index - 1]);
+    const available = lawsReady && !done && priorPassed;
+    tasks.push({
+      title: `Сдать тест ${examLabels[subject]}`,
+      description: examDescriptions[subject],
+      done,
+      locked: !done && !available,
+      action: available
+        ? `<button class="btn btn-gold" type="button" data-action="career-path-open-view" data-target="tests">Перейти к тесту</button>`
+        : ""
+    });
+  }
+
+  tasks.push({
+    title: `Пройти базовые AI Case · ${completedCases}/${requiredCases}`,
+    description: role === "Стажер КА"
+      ? "Достаточно успешно пройти один базовый диалог с сотрудником."
+      : "Пройдите три базовых диалога, чтобы перейти к подтверждениям совместных вызовов.",
+    done: casesReady,
+    locked: !allTestsPassed || !lawsReady,
+    action: allTestsPassed && lawsReady && !casesReady
+      ? `<button class="btn btn-gold" type="button" data-action="career-path-open-ai">Открыть AI Case</button>`
+      : ""
+  });
+
+  if (role === "Юрист") {
+    tasks.push({
+      title: `Подтвердить совместные вызовы · ${Number(data.completedEvidenceCount || 0)}/${Number(data.requiredEvidenceCount || 2)}`,
+      description: "Добавьте два подтверждения совместных вызовов с адвокатом. Этот этап откроется после AI Case.",
+      done: callsReady,
+      locked: !casesReady,
+      action: casesReady && !callsReady
+        ? `<button class="btn btn-gold" type="button" data-action="career-path-open-practice" data-target="slots">Перейти к подтверждениям</button>`
+        : ""
+    });
+  }
+
+  const canSubmit = casesReady && callsReady;
+  tasks.push({
+    title: role === "Стажер КА" ? "Подать заявку на повышение до юриста" : "Подать заявку на повышение до адвоката",
+    description: practiceSubmitted
+      ? "Заявка отправлена. Дождитесь решения ГКА или ЗГКА — роль изменится только после одобрения."
+      : "Проверьте итоговые условия и подтвердите отправку заявки. До решения руководства текущая роль не изменится.",
+    done: practiceSubmitted,
+    locked: !canSubmit,
+    action: canSubmit && !practiceSubmitted
+      ? `<button class="btn btn-gold" type="button" data-action="career-path-open-practice" data-target="submit">Проверить и отправить</button>`
+      : ""
+  });
+
+  const completedCount = tasks.filter((task) => task.done).length;
+  const percent = tasks.length ? Math.round((completedCount / tasks.length) * 100) : 0;
+  $("#career-path-role").textContent = role;
+  $("#career-path-summary").textContent = role === "Стажер КА"
+    ? "Проходите экзамены и базовую практику по порядку. После выполнения требований отправьте заявку на повышение."
+    : "Сначала изучите законодательство, затем последовательно выполните задания этапа юриста.";
+  $("#career-path-progress-bar").style.width = `${percent}%`;
+  $("#career-path-progress-label").textContent = `${completedCount} из ${tasks.length} этапов выполнено`;
+  $("#career-path-tasks").innerHTML = tasks.map(careerPathTaskMarkup).join("");
+  const openAi = $("#open-rp-phone");
+  if (openAi) openAi.disabled = !allTestsPassed || !lawsReady || casesReady;
+  const practiceNav = $("#practice-nav");
+  if (practiceNav && Object.hasOwn(promotionPracticeRanks, role)) {
+    const practiceAvailable = allTestsPassed && lawsReady &&
+      (!casesReady || (role === "Юрист" && !callsReady) || !practiceSubmitted);
+    practiceNav.disabled = !practiceAvailable;
+    practiceNav.classList.toggle("locked", !practiceAvailable);
+    practiceNav.setAttribute("aria-disabled", String(!practiceAvailable));
+  }
+}
+
+async function loadCareerPath({ showIntro = true } = {}) {
+  if (!Object.hasOwn(promotionPracticeRanks, currentUser.role)) return;
+  let data = await api("/api/career-path");
+  if (!data.started) {
+    await api("/api/career-path/start", { method: "POST", body: {} });
+    data = await api("/api/career-path");
+  }
+  renderCareerPath(data);
+  if (showIntro && !data.tutorialSeen) showCareerPathIntro(data);
+}
+
+function showCareerPathIntro(data) {
+  const lawyer = data.role === "Юрист";
+  const steps = lawyer
+    ? ["Изучить законы", "Тесты АК · УК · ПК", "3 базовых AI Case", "2 совместных вызова"]
+    : ["Тест АК", "Тест УК", "Тест ПК", "1 базовый AI Case"];
+  openModal("Ваш карьерный путь", `<div class="career-intro-content">
+      <div class="career-intro-heading">
+        <span class="career-intro-icon" aria-hidden="true">✦</span>
+        <div>
+          <span class="career-intro-eyebrow">ПЕРСОНАЛЬНЫЙ МАРШРУТ · ${escapeHtml(data.role)}</span>
+          <h3>${lawyer ? "Новый этап — юрист" : "Начните путь стажёра"}</h3>
+        </div>
+      </div>
+      <p class="career-intro-copy">${lawyer
+        ? "Изучите законодательство, затем возвращайтесь к маршруту и проходите задания по порядку."
+        : "Ваши задания открываются по очереди. Выполните текущий шаг — следующий появится автоматически."}</p>
+      <ol class="career-intro-steps">${steps.map((step, index) => `<li>
+        <span>${String(index + 1).padStart(2, "0")}</span><strong>${escapeHtml(step)}</strong>
+      </li>`).join("")}</ol>
+      <div class="career-intro-actions">
+        <button class="btn btn-gold" type="button" data-action="career-path-intro">Показать мой путь <span aria-hidden="true">→</span></button>
+        <button class="btn btn-outline" type="button" data-action="career-path-dismiss">Позже</button>
+      </div>
+      <small class="career-intro-note">Путь всегда можно открыть с главной страницы или из меню «Начало пути».</small>
+    </div>`, "career-path-intro");
+}
+
+async function startCareerPath() {
+  await api("/api/career-path/start", { method: "POST", body: {} });
+  const data = await api("/api/career-path");
+  if (!data.tutorialSeen) {
+    showCareerPathIntro(data);
+    return;
+  }
+  await navigate("career");
+}
+
+async function continueCareerPathIntro() {
+  await api("/api/career-path/tutorial-seen", { method: "POST", body: {} });
+  closeModal();
+  await navigate("career");
+}
+
+async function dismissCareerPathIntro() {
+  await api("/api/career-path/tutorial-seen", { method: "POST", body: {} });
+  closeModal();
+  if (careerPathState) careerPathState.tutorialSeen = true;
+  await navigate("dashboard");
+  window.history.replaceState(null, "", viewPaths.dashboard);
+}
+
+async function completeCareerPathStudy() {
+  await api("/api/career-path/study", { method: "POST", body: {} });
+  notify("Шаг изучения законодательства отмечен. Открыты тесты по порядку.");
+  await loadCareerPath({ showIntro: false });
+  await navigate("tests");
+}
+
+async function openCareerPathView(button) {
+  const target = button.dataset.target;
+  await navigate(target);
+}
+
+async function openCareerPathPractice(button) {
+  await navigate("practice");
+  const target = button.dataset.target === "slots" ? "#promotion-practice-panel" : "#submit-promotion-practice";
+  $(target)?.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+async function openCareerPathAi() {
+  await navigate("practice");
+  await openRpPhone();
 }
 
 async function loadDashboard() {
@@ -746,6 +967,8 @@ async function viewAttorneyProfile(id) {
     <div><strong>${Number(profile.review_count || 0)}</strong><span>Отзывы</span></div>
     <div><strong>${Number(profile.closed_case_count || 0)}</strong><span>Закрытые обращения</span></div>
     <div><strong>${Number(profile.lawsuit_count || 0)}</strong><span>Опубликованные иски</span></div>
+    <div><strong>${Number(profile.approved_call_count || 0)}</strong><span>Одобренные вызовы · за всё время</span></div>
+    <div><strong>${Number(profile.approved_bail_count || 0)}</strong><span>Одобренные залоги · за всё время</span></div>
   </div>
   <h3 class="profile-reviews-title">Последние отзывы</h3>
   ${reviews || emptyState("Отзывов пока нет.")}`);
@@ -753,7 +976,8 @@ async function viewAttorneyProfile(id) {
 
 async function loadLawsuits() {
   const data = await api("/api/lawsuits");
-  const rows = data.lawsuits || [];
+  const rows = (data.lawsuits || []).filter((item) =>
+    item.forum_status !== "rejected" && item.status !== "rejected");
   $("#lawsuitsTableBody").innerHTML = rows.length ? rows.map((item) => {
     const courtIcons = {
       "lawsuit-supreme": "20_supreme_court",
@@ -1207,6 +1431,8 @@ function renderAppeals(applications) {
   });
   const promotionCards = careerApplications.map((item) => {
     const data = item.promotion_data || {};
+    const lawBundle = Array.isArray(data.lawTests) &&
+      ["ak", "uk", "pk"].every((subject) => data.lawTests.includes(subject));
     const canReview = Number(item.user_id) !== Number(currentUser.id) && item.status === "pending" &&
       (currentUser.role === "ГКА" || currentUser.role === "ЗГКА" || currentUser.hasFullGkaAccess ||
         (currentUser.role === "Ст.Адвокат" && item.stage_role === "Стажер КА"));
@@ -1240,7 +1466,11 @@ function renderAppeals(applications) {
         ? item.result || item.details || "Практика отправлена на рассмотрение."
         : "Черновик этапа: заполните практику совместных задержаний и отправьте заявку.")}</p>
       <div class="meta text-muted">
-        ${item.stage_role === "Юрист"
+        ${lawBundle
+          ? item.stage_role === "Стажер КА"
+            ? `Тесты АК/УК/ПК: 3/3 · Базовый AI Case: ${Number(item.rp_practice_completed_count || 0)}/1`
+            : `Тесты АК/УК/ПК: 3/3 · Базовые AI Case: 3/3 · Подтверждения вызовов с адвокатом: ${Array.isArray(item.promotion_practice) ? item.promotion_practice.length : 0}/2`
+          : item.stage_role === "Юрист"
           ? `Вызовы: ${Number(data.completedCalls || 0)} / ${Number(data.requiredCalls || 0)} · Пробный иск: ${escapeHtml(data.trialLawsuitReference || "не указан")} · Обзвон: ${item.interview_status === "ready" ? "готов" : "ожидает"}`
           : Array.isArray(data.lawTests) ? "Три обязательных теста по АК, УК и ПК сданы." : "Обязательный карьерный тест сдан."}
       </div>
@@ -1582,23 +1812,30 @@ function renderExamHistory(exams) {
 }
 
 async function loadTests() {
-  const [applications, history, progress] = await Promise.all([
+  const practicePromise = promotionPracticeRanks[currentUser.role]
+    ? api("/api/promotion-practice")
+    : Promise.resolve(null);
+  const [applications, history, progress, practice] = await Promise.all([
     api("/api/applications"),
     api("/api/exams/history"),
-    api("/api/exams/law-progress")
+    api("/api/exams/law-progress"),
+    practicePromise
   ]);
   renderExamHistory(history.exams);
   renderLawExamButtons(progress);
+  if (practice) renderPromotionPractice(practice);
   const careerApplication = (applications.applications || [])
     .filter((item) => item.type === "exam" && Array.isArray(item.promotion_data?.lawTests) &&
       item.stage_role === currentUser.role)
     .sort((left, right) => Number(right.id) - Number(left.id))[0];
+  const promotionData = careerApplication?.promotion_data || {};
+  const lawBundle = Array.isArray(promotionData.lawTests) &&
+    ["ak", "uk", "pk"].every((subject) => promotionData.lawTests.includes(subject));
   const canRequestInterview = Boolean(careerApplication && careerApplication.status === "pending" &&
-    careerApplication.stage_role === "Юрист");
+    careerApplication.stage_role === "Юрист" && !lawBundle);
   $("#interview-actions").classList.toggle("hidden", !canRequestInterview);
   if (canRequestInterview) {
     const ready = careerApplication.interview_status === "ready";
-    const promotionData = careerApplication.promotion_data || {};
     const hasPromotionReport = Number(promotionData.completedCalls) >= Number(progress.lawyerCallsRequired || 0) &&
       Boolean(promotionData.trialLawsuitReference);
     $("#interview-status").textContent = ready
@@ -1614,7 +1851,7 @@ async function loadTests() {
       : hasPromotionReport ? "Отметить готовность к обзвону" : "Сначала заполните отчёт";
   }
   const report = $("#law-promotion-report");
-  const canSubmitReport = Boolean(canRequestInterview && currentUser.role === "Юрист");
+  const canSubmitReport = Boolean(canRequestInterview && currentUser.role === "Юрист" && !lawBundle);
   report.classList.toggle("hidden", !canSubmitReport);
   if (canSubmitReport) {
     const saved = careerApplication.promotion_data || {};
@@ -1625,14 +1862,35 @@ async function loadTests() {
     $("#law-promotion-lawsuit").value = saved.trialLawsuitReference || "";
   }
   const status = $("#law-career-application-status");
+  const requestButton = $("#request-promotion-from-tests");
   const completedCount = (progress.passedSubjects || []).length;
   const isPromotionRole = ["Стажер КА", "Юрист"].includes(currentUser.role);
-  if (careerApplication?.status === "pending") {
-    status.textContent = !careerApplication.promotion_data?.practiceSubmittedAt
-      ? "Тесты сданы. Заполните практику совместных задержаний в разделе «Практика РП», затем отправьте заявку на повышение."
-      : currentUser.role === "Стажер КА"
-        ? "Заявка на повышение до юриста отправлена. Ожидайте решения ст. адвоката, ЗГКА или ГКА."
-        : "Заявка на повышение до адвоката отправлена. Ожидайте решения ЗГКА или ГКА.";
+  requestButton.classList.add("hidden");
+  if (careerApplication?.status === "pending" && lawBundle) {
+    if (promotionData.practiceSubmittedAt) {
+      status.textContent = currentUser.role === "Стажер КА"
+        ? "Заявка на повышение до юриста отправлена. Ожидайте решения ГКА или ЗГКА."
+        : "Заявка на повышение до адвоката отправлена. Ожидайте решения ГКА или ЗГКА.";
+    } else {
+      const rpCount = practice?.rpPracticeCompletedCaseIds?.length || 0;
+      const rpRequired = practice?.rpPracticeRequiredCount || (currentUser.role === "Стажер КА" ? 1 : 3);
+      const evidenceCount = practice?.evidenceCompletedCount || 0;
+      const evidenceRequired = practice?.evidenceRequiredCount || (currentUser.role === "Юрист" ? 2 : 0);
+      status.textContent = [
+        `Тесты АК/УК/ПК: ${completedCount}/3.`,
+        `Базовые AI Case: ${rpCount}/${rpRequired}.`,
+        evidenceRequired ? `Совместные задержания с адвокатом: ${evidenceCount}/${evidenceRequired}.` : "",
+        practice?.offerDeclinedAt && practice.canSubmit
+          ? "Вы пока отказались от заявки. Когда будете готовы, нажмите кнопку ниже."
+          : practice?.canSubmit
+            ? "Все условия выполнены. Подтвердите подачу заявки."
+            : practice?.readinessMessage || ""
+      ].filter(Boolean).join(" ");
+      if (practice?.canSubmit) {
+        requestButton.dataset.applicationId = String(careerApplication.id);
+        requestButton.classList.remove("hidden");
+      }
+    }
     status.classList.remove("hidden");
   } else if (careerApplication?.status === "rejected") {
     status.textContent = careerApplication.result || "Заявка отклонена. Тесты этого этапа снова доступны.";
@@ -1643,6 +1901,10 @@ async function loadTests() {
   } else {
     status.classList.add("hidden");
   }
+  if (practice?.canSubmit && lawBundle && !practice.offerDeclinedAt && !promotionData.practiceSubmittedAt) {
+    await maybeOfferCareerPromotion(practice);
+  }
+  if (isPromotionRole) await loadCareerPath();
 }
 
 const lawExamTracks = [
@@ -1660,8 +1922,12 @@ function renderLawExamButtons(progress) {
     return;
   }
   const passed = new Set(progress.passedSubjects || []);
+  const careerPathRole = Object.hasOwn(promotionPracticeRanks, currentUser.role);
+  const nextSubject = progress.nextSubject || "";
   container.innerHTML = lawExamTracks.map(({ subject, label, short }, index) => {
     const completed = passed.has(subject);
+    const locked = !completed && careerPathRole &&
+      (subject !== nextSubject || (currentUser.role === "Юрист" && !progress.lawsReviewed));
     const storageKey = `law-exam-stamp:${currentUser.id}:${progress.stageRole}:${subject}`;
     const savedAngle = localStorage.getItem(storageKey);
     let angle = savedAngle === null ? Number.NaN : Number(savedAngle);
@@ -1669,7 +1935,7 @@ function renderLawExamButtons(progress) {
       angle = Math.round(Math.random() * 36 - 18);
       localStorage.setItem(storageKey, String(angle));
     }
-    return `<article class="law-exam-card${completed ? " is-completed" : ""}">
+    return `<article class="law-exam-card${completed ? " is-completed" : ""}${locked ? " is-locked" : ""}">
       <div class="law-exam-card-heading"><span class="law-exam-number">${String(index + 1).padStart(2, "0")}</span>
         <strong>${label}</strong><span class="badge ${completed ? "badge-gold" : "badge-info"}">${completed ? "СДАН" : short}</span></div>
       ${completed
@@ -1678,8 +1944,8 @@ function renderLawExamButtons(progress) {
             aria-label="Тест ${label} сдан. Потяните печать, чтобы повернуть её." title="Потяните печать, чтобы повернуть">
             <img src="/assets/exam-passed-stamp.png?v=2" alt="ПРОЙДЕНО" style="--stamp-angle:${angle}deg">
           </div>`
-        : `<button class="btn btn-gold" type="button" data-action="start-law-exam" data-subject="${subject}">
-            Начать тест ${short} <span aria-hidden="true">→</span>
+        : `<button class="btn btn-gold" type="button" data-action="start-law-exam" data-subject="${subject}" ${locked ? "disabled" : ""}>
+            ${locked ? "Сначала выполните предыдущий шаг" : `Начать тест ${short} <span aria-hidden="true">→</span>`}
           </button>`}
     </article>`;
   }).join("");
@@ -1688,11 +1954,13 @@ function renderLawExamButtons(progress) {
   });
   lawExamJustPassed = "";
   const remaining = lawExamTracks.filter(({ subject }) => !passed.has(subject)).map(({ short }) => short);
-  $("#law-exam-progress-note").textContent = remaining.length
-    ? `Сдано ${passed.size} из 3. Осталось: ${remaining.join(", ")}.`
+  $("#law-exam-progress-note").textContent = currentUser.role === "Юрист" && !progress.lawsReviewed
+    ? "Сначала изучите законодательство в разделе «Мой путь» и отметьте выполнение шага."
+    : remaining.length
+    ? `Сдано ${passed.size} из 3. Тесты открываются по порядку. Осталось: ${remaining.join(", ")}.`
     : currentUser.role === "Адвокат"
       ? "Все тесты текущего этапа пройдены. Адвокат — последняя ступень с доступом к этим экзаменам."
-      : "Все три теста сданы. Заявка на следующую ступень создана автоматически.";
+      : "Все три теста сданы. Выполните базовые AI Case и практику; после этого портал предложит подать заявку.";
 }
 
 async function startExam(subject = "") {
@@ -1761,9 +2029,7 @@ async function submitQuiz(event) {
   await loadTests();
   if (currentView === "tests") $("#exam-latest-result").scrollIntoView({ behavior: "smooth", block: "center" });
   const nextStep = result.applicationCreated
-    ? result.interviewRequired
-      ? " Заявка создана: заполните отчёт и отметьте готовность к обзвону."
-      : " Заявка на повышение создана автоматически."
+    ? " Теперь выполните базовые AI Case и требования практики; после этого можно будет подать заявку."
     : "";
   notify(`Результат: ${result.score}/${result.total}. ${result.passed ? "Тест сдан." : "Тест не сдан."}${nextStep}`);
 }
@@ -1845,8 +2111,12 @@ async function reviewCareerPromotion(button) {
   const application = (await api("/api/applications")).applications
     .find((item) => Number(item.id) === Number(button.dataset.id));
   if (!application) throw new Error("Заявка на повышение больше недоступна.");
+  const lawBundle = Array.isArray(application.promotion_data?.lawTests) &&
+    ["ak", "uk", "pk"].every((subject) => application.promotion_data.lawTests.includes(subject));
   const criteria = status === "approved" && application.stage_role === "Юрист"
-    ? { callsVerified: true, trialLawsuitVerified: true, interviewPassed: true }
+    ? lawBundle
+      ? { practiceVerified: true }
+      : { callsVerified: true, trialLawsuitVerified: true, interviewPassed: true }
     : status === "approved" && application.stage_role === "Стажер КА"
       ? Number(application.career_flow) === 1 ? { headApproved: true } : { lectureVerified: true }
       : {};
@@ -1873,9 +2143,29 @@ function renderPromotionPractice(data) {
   const slots = data.slots || [];
   const resolvedCount = slots.filter((slot) => slot.skipped ||
     (slot.partnerName && (slot.evidenceUrl || slot.hasImage))).length;
-  $("#promotion-practice-progress").textContent = `${resolvedCount} из 6`;
+  const careerCasesComplete = data.stageRole !== "Юрист" || !data.lawBundle ||
+    (data.rpPracticeCompletedCaseIds || []).length >= Number(data.rpPracticeRequiredCount || 3);
+  const careerSlotsLocked = data.stageRole === "Юрист" && data.lawBundle && !careerCasesComplete;
+  $("#promotion-practice-instructions").textContent = data.lawBundle
+    ? data.stageRole === "Стажер КА"
+      ? "Стажёру достаточно пройти один базовый AI Case. Совместные задержания с адвокатом не требуются."
+      : careerCasesComplete
+        ? "После трёх базовых AI Case добавьте два подтверждения совместных вызовов с адвокатом."
+        : "Сначала пройдите три базовых AI Case. После этого откроются два подтверждения совместных вызовов с адвокатом."
+    : "Заполните три обязательных слота и прикрепите ссылку на откат или скриншот. Остальные три можно выполнить или пропустить.";
+  const isNewCareerFlow = Boolean(data.lawBundle);
+  const traineeStage = data.stageRole === "Стажер КА";
+  $("#promotion-practice-progress").textContent = isNewCareerFlow
+    ? traineeStage
+      ? `${data.rpPracticeCompletedCaseIds.length}/${data.rpPracticeRequiredCount} AI Case`
+      : careerSlotsLocked
+        ? `${data.rpPracticeCompletedCaseIds.length}/${data.rpPracticeRequiredCount} AI Case`
+        : `${data.evidenceCompletedCount}/2 ссылок`
+    : `${resolvedCount} из 6`;
+  $("#promotion-practice-slots").classList.toggle("hidden",
+    (isNewCareerFlow && traineeStage) || careerSlotsLocked);
   $("#promotion-practice-slots").innerHTML = slots.map((slot) => {
-    const optional = Number(slot.slotNo) > 3;
+    const optional = !isNewCareerFlow && Number(slot.slotNo) > 3;
     const proofLinks = [
       slot.evidenceUrl
         ? `<a href="${escapeHtml(slot.evidenceUrl)}" target="_blank" rel="noopener noreferrer">Открыть ссылку</a>`
@@ -1890,7 +2180,7 @@ function renderPromotionPractice(data) {
         <span class="badge ${optional ? "badge-info" : "badge-gold"}">${optional ? "МОЖНО СКИП" : "ОБЯЗАТЕЛЬНЫЙ"}</span>
       </div>
       ${slot.skipped ? `<p class="promotion-practice-skipped">Слот пропущен. При желании заполните его вместо скипа.</p>` : ""}
-      <label>Другой адвокат на задержании
+      <label>Адвокат на совместном вызове
         <input class="input" type="text" maxlength="80" required data-practice-partner value="${escapeHtml(slot.partnerName)}" ${data.submittedAt ? "disabled" : ""}>
       </label>
       <label>Ссылка на откат
@@ -1912,10 +2202,25 @@ function renderPromotionPractice(data) {
   const submitButton = $("#submit-promotion-practice");
   const readiness = $("#promotion-practice-readiness");
   submitButton.dataset.applicationId = String(data.applicationId || "");
+  submitButton.classList.toggle("hidden", !data.canSubmit);
   submitButton.disabled = !data.canSubmit;
+  submitButton.textContent = data.submittedAt ? "Заявка отправлена" : "Подать заявку на повышение";
   if (data.submittedAt) {
-    status.textContent = "Практика приложена к заявке. Старшие адвокаты и руководство увидят доказательства в разделе обращений.";
+    status.textContent = "Заявка отправлена. ГКА или ЗГКА рассмотрят её в разделе обращений.";
     readiness.textContent = "Редактирование слотов закрыто после отправки.";
+  } else if (isNewCareerFlow && traineeStage) {
+    status.textContent = "Стажёру нужно пройти один из трёх базовых AI Case. Совместные задержания с адвокатом не требуются.";
+    readiness.textContent = data.canSubmit
+      ? "Все условия выполнены. Подтвердите подачу заявки на юриста."
+      : data.readinessMessage || "Заявка откроется после сдачи тестов и базовой AI-практики.";
+  } else if (careerSlotsLocked) {
+    status.textContent = "Сначала пройдите три базовых AI Case. Подтверждения совместных вызовов пока закрыты.";
+    readiness.textContent = `Пройдено AI Case: ${data.rpPracticeCompletedCaseIds.length}/${data.rpPracticeRequiredCount}.`;
+  } else if (isNewCareerFlow) {
+    status.textContent = "Для повышения до адвоката пройдите три базовых AI Case и приложите подтверждения двух совместных вызовов с адвокатом.";
+    readiness.textContent = data.canSubmit
+      ? "Все условия выполнены. Подтвердите подачу заявки на адвоката."
+      : data.readinessMessage || "Заявка откроется после сдачи тестов, практик и двух совместных вызовов.";
   } else if (data.practiceComplete) {
     status.textContent = "Практика выполнена: обязательные слоты заполнены, дополнительные заполнены или пропущены.";
     readiness.textContent = data.canSubmit
@@ -1927,14 +2232,74 @@ function renderPromotionPractice(data) {
   }
 }
 
-async function loadPromotionPractice() {
+function maybeOfferCareerPromotion(data, { force = false } = {}) {
+  if (!data?.lawBundle || !data.canSubmit || data.submittedAt ||
+      careerOfferPromptActive || (!force && data.offerDeclinedAt)) return;
+  careerOfferApplicationId = Number(data.applicationId);
+  if (!Number.isSafeInteger(careerOfferApplicationId) || careerOfferApplicationId < 1) return;
+  const nextRole = promotionPracticeRanks[data.stageRole];
+  $("#career-promotion-offer-description").textContent =
+    `Вы сдали АК, УК и ПК и выполнили практику${data.stageRole === "Юрист"
+      ? ", включая три базовых AI Case и два вызова с адвокатом"
+      : " — один базовый AI Case"}. Хотите подать заявку на повышение до «${nextRole}»? Должность изменится только после одобрения ГКА или ЗГКА.`;
+  const dialog = $("#career-promotion-offer-dialog");
+  dialog.classList.remove("hidden");
+  careerOfferPromptActive = true;
+  dialog.querySelector("[data-decision='yes']").focus();
+}
+
+async function answerCareerPromotionOffer(button) {
+  if (!careerOfferPromptActive || !careerOfferApplicationId) return;
+  const dialog = $("#career-promotion-offer-dialog");
+  const buttons = $$("[data-action='answer-career-promotion-offer']", dialog);
+  const declined = button.dataset.decision !== "yes";
+  buttons.forEach((item) => { item.disabled = true; });
+  try {
+    if (!declined) {
+      const result = await api(`/api/applications/${careerOfferApplicationId}/promotion-practice/submit`, {
+        method: "POST",
+        body: {}
+      });
+      const warnings = [result.webhookWarning, result.notificationWarning].filter(Boolean).join(" ");
+      notify(warnings
+        ? `Заявка отправлена. Предупреждение: ${warnings}`
+        : "Заявка отправлена. ГКА или ЗГКА рассмотрят её на сайте.");
+    } else {
+      await api(`/api/applications/${careerOfferApplicationId}/promotion-practice/decline`, {
+        method: "POST",
+        body: {}
+      });
+    }
+    dialog.classList.add("hidden");
+    careerOfferPromptActive = false;
+    careerOfferApplicationId = 0;
+    if (declined) {
+      await loadCareerPath({ showIntro: false });
+      notify("Хорошо, заявка не отправлена. Путь можно открыть с главной в любое время.");
+      await navigate("dashboard");
+      window.history.replaceState(null, "", viewPaths.dashboard);
+      return;
+    }
+    await loadPromotionPractice({ prompt: false });
+    await loadTests();
+  } finally {
+    if (!dialog.classList.contains("hidden")) {
+      buttons.forEach((item) => { item.disabled = false; });
+    }
+  }
+}
+
+async function loadPromotionPractice({ prompt = true } = {}) {
   const panel = $("#promotion-practice-panel");
   if (!["Стажер КА", "Юрист"].includes(currentUser.role)) {
     panel.classList.add("hidden");
     promotionPracticeState = null;
-    return;
+    return null;
   }
-  renderPromotionPractice(await api("/api/promotion-practice"));
+  const data = await api("/api/promotion-practice");
+  renderPromotionPractice(data);
+  if (prompt) maybeOfferCareerPromotion(data);
+  return data;
 }
 
 async function savePromotionPracticeSlot(button) {
@@ -1966,19 +2331,20 @@ async function skipPromotionPracticeSlot(button) {
 }
 
 async function submitPromotionPractice(button) {
-  const applicationId = Number(button.dataset.applicationId);
-  if (!Number.isSafeInteger(applicationId) || applicationId < 1) {
+  const data = promotionPracticeState;
+  const applicationId = Number(button.dataset.applicationId || data?.applicationId);
+  if (!Number.isSafeInteger(applicationId) || applicationId < 1 || !data?.canSubmit) {
     throw new Error("Сначала сдайте тесты и выполните условия текущего этапа.");
   }
-  const result = await api(`/api/applications/${applicationId}/promotion-practice/submit`, { method: "POST", body: {} });
-  const warnings = [result.webhookWarning, result.notificationWarning].filter(Boolean).join(" ");
-  notify(warnings
-    ? `Заявка на повышение отправлена. Предупреждение: ${warnings}`
-    : "Заявка на повышение отправлена старшим адвокатам.");
-  await loadPromotionPractice();
+  maybeOfferCareerPromotion(data, { force: true });
 }
 
 async function loadRpPractice() {
+  if (Object.hasOwn(promotionPracticeRanks, currentUser.role)) {
+    await loadPromotionPractice();
+    await loadCareerPath();
+    return;
+  }
   const [data] = await Promise.all([
     api("/api/rp-practice/completions"),
     loadPromotionPractice()
@@ -2062,10 +2428,11 @@ async function answerRpPracticeCase(button) {
   }
 }
 
-function openRpPhone() {
+async function openRpPhone() {
   rpPhoneReturnFocus = document.activeElement;
   $("#rp-phone-dialog").classList.remove("hidden");
   document.body.classList.add("rp-phone-open");
+  await loadRpPhoneCustomCases();
   renderRpPhone();
   $("[data-action='close-rp-phone']").focus();
 }
@@ -2149,13 +2516,40 @@ function setRpPhoneMood(mood, label) {
   $("#rp-cop-mouth").setAttribute("d", safeMood === "angry" ? "M42 59 Q50 53 58 59" : safeMood === "smug" ? "M43 56 Q51 59 58 53" : "M44 56 56 56");
 }
 
-function startRpPhoneCase(caseId) {
-  const scenario = rpInterviewCases.find((item) => item.id === caseId);
+function findRpPhoneScenario(caseId) {
+  return rpInterviewCases.find((item) => item.id === caseId) ||
+    rpPhoneCustomCases.find((item) => item.id === caseId);
+}
+
+async function loadRpPhoneCustomCases() {
+  if (promotionPracticeRanks[currentUser.role]) {
+    rpPhoneCustomCases = [];
+    rpCareerPracticeProgress = await api("/api/rp-career-practice");
+    const completed = new Set(rpCareerPracticeProgress.completedCaseIds || []);
+    for (const item of rpCareerPracticeProgress.cases || []) {
+      const scenario = rpInterviewCases.find((entry) => entry.id === item.id);
+      if (scenario) scenario.completed = completed.has(item.id);
+    }
+    return;
+  }
+  rpCareerPracticeProgress = null;
+  const data = await api("/api/rp-custom-cases");
+  rpPhoneCustomCases = data.cases || [];
+}
+
+async function startRpPhoneCase(caseId) {
+  const scenario = findRpPhoneScenario(caseId);
   if (!scenario) throw new Error("Интерактивный кейс не найден.");
+  const careerPractice = Boolean(rpCareerPracticeProgress?.caseIds?.includes(caseId));
+  if (careerPractice) {
+    if (rpCareerPracticeProgress.completedCaseIds.includes(caseId)) return;
+    await api("/api/rp-career-practice/start", { method: "POST", body: { caseId } });
+  }
   const node = scenario.nodes[scenario.startNode];
   if (!node) throw new Error("У кейса не настроено начало диалога.");
   rpPhoneSession = {
     caseId,
+    careerPractice,
     nodeId: scenario.startNode,
     step: 1,
     leverage: 50,
@@ -2171,46 +2565,104 @@ function startRpPhoneCase(caseId) {
   renderRpPhone();
 }
 
-function answerRpPhoneChoice(index) {
+async function answerRpPhoneChoice(index) {
+  if (!rpPhoneSession || rpPhoneSession.finished || rpPhoneAnswerPending) return;
+  rpPhoneAnswerPending = true;
+  renderRpPhone();
+  try {
+    await applyRpPhoneChoice(index);
+  } finally {
+    rpPhoneAnswerPending = false;
+    renderRpPhone();
+  }
+}
+
+async function applyRpPhoneChoice(index) {
   if (!rpPhoneSession || rpPhoneSession.finished) return;
-  const scenario = rpInterviewCases.find((item) => item.id === rpPhoneSession.caseId);
+  const scenario = findRpPhoneScenario(rpPhoneSession.caseId);
   if (!scenario) throw new Error("Интерактивный кейс не найден.");
   const node = scenario.nodes[rpPhoneSession.nodeId];
   const choice = node?.choices?.[index];
   if (!choice) return;
+  const careerPracticeResult = rpPhoneSession.careerPractice
+    ? await api("/api/rp-career-practice/answer", {
+      method: "POST",
+      body: { caseId: rpPhoneSession.caseId, choiceIndex: index }
+    })
+    : null;
   const nextNode = scenario.nodes[choice.next];
   if (!nextNode) throw new Error("В сценарии не найден следующий вопрос.");
+  if (careerPracticeResult &&
+      careerPracticeResult.finished !== Boolean(nextNode.isEnd)) {
+    throw new Error("Состояние карьерного RP-кейса не совпало с сервером. Начните кейс заново.");
+  }
   rpPhoneSession.history.push({ sender: "lawyer", text: choice.text });
   rpPhoneSession.leverage = Math.max(0, Math.min(100, rpPhoneSession.leverage + choice.delta));
   rpPhoneSession.lastDebrief = choice.debrief;
   rpPhoneSession.nodeId = choice.next;
   rpPhoneSession.step += 1;
   rpPhoneSession.finished = Boolean(nextNode.isEnd);
+  const caseWon = scenario.custom
+    ? rpPhoneSession.leverage >= 50
+    : nextNode.won;
+  const responseMood = scenario.custom && !rpPhoneSession.finished
+    ? choice.delta > 0
+      ? scenario.officerKindness >= 4 ? "tense" : "angry"
+      : scenario.officerKindness === 1 ? "angry" : scenario.officerKindness === 2 ? "tense" : "smug"
+    : "";
   rpPhoneSession.mood = rpPhoneSession.finished
-    ? nextNode.won ? "angry" : "smug"
-    : choice.delta > 0 ? "angry" : "smug";
+    ? caseWon ? "angry" : "smug"
+    : responseMood || (choice.delta > 0 ? "angry" : "smug");
   rpPhoneSession.moodLabel = rpPhoneSession.finished
-    ? nextNode.won ? "Злится · победа защиты" : "Ухмыляется · ошибка защиты"
-    : choice.delta > 0 ? "Злится" : "Ухмыляется";
+    ? caseWon ? "Злится · победа защиты" : "Ухмыляется · ошибка защиты"
+    : rpPhoneSession.mood === "tense"
+      ? "Напряжён"
+      : rpPhoneSession.mood === "angry"
+        ? "Злится"
+        : rpPhoneSession.mood === "neutral" ? "Спокоен" : "Ухмыляется";
   rpPhoneSession.history.push({ sender: "cop", text: nextNode.copText });
   if (nextNode.isEnd) {
     rpPhoneSession.history.push({
       sender: "system",
-      text: nextNode.won ? "ИТОГ · доверитель освобождён" : "ИТОГ · доверитель отправлен под стражу"
+      text: caseWon ? "ИТОГ · доверитель освобождён" : "ИТОГ · доверитель отправлен под стражу"
     });
+    if (rpPhoneSession.careerPractice) {
+      scenario.completed = Boolean(careerPracticeResult.completed);
+      if (!scenario.completed) {
+        rpPhoneSession.history.push({
+          sender: "system",
+          text: "Практика не засчитана. Повторите кейс и добейтесь успешного исхода."
+        });
+      } else {
+        rpCareerPracticeProgress.completedCaseIds = careerPracticeResult.completedCaseIds;
+      }
+    }
+    if (scenario.custom && scenario.ownerId === Number(currentUser.id)) {
+      await api(`/api/rp-custom-cases/${Number(scenario.id.slice("custom-".length))}/complete`, {
+        method: "POST",
+        body: {}
+      });
+      scenario.completed = true;
+    }
   }
-  playRpPhoneReaction(choice.delta > 0, rpPhoneSession.finished, nextNode.won);
+  playRpPhoneReaction(choice.delta > 0, rpPhoneSession.finished, caseWon);
   renderRpPhone();
+  if (careerPracticeResult?.completed) {
+    await Promise.all([
+      loadPromotionPractice(),
+      loadCareerPath()
+    ]);
+  }
 }
 
-function startNextRpPhoneCase() {
+async function startNextRpPhoneCase() {
   const currentIndex = rpInterviewCases.findIndex((item) => item.id === rpPhoneSession?.caseId);
   if (currentIndex < 0 || !rpInterviewCases.length) {
     showRpPhonePicker();
     return;
   }
   const next = rpInterviewCases[(currentIndex + 1) % rpInterviewCases.length];
-  startRpPhoneCase(next.id);
+  await startRpPhoneCase(next.id);
 }
 
 function renderRpPhone() {
@@ -2234,19 +2686,32 @@ function renderRpPhone() {
     $("#rp-phone-chance").textContent = "Шанс защиты · 50%";
     $("#rp-phone-leverage").style.width = "50%";
     setRpPhoneMood("neutral", "Спокоен");
+    const careerMode = Boolean(rpCareerPracticeProgress);
+    const scenarios = careerMode
+      ? rpCareerPracticeProgress.cases.map((item) => rpInterviewCases.find((scenario) => scenario.id === item.id))
+        .filter(Boolean)
+      : [...rpInterviewCases, ...rpPhoneCustomCases];
     picker.innerHTML = `<div class="rp-phone-picker-intro"><span class="badge badge-gold">AI CASE · СИМУЛЯТОР</span>
-      <h2>Выберите дело</h2><p>Каждое решение меняет ход разговора. Выберите кейс, защитите доверителя и доведите дело до нужного исхода.</p></div>
-      ${rpInterviewCases.map((scenario, index) => `<button class="rp-phone-scenario" type="button"
-        data-action="select-rp-phone-case" data-case-id="${escapeHtml(scenario.id)}">
+      <h2>Выберите дело</h2><p>${careerMode
+        ? `Для этапа «${escapeHtml(rpCareerPracticeProgress.stageRole)}» доступны три базовые практики. Пройдено: ${rpCareerPracticeProgress.completedCaseIds.length}/${rpCareerPracticeProgress.requiredCount}.`
+        : "Каждое решение меняет ход разговора. Выберите кейс, защитите доверителя и доведите дело до нужного исхода."}</p></div>
+      ${careerMode ? "" : `<button class="btn btn-gold" type="button" data-action="create-rp-custom-case">Создать свой кейс</button>`}
+      ${scenarios.map((scenario, index) => {
+        const completed = Boolean(careerMode && rpCareerPracticeProgress.completedCaseIds.includes(scenario.id));
+        return `<button class="rp-phone-scenario${completed ? " is-completed" : ""}" type="button"
+        data-action="select-rp-phone-case" data-case-id="${escapeHtml(scenario.id)}" ${completed ? "disabled" : ""}>
         <span class="rp-scenario-index">${String(index + 1).padStart(2, "0")}</span>
         <span><strong>${escapeHtml(scenario.title)}</strong><small>${escapeHtml(scenario.subtitle)}</small>
-          <em>${escapeHtml(scenario.copName)} · ${escapeHtml(scenario.copDept)}</em></span>
+          <em>${completed ? "✓ Пройдено · " : ""}${escapeHtml(scenario.copName)} · ${escapeHtml(scenario.copDept)}${scenario.custom
+            ? ` · ${escapeHtml(scenario.status === "public" ? "Публичный кейс" : scenario.ownerName || "Личный кейс")}`
+            : ""}</em></span>
         <b aria-hidden="true">→</b>
-      </button>`).join("")}`;
+      </button>`;
+      }).join("")}`;
     return;
   }
 
-  const scenario = rpInterviewCases.find((item) => item.id === session.caseId);
+  const scenario = findRpPhoneScenario(session.caseId);
   const node = scenario?.nodes[session.nodeId];
   if (!scenario || !node) throw new Error("Текущий диалог не найден.");
   $("#rp-phone-title").textContent = scenario.copName;
@@ -2263,19 +2728,103 @@ function renderRpPhone() {
   $("#rp-phone-debrief").innerHTML = session.lastDebrief
     ? `<div class="rp-phone-debrief-card"><strong>Разбор выбранного ответа</strong><p>${escapeHtml(session.lastDebrief)}</p></div>`
     : "";
+  const customCaseControls = scenario.custom && scenario.ownerId === Number(currentUser.id)
+    ? scenario.status === "public"
+      ? `<p class="text-muted">Кейс уже опубликован для сотрудников.</p>`
+      : scenario.status === "pending"
+        ? `<p class="text-muted">Кейс ожидает решения ГКА в Discord.</p>`
+        : scenario.completed
+          ? `<button class="btn btn-gold" type="button" data-action="publish-rp-custom-case"
+              data-case-id="${escapeHtml(scenario.id)}">Опубликовать</button>`
+          : ""
+    : "";
   $("#rp-phone-choices").innerHTML = session.finished
     ? `<div class="rp-phone-end-actions">
-         <button class="btn btn-gold" type="button" data-action="next-rp-phone-case">Следующий кейс</button>
-         <button class="rp-phone-repeat" type="button" data-action="restart-rp-phone">Повторить диалог</button>
+         <button class="btn btn-gold" type="button" data-action="rp-phone-back">Назад к делам</button>
+         ${session.careerPractice && scenario.completed ? "" : `<button class="rp-phone-repeat" type="button" data-action="restart-rp-phone">Повторить диалог</button>`}
+         ${customCaseControls}
        </div>`
-    : node.choices.map((choice, index) => `<button class="choice-reply-btn" type="button"
-        data-action="answer-rp-phone" data-index="${index}"><span class="rp-reply-number">${index + 1}</span>${escapeHtml(choice.text)}</button>`
-      ).join("");
+    : `<button class="btn" type="button" data-action="rp-phone-back">Назад к делам</button>
+      ${node.choices.map((choice, index) => `<button class="choice-reply-btn" type="button"
+        data-action="answer-rp-phone" data-index="${index}" ${rpPhoneAnswerPending ? "disabled" : ""}><span class="rp-reply-number">${index + 1}</span>${escapeHtml(choice.text)}</button>`
+      ).join("")}`;
   $("#rp-phone-messages").scrollTop = $("#rp-phone-messages").scrollHeight;
 }
 
 function showRpPhonePicker() {
   rpPhoneSession = null;
+  renderRpPhone();
+}
+
+function openRpCustomCaseForm() {
+  const scaleOptions = [1, 2, 3, 4, 5].map((level) =>
+    `<option value="${level}">${level}</option>`
+  ).join("");
+  const depthOptions = [1, 2, 3, 4, 5].map((level) =>
+    `<option value="${level}">${level} · ${[0, 3, 6, 12, 24, 48][level]} вопросов</option>`
+  ).join("");
+  openModal("Создать свой AI Case", `<form id="rp-custom-case-form" class="activity-report-form">
+    <label>Основа ситуации
+      <textarea class="input" name="details" minlength="10" maxlength="1500" rows="5" required
+        placeholder="Опишите задержание, сотрудника ведомства и обстоятельства дела"></textarea>
+    </label>
+    <label>Сложность
+      <select class="input" name="difficulty" required>${scaleOptions}</select>
+    </label>
+    <label>Доброта госслужащего
+      <select class="input" name="officerKindness" required>${scaleOptions}</select>
+    </label>
+    <label>Углублённое понимание дела
+      <select class="input" name="depth" required>${depthOptions}</select>
+    </label>
+    <p class="text-muted">Количество вопросов задаёт глубина: 3, 6, 12, 24 или 48. У каждого вопроса будет 3 варианта ответа.</p>
+    <div class="table-actions">
+      <button class="btn btn-gold" type="submit">Создать кейс с ИИ</button>
+      <button class="btn" type="button" data-action="close-document">Отмена</button>
+    </div>
+  </form>`);
+}
+
+async function createRpCustomCase(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const submitButton = form.querySelector("button[type='submit']");
+  submitButton.disabled = true;
+  submitButton.textContent = "ИИ создаёт кейс…";
+  try {
+    const formData = new FormData(form);
+    const result = await api("/api/rp-custom-cases", {
+      method: "POST",
+      body: {
+        details: String(formData.get("details") || "").trim(),
+        difficulty: Number(formData.get("difficulty")),
+        officerKindness: Number(formData.get("officerKindness")),
+        depth: Number(formData.get("depth"))
+      }
+    });
+    rpPhoneCustomCases = [result.case, ...rpPhoneCustomCases.filter((item) => item.id !== result.case.id)];
+    closeModal();
+    notify(`Личный кейс готов: ${result.case.questions.length} вопросов.`);
+    startRpPhoneCase(result.case.id);
+  } finally {
+    if (submitButton.isConnected) {
+      submitButton.disabled = false;
+      submitButton.textContent = "Создать кейс с ИИ";
+    }
+  }
+}
+
+async function publishRpCustomCase(button) {
+  const caseId = String(button.dataset.caseId || "");
+  const numericId = Number(caseId.replace(/^custom-/, ""));
+  if (!Number.isSafeInteger(numericId) || numericId < 1) throw new Error("Не удалось определить личный кейс.");
+  const result = await api(`/api/rp-custom-cases/${numericId}/publish`, {
+    method: "POST",
+    body: {}
+  });
+  const scenario = rpPhoneCustomCases.find((item) => item.id === caseId);
+  if (scenario) scenario.status = result.status;
+  notify("Кейс отправлен в Discord на проверку ГКА.");
   renderRpPhone();
 }
 
@@ -2414,11 +2963,13 @@ async function loadRating() {
         <td>${escapeHtml(attorney.role)}</td>
         <td>${Number(attorney.cases_handled || 0)}</td>
         <td>${Number(attorney.lawsuit_count || 0)}</td>
+        <td>${Number(attorney.calls || 0)}</td>
+        <td>${Number(attorney.bails || 0)}</td>
         <td>${Number(attorney.score || 0).toFixed(1)}</td>
       </tr>`
-    ).join("") : `<tr><td colspan="6">${emptyState("Адвокатов в рейтинге пока нет.")}</td></tr>`;
+    ).join("") : `<tr><td colspan="8">${emptyState("Адвокатов в рейтинге пока нет.")}</td></tr>`;
   } catch (error) {
-    $("#ratingTableBody").innerHTML = `<tr><td colspan="6">${escapeHtml(error.message)}</td></tr>`;
+    $("#ratingTableBody").innerHTML = `<tr><td colspan="8">${escapeHtml(error.message)}</td></tr>`;
     throw error;
   }
 }
@@ -2658,6 +3209,14 @@ async function loadMonthlyReports() {
 }
 
 async function loadActivityReports() {
+  const restricted = currentUser.role === "Юрист";
+  $("#activity-report-form").classList.toggle("hidden", restricted);
+  $("#activity-report-restriction").classList.toggle("hidden", !restricted);
+  if (restricted) {
+    $("#activity-reports-title").textContent = "Отчёты появятся после одобрения";
+    $("#activity-report-list").innerHTML = "";
+    return;
+  }
   const data = await api("/api/activity-reports");
   const reports = data.reports || [];
   $("#activity-reports-title").textContent = data.canReview ? "Отчёты на одобрение" : "Мои отчёты";
@@ -2672,6 +3231,7 @@ async function loadActivityReports() {
         ${data.canReview ? ` · ${escapeHtml(report.reporter_name)} (${escapeHtml(report.reporter_role)})` : ""}
       </div>
       <p>${escapeHtml(report.details)}</p>
+        ${report.reference_url ? `<p><a href="${escapeHtml(report.reference_url)}" target="_blank" rel="noopener noreferrer">Открыть вызов ↗</a></p>` : ""}
       ${report.attachment_name ? `<a class="activity-report-attachment" href="/api/activity-reports/${Number(report.id)}/photo" target="_blank" rel="noopener">
         <img src="/api/activity-reports/${Number(report.id)}/photo" alt="Фото-доказательство к отчёту">
         <span>${escapeHtml(report.attachment_name)}</span>
@@ -2700,7 +3260,15 @@ function renderActivityReportPhoto() {
 }
 
 function updateActivityReportFields() {
-  const isBailReport = $("#activity-report-type").value === "bail";
+  const reportType = $("#activity-report-type").value;
+  const callOption = $("#activity-report-type option[value='call']");
+  const canSubmitCall = ["Адвокат", "Ст.Адвокат", "ЗГКА", "ГКА"].includes(currentUser?.role);
+  callOption.hidden = !canSubmitCall;
+  if (!canSubmitCall && reportType === "call") $("#activity-report-type").value = "bail";
+  const isCallReport = $("#activity-report-type").value === "call";
+  const isBailReport = !isCallReport;
+  $("#activity-report-link-field").classList.toggle("hidden", !isCallReport);
+  $("#activity-report-link").required = isCallReport;
   $("#activity-report-photo-field").classList.toggle("hidden", isBailReport);
   $("#activity-report-upload-hint").classList.toggle("hidden", isBailReport);
   if (isBailReport) clearActivityReportPhoto();
@@ -2776,6 +3344,7 @@ async function submitActivityReport(event) {
       reportType,
       occurredAt: $("#activity-report-date").value,
       details: $("#activity-report-details").value.trim(),
+      ...(reportType === "call" ? { referenceUrl: $("#activity-report-link").value.trim() } : {}),
       ...(photo ? { photo: {
         name: photo.name,
         type: photo.type,
@@ -2784,6 +3353,7 @@ async function submitActivityReport(event) {
     }
   });
   $("#activity-report-form").reset();
+  $("#activity-report-link").value = "";
   clearActivityReportPhoto();
   updateActivityReportFields();
   $("#activity-report-date").value = localDateValue();
@@ -2921,6 +3491,13 @@ async function handleAction(button) {
     const expanded = $("#careerSubmenu").classList.toggle("open");
     button.setAttribute("aria-expanded", String(expanded));
   }
+  else if (action === "start-career-path") await startCareerPath();
+  else if (action === "career-path-intro") await continueCareerPathIntro();
+  else if (action === "career-path-dismiss") await dismissCareerPathIntro();
+  else if (action === "career-path-study") await completeCareerPathStudy();
+  else if (action === "career-path-open-view") await openCareerPathView(button);
+  else if (action === "career-path-open-practice") await openCareerPathPractice(button);
+  else if (action === "career-path-open-ai") await openCareerPathAi();
   else if (action === "toggle-lawsuit-form") $("#lawsuit-form").classList.toggle("hidden");
   else if (action === "ask-ai-laws") await askAiAssistant("laws");
   else if (action === "ask-ai-lawsuit") await askAiAssistant("lawsuit");
@@ -2933,14 +3510,16 @@ async function handleAction(button) {
   else if (action === "toggle-interview") await toggleInterview(button);
   else if (action === "start-rp-practice") startRpPractice(button.dataset.level);
   else if (action === "answer-rp-case") await answerRpPracticeCase(button);
-  else if (action === "open-rp-phone") openRpPhone();
+  else if (action === "open-rp-phone") await openRpPhone();
   else if (action === "close-rp-phone") closeRpPhone();
   else if (action === "toggle-rp-phone-sound") toggleRpPhoneSound();
-  else if (action === "select-rp-phone-case") startRpPhoneCase(button.dataset.caseId);
-  else if (action === "answer-rp-phone") answerRpPhoneChoice(Number(button.dataset.index));
-  else if (action === "next-rp-phone-case") startNextRpPhoneCase();
+  else if (action === "select-rp-phone-case") await startRpPhoneCase(button.dataset.caseId);
+  else if (action === "answer-rp-phone") await answerRpPhoneChoice(Number(button.dataset.index));
+  else if (action === "next-rp-phone-case") await startNextRpPhoneCase();
   else if (action === "rp-phone-back") showRpPhonePicker();
-  else if (action === "restart-rp-phone") startRpPhoneCase(rpPhoneSession?.caseId);
+  else if (action === "restart-rp-phone") await startRpPhoneCase(rpPhoneSession?.caseId);
+  else if (action === "create-rp-custom-case") openRpCustomCaseForm();
+  else if (action === "publish-rp-custom-case") await publishRpCustomCase(button);
   else if (action === "copy-lawsuit-bbcode") await copyLawsuitBbcode();
   else if (action === "copy-memo") await copyMemo();
   else if (action === "start-new-week") await startNewWeek();
@@ -2958,13 +3537,17 @@ async function handleAction(button) {
   else if (action === "save-promotion-practice-slot") await savePromotionPracticeSlot(button);
   else if (action === "skip-promotion-practice-slot") await skipPromotionPracticeSlot(button);
   else if (action === "submit-promotion-practice") await submitPromotionPractice(button);
+  else if (action === "answer-career-promotion-offer") await answerCareerPromotionOffer(button);
   else if (action === "refresh-promotion-decree") await loadPromotionDecrees();
   else if (action === "preview-promotion-decree") await previewPromotionDecree();
   else if (action === "send-promotion-decree") await sendPromotionDecree();
   else if (["application-details", "assign-appeal", "close-appeal"].includes(action)) await handleAppealAction(button);
   else if (action === "select-attorney") await selectAttorney(button.dataset.id);
   else if (action === "attorney-profile") await viewAttorneyProfile(button.dataset.id);
-  else if (action === "close-document") closeModal();
+  else if (action === "close-document") {
+    if ($("#document-dialog").dataset.purpose === "career-path-intro") await dismissCareerPathIntro();
+    else closeModal();
+  }
   else if (action === "close-photo-viewer") closePhotoViewer();
   else if (action === "close-quiz") {
     $("#quiz-dialog").classList.add("hidden");
@@ -3097,6 +3680,11 @@ $("#reprimand-form").addEventListener("submit", (event) => {
 $("#activity-report-form").addEventListener("submit", (event) => {
   submitActivityReport(event).catch((error) => notify(error.message));
 });
+document.addEventListener("submit", (event) => {
+  if (event.target instanceof HTMLFormElement && event.target.id === "rp-custom-case-form") {
+    createRpCustomCase(event).catch((error) => notify(error.message));
+  }
+});
 $("#lawsuit-form").addEventListener("submit", (event) => {
   event.preventDefault();
   submitLawsuit().catch((error) => notify(error.message));
@@ -3126,7 +3714,16 @@ $("#rating-period").addEventListener("change", () => {
 });
 $("#audit-search").addEventListener("input", renderAuditMembers);
 $("#document-dialog").addEventListener("click", (event) => {
-  if (event.target === $("#document-dialog")) closeModal();
+  if (event.target !== $("#document-dialog")) return;
+  const dismiss = $("#document-dialog").dataset.purpose === "career-path-intro"
+    ? dismissCareerPathIntro()
+    : Promise.resolve(closeModal());
+  dismiss.catch((error) => notify(error.message));
+});
+$("#career-promotion-offer-dialog").addEventListener("click", (event) => {
+  if (event.target !== $("#career-promotion-offer-dialog")) return;
+  const dismissButton = $("#career-promotion-offer-dialog").querySelector("[data-decision='no']");
+  answerCareerPromotionOffer(dismissButton).catch((error) => notify(error.message));
 });
 $("#photo-viewer").addEventListener("click", (event) => {
   if (event.target === $("#photo-viewer")) closePhotoViewer();
@@ -3135,6 +3732,19 @@ $("#rp-phone-dialog").addEventListener("click", (event) => {
   if (event.target === $("#rp-phone-dialog")) closeRpPhone();
 });
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && $("#document-dialog").dataset.purpose === "career-path-intro") {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    dismissCareerPathIntro().catch((error) => notify(error.message));
+    return;
+  }
+  if (event.key === "Escape" && !$("#career-promotion-offer-dialog").classList.contains("hidden")) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const dismissButton = $("#career-promotion-offer-dialog").querySelector("[data-decision='no']");
+    answerCareerPromotionOffer(dismissButton).catch((error) => notify(error.message));
+    return;
+  }
   if (event.key === "Escape" && !$("#rp-phone-dialog").classList.contains("hidden")) {
     event.preventDefault();
     closeRpPhone();

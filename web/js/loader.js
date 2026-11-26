@@ -1,4 +1,4 @@
-const assetVersion = new URL(import.meta.url).searchParams.get("v") || "20261125-6";
+const assetVersion = new URL(import.meta.url).searchParams.get("v") || "20261126-4";
 const appUrl = `/api/frontend/app-part?v=${encodeURIComponent(assetVersion)}`;
 const stylesheetAssets = ["base.css", "theme.css", "awards.css"];
 const loadingStatus = document.getElementById("session-loading");
