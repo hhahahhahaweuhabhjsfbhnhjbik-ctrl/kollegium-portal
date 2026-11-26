@@ -554,13 +554,23 @@ check(rpScenarioTitles.includes("Адвокат в КПЗ: допуск, дог�
 check([...document.querySelectorAll("#rp-phone-case-picker .rp-scenario-index")]
   .map((element) => element.textContent).join(",") === "01,02,03,04",
 "Нумерация кейсов в телефоне должна быть единообразной и двузначной.");
+const originalRandom = window.Math.random;
+window.Math.random = () => 0;
 document.querySelector('#rp-phone-case-picker [data-case-id="case_lspd_kpz"]')?.dispatchEvent(
   new window.MouseEvent("click", { bubbles: true })
 );
+await wait(10);
+window.Math.random = originalRandom;
 check(document.querySelector("#rp-phone-messages .msg-cop") &&
   document.querySelectorAll("#rp-phone-choices .choice-reply-btn").length === 3,
 "Сценарий телефона должен показывать реплику офицера и варианты ответа.");
-document.querySelector('#rp-phone-choices [data-index="1"]')?.dispatchEvent(
+const initialRpChoices = [...document.querySelectorAll("#rp-phone-choices .choice-reply-btn")];
+const correctInitialChoice = initialRpChoices.find((button) =>
+  button.textContent.includes("Вызов принят вовремя"));
+check(correctInitialChoice?.dataset.index === "2",
+"Правильный вариант встроенного AI Case не должен закрепляться в первой позиции.");
+initialRpChoices.find((button) => button.textContent.includes("Ну ладно, раз 6 минут прошло"))
+  ?.dispatchEvent(
   new window.MouseEvent("click", { bubbles: true })
 );
 await wait(10);
@@ -576,17 +586,22 @@ document.querySelector('[data-action="open-rp-phone"]')?.dispatchEvent(
 );
 check(document.querySelector("#rp-phone-messages")?.textContent.includes("сам всё признал"),
 "Закрытие и повторное открытие телефона должно сохранять текущий диалог.");
-document.querySelector('#rp-phone-choices [data-index="0"]')?.dispatchEvent(
+([...document.querySelectorAll("#rp-phone-choices .choice-reply-btn")].find((button) =>
+  button.textContent.includes("Стоп. Ожидание адвоката")))?.dispatchEvent(
+  new window.MouseEvent("click", { bubbles: true })
+);
+await wait(10);
+check(document.querySelector("#rp-phone-messages")?.textContent.includes("Предоставь комнату") &&
+  document.querySelector("#rp-phone-mood")?.textContent.includes("Злится"),
+"Перемешивание вариантов не должно менять связанный с каждым ответом сюжет.");
+([...document.querySelectorAll("#rp-phone-choices .choice-reply-btn")].find((button) =>
+  button.textContent.includes("Запись обязаны показать")))?.dispatchEvent(
   new window.MouseEvent("click", { bubbles: true })
 );
 await wait(10);
 check(document.querySelector("#rp-phone-mood")?.textContent.includes("Злится"),
 "Правильный ответ должен вызывать злость офицера.");
 check(audioTones.includes("sawtooth"), "Правильный ответ должен воспроизводить звук злой реакции.");
-document.querySelector('#rp-phone-choices [data-index="0"]')?.dispatchEvent(
-  new window.MouseEvent("click", { bubbles: true })
-);
-await wait(10);
 check(document.querySelector("#rp-phone-choices")?.textContent.includes("Назад к делам") &&
   document.querySelector("#rp-phone-choices")?.textContent.includes("Повторить диалог") &&
   document.querySelector(".rp-phone-end-actions .rp-phone-repeat") &&

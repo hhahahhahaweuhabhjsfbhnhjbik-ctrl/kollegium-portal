@@ -2788,6 +2788,27 @@ function findRpPhoneScenario(caseId) {
     rpPhoneCustomCases.find((item) => item.id === caseId);
 }
 
+function shuffleRpPhoneChoices(choices) {
+  const shuffled = choices.map((choice, sourceIndex) => ({ ...choice, sourceIndex }));
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+  return shuffled;
+}
+
+function shuffleRpPhoneScenario(scenario) {
+  return {
+    ...scenario,
+    nodes: Object.fromEntries(Object.entries(scenario.nodes).map(([nodeId, node]) => [
+      nodeId,
+      node.choices
+        ? { ...node, choices: shuffleRpPhoneChoices(node.choices) }
+        : node
+    ]))
+  };
+}
+
 async function loadRpPhoneCustomCases() {
   if (promotionPracticeRanks[currentUser.role]) {
     rpPhoneCustomCases = [];
@@ -2805,17 +2826,19 @@ async function loadRpPhoneCustomCases() {
 }
 
 async function startRpPhoneCase(caseId) {
-  const scenario = findRpPhoneScenario(caseId);
-  if (!scenario) throw new Error("Интерактивный кейс не найден.");
+  const sourceScenario = findRpPhoneScenario(caseId);
+  if (!sourceScenario) throw new Error("Интерактивный кейс не найден.");
   const careerPractice = Boolean(rpCareerPracticeProgress?.caseIds?.includes(caseId));
   if (careerPractice) {
     if (rpCareerPracticeProgress.completedCaseIds.includes(caseId) && currentUser.role !== "Юрист") return;
     await api("/api/rp-career-practice/start", { method: "POST", body: { caseId } });
   }
+  const scenario = sourceScenario.custom ? sourceScenario : shuffleRpPhoneScenario(sourceScenario);
   const node = scenario.nodes[scenario.startNode];
   if (!node) throw new Error("У кейса не настроено начало диалога.");
   rpPhoneSession = {
     caseId,
+    scenario,
     careerPractice,
     nodeId: scenario.startNode,
     step: 1,
@@ -2846,7 +2869,7 @@ async function answerRpPhoneChoice(index) {
 
 async function applyRpPhoneChoice(index) {
   if (!rpPhoneSession || rpPhoneSession.finished) return;
-  const scenario = findRpPhoneScenario(rpPhoneSession.caseId);
+  const scenario = rpPhoneSession.scenario || findRpPhoneScenario(rpPhoneSession.caseId);
   if (!scenario) throw new Error("Интерактивный кейс не найден.");
   const node = scenario.nodes[rpPhoneSession.nodeId];
   const choice = node?.choices?.[index];
@@ -2854,7 +2877,7 @@ async function applyRpPhoneChoice(index) {
   const careerPracticeResult = rpPhoneSession.careerPractice
     ? await api("/api/rp-career-practice/answer", {
       method: "POST",
-      body: { caseId: rpPhoneSession.caseId, choiceIndex: index }
+      body: { caseId: rpPhoneSession.caseId, choiceIndex: choice.sourceIndex ?? index }
     })
     : null;
   const nextNode = scenario.nodes[choice.next];
@@ -2979,7 +3002,7 @@ function renderRpPhone() {
     return;
   }
 
-  const scenario = findRpPhoneScenario(session.caseId);
+  const scenario = session.scenario || findRpPhoneScenario(session.caseId);
   const node = scenario?.nodes[session.nodeId];
   if (!scenario || !node) throw new Error("Текущий диалог не найден.");
   $("#rp-phone-title").textContent = scenario.copName;

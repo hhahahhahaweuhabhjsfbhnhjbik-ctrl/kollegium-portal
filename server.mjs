@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomInt, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { DatabaseSync } from "node:sqlite";
 import { existsSync } from "node:fs";
@@ -2505,9 +2505,32 @@ function parseGeneratedRpCustomCase(answer, expectedQuestionCount) {
     }
     return { text: prompt, explanation, options, correctIndex: question.correctIndex };
   });
+  const correctPositions = Array.from({ length: questions.length }, (_, index) => index % 3);
+  for (let index = correctPositions.length - 1; index > 0; index -= 1) {
+    const swapIndex = randomInt(index + 1);
+    [correctPositions[index], correctPositions[swapIndex]] =
+      [correctPositions[swapIndex], correctPositions[index]];
+  }
+  const randomizedQuestions = questions.map((question, index) => {
+    const correctIndex = correctPositions[index];
+    const incorrectOptions = question.options.filter((_, optionIndex) =>
+      optionIndex !== question.correctIndex);
+    for (let optionIndex = incorrectOptions.length - 1; optionIndex > 0; optionIndex -= 1) {
+      const swapIndex = randomInt(optionIndex + 1);
+      [incorrectOptions[optionIndex], incorrectOptions[swapIndex]] =
+        [incorrectOptions[swapIndex], incorrectOptions[optionIndex]];
+    }
+    const options = new Array(3);
+    options[correctIndex] = question.options[question.correctIndex];
+    let incorrectIndex = 0;
+    for (let optionIndex = 0; optionIndex < options.length; optionIndex += 1) {
+      if (optionIndex !== correctIndex) options[optionIndex] = incorrectOptions[incorrectIndex++];
+    }
+    return { ...question, options, correctIndex };
+  });
   const nodes = {};
-  questions.forEach((question, index) => {
-    const next = index === questions.length - 1 ? "result" : `question-${index + 1}`;
+  randomizedQuestions.forEach((question, index) => {
+    const next = index === randomizedQuestions.length - 1 ? "result" : `question-${index + 1}`;
     nodes[`question-${index}`] = {
       copText: question.text,
       choices: question.options.map((option, answerIndex) => ({
@@ -3791,8 +3814,10 @@ export function createPortalServer(options = {}) {
 Выбери ведомство строго из LSDP, FIB, LSSD, USSS. Не придумывай ссылки и номера статей.
 Примеры тона существующей базы:
 ${examples}
-Верни только JSON: {"title":"...","subtitle":"...","copName":"...","copDept":"LSDP|FIB|LSSD|USSS","questions":[{"text":"реплика госслужащего","options":["ответ 1","ответ 2","ответ 3"],"correctIndex":0,"explanation":"почему правильный вариант лучше"}]}.
-Нужно ровно ${expectedQuestionCount} вопросов, ровно 3 ответа в каждом, один лучший ответ. Вопросы должны образовывать последовательный разговор, не повторяться. Все строки на русском языке.`;
+Верни только JSON: {"title":"...","subtitle":"...","copName":"...","copDept":"LSDP|FIB|LSSD|USSS","questions":[{"text":"реплика госслужащего","options":["ответ 1","ответ 2","ответ 3"],"correctIndex":2,"explanation":"почему правильный вариант лучше"}]}.
+Нужно ровно ${expectedQuestionCount} вопросов, ровно 3 ответа в каждом, один лучший ответ; correctIndex указывает его позицию от 0 до 2. Не ставь правильный ответ постоянно в одну позицию и не используй шаблонную последовательность.
+Все три варианта должны звучать правдоподобно и быть сопоставимы по длине и детализации. Ошибочные варианты — реалистичные юридические заблуждения, а не очевидная нелепость; правильный не должен выделяться более официальным или подробным стилем.
+Вопросы должны образовывать последовательный разговор, не повторяться. Все строки на русском языке.`;
           const model = String(options.geminiModel ?? process.env.GEMINI_MODEL ?? "gemini-3.5-flash-lite").trim();
           let generationResponse;
           try {

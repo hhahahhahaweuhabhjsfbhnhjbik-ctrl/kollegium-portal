@@ -3055,6 +3055,11 @@ test("staff can create and practice personal AI Case but cannot publish it", asy
     assert.equal(creation.data.case.questions.length, 3);
     assert.ok(Object.values(creation.data.case.nodes).filter((node) => node.choices).every((node) =>
       node.choices.length === 3));
+    const correctAnswerPositions = Object.values(creation.data.case.nodes)
+      .filter((node) => node.choices)
+      .map((node) => node.choices.findIndex((choice) => choice.delta > 0))
+      .sort();
+    assert.deepEqual(correctAnswerPositions, [0, 1, 2]);
     assert.equal(creation.data.case.status, "private");
     assert.equal((await outsider("/api/rp-custom-cases")).data.cases.length, 0);
     assert.equal((await outsider(`/api/rp-custom-cases/${creation.data.case.id.slice(7)}/complete`, "POST", {})).status, 403);
