@@ -988,8 +988,8 @@ body::before {
 }
 
 .attorney-avatar img {
-  width: 190%;
-  height: 190%;
+  width: 150%;
+  height: 150%;
   max-width: none;
   align-self: start;
   justify-self: center;
