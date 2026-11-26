@@ -4460,7 +4460,12 @@ ${examples}
             submittedAt: promotionData.practiceSubmittedAt || "",
             offerDeclinedAt: promotionData.offerDeclinedAt || "",
             lawBundle,
+            passedLawSubjects: getCareerLawPasses(db, user.id, user.role),
             rpPracticeCompletedCaseIds: rpPractice.completedCaseIds,
+            rpPracticeCases: rpPractice.cases.map((scenario) => ({
+              ...scenario,
+              completed: rpPractice.completedCaseIds.includes(scenario.id)
+            })),
             rpPracticeRequiredCount: lawBundle ? rpPractice.requiredCount : 0,
             evidenceCompletedCount: completedEvidence,
             evidenceRequiredCount: lawBundle && user.role === "Юрист" ? careerLawyerJointCallsRequired : 0,
@@ -4798,15 +4803,32 @@ ${examples}
             const careerRpProgress = canSeePractice && lawBundle
               ? getCareerRpPracticeState(db, item.user_id, item.stage_role)
               : null;
+            const careerLawPassedSubjects = canSeePractice
+              ? getCareerLawPasses(db, item.user_id, item.stage_role)
+              : [];
+            const promotionPractice = canSeePractice
+              ? getPromotionPracticeSlots(db, item.user_id, item.stage_role, item.id, { lawBundle })
+              : [];
+            const careerRequirementsComplete = canSeePractice && lawBundle
+              ? careerLawExamSubjects.every((subject) => careerLawPassedSubjects.includes(subject)) &&
+                careerRpProgress.completedCaseIds.length >= careerRpProgress.requiredCount &&
+                promotionPracticeIsComplete(db, item.user_id, item.stage_role, { lawBundle })
+              : null;
             return {
               ...item,
               applicant_discord_username: item.user_id === user.id || item.assigned_to === user.id ||
                 ["ГКА", "ЗГКА"].includes(user.role) ? item.applicant_discord_username : "",
               promotion_data: promotionData,
               review_data: parseStoredJson(item.review_data_json, "проверка заявки"),
-              promotion_practice: canSeePractice
-                ? getPromotionPracticeSlots(db, item.user_id, item.stage_role, item.id, { lawBundle })
+              promotion_practice: promotionPractice,
+              career_law_passed_subjects: careerLawPassedSubjects,
+              rp_practice_cases: careerRpProgress
+                ? careerRpProgress.cases.map((scenario) => ({
+                  ...scenario,
+                  completed: careerRpProgress.completedCaseIds.includes(scenario.id)
+                }))
                 : [],
+              career_requirements_complete: careerRequirementsComplete,
               rp_practice_completed_count: careerRpProgress?.completedCaseIds.length || 0,
               rp_practice_required_count: careerRpProgress?.requiredCount || 0,
               attachments: db.prepare(`SELECT id, file_name, content_type, length(content) AS size

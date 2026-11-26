@@ -835,6 +835,39 @@ await lawsuitQuestionRequest;
 check(insertAiButton.disabled && insertAiButton.textContent === "Только для готового иска" &&
   document.querySelector("#ai-lawsuit-answer")?.textContent.includes("разделе «Законодательство»"),
 "В системе исков нельзя вставлять консультационный ответ как текст иска, вопрос направляется к консультанту по законам.");
+const careerApplication = {
+  id: 44,
+  type: "exam",
+  user_id: 2,
+  stage_role: "Стажер КА",
+  requested_role: "Юрист",
+  status: "pending",
+  display_name: "Кандидат",
+  details: "Практика повышения",
+  promotion_data: { lawTests: ["ak", "uk", "pk"], practiceSubmittedAt: "2026-01-15T12:00:00.000Z" },
+  career_law_passed_subjects: ["ak"],
+  rp_practice_cases: [{ id: "base-case", title: "Базовый кейс", completed: false }],
+  rp_practice_completed_count: 0,
+  rp_practice_required_count: 1,
+  promotion_practice: [],
+  career_requirements_complete: false
+};
+window.renderAppeals([careerApplication]);
+const careerChecklist = document.querySelector("#appealsList .career-requirements");
+check(careerChecklist?.querySelector(".career-requirement.is-complete")?.textContent.includes("Тест АК") &&
+  careerChecklist?.querySelectorAll(".career-requirement.is-missing").length >= 4 &&
+  !document.querySelector('[data-action="review-career-promotion"]'),
+"Неполная заявка должна показывать выполненные/невыполненные пункты и не предлагать решение.");
+window.renderAppeals([{
+  ...careerApplication,
+  career_law_passed_subjects: ["ak", "uk", "pk"],
+  rp_practice_cases: [{ id: "base-case", title: "Базовый кейс", completed: true }],
+  rp_practice_completed_count: 1,
+  career_requirements_complete: true
+}]);
+check(document.querySelectorAll('[data-action="review-career-promotion"]').length === 2 &&
+  document.querySelector("#appealsList .career-requirement.is-missing") === null,
+"Полная заявка должна показывать все выполненные условия и действия для рассмотрения.");
 let confirmLogout = false;
 window.confirm = () => confirmLogout;
 await window.logout();

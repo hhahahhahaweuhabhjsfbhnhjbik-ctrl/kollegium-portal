@@ -1411,6 +1411,68 @@ async function reviewForumLink(button) {
   await loadLawsuits();
 }
 
+function renderCareerRequirements({
+  stageRole,
+  passedSubjects = [],
+  cases = [],
+  requiredCaseCount = 0,
+  completedCaseCount = 0,
+  slots = [],
+  evidenceRequiredCount = 0
+}) {
+  const rows = [];
+  const subjects = [
+    ["ak", "Тест АК"],
+    ["uk", "Тест УК"],
+    ["pk", "Тест ПК"]
+  ];
+  subjects.forEach(([subject, label]) => {
+    rows.push(renderCareerRequirementRow(label, passedSubjects.includes(subject)));
+  });
+  if (requiredCaseCount > 0) {
+    rows.push(renderCareerRequirementRow(
+      "Требование по базовым AI Case",
+      completedCaseCount >= requiredCaseCount,
+      `Пройдено ${completedCaseCount} из ${cases.length || 3}; требуется ${requiredCaseCount}.`
+    ));
+    cases.forEach((scenario) => {
+      rows.push(renderCareerRequirementRow(
+        scenario.title || scenario.id,
+        Boolean(scenario.completed),
+        scenario.subtitle || ""
+      ));
+    });
+  }
+  if (stageRole === "Юрист" && evidenceRequiredCount > 0) {
+    slots.slice(0, evidenceRequiredCount).forEach((slot, index) => {
+      const complete = !slot.skipped && Boolean(slot.partnerName?.trim()) &&
+        Boolean(slot.evidenceUrl || slot.hasImage);
+      const missing = [
+        !slot.partnerName?.trim() ? "адвокат не указан" : "",
+        !(slot.evidenceUrl || slot.hasImage) ? "нет ссылки или скриншота" : ""
+      ].filter(Boolean).join(" · ");
+      rows.push(renderCareerRequirementRow(
+        `Совместный вызов ${index + 1}`,
+        complete,
+        complete ? `Адвокат: ${slot.partnerName}` : missing
+      ));
+    });
+  } else if (stageRole === "Стажер КА") {
+    rows.push(renderCareerRequirementRow("Совместные вызовы с адвокатом", null, "Не требуются на этом этапе."));
+  }
+  return `<ul class="career-requirements" aria-label="Статус требований повышения">${rows.join("")}</ul>`;
+}
+
+function renderCareerRequirementRow(label, complete, detail = "") {
+  const state = complete === null ? "Не требуется" : complete ? "Выполнено" : "Не выполнено";
+  const stateClass = complete === null ? "is-not-required" : complete ? "is-complete" : "is-missing";
+  return `<li class="career-requirement ${stateClass}">
+    <span class="career-requirement-state">${state}</span>
+    <span class="career-requirement-copy"><strong>${escapeHtml(label)}</strong>${detail
+      ? `<small>${escapeHtml(detail)}</small>` : ""}</span>
+  </li>`;
+}
+
 function renderAppeals(applications) {
   const appeals = applications.filter((item) => ["citizen_help", "citizen_complaint"].includes(item.type));
   const careerApplications = applications.filter((item) =>
@@ -1439,14 +1501,26 @@ function renderAppeals(applications) {
     const data = item.promotion_data || {};
     const lawBundle = Array.isArray(data.lawTests) &&
       ["ak", "uk", "pk"].every((subject) => data.lawTests.includes(subject));
+    const submitted = Boolean(data.practiceSubmittedAt);
+    const requirements = lawBundle
+      ? renderCareerRequirements({
+        stageRole: item.stage_role,
+        passedSubjects: item.career_law_passed_subjects || [],
+        cases: item.rp_practice_cases || [],
+        requiredCaseCount: Number(item.rp_practice_required_count || 0),
+        completedCaseCount: Number(item.rp_practice_completed_count || 0),
+        slots: item.promotion_practice || [],
+        evidenceRequiredCount: item.stage_role === "Юрист" ? (item.promotion_practice || []).length : 0
+      })
+      : "";
     const canReview = Number(item.user_id) !== Number(currentUser.id) && item.status === "pending" &&
+      submitted && (!lawBundle || item.career_requirements_complete === true) &&
       (currentUser.role === "ГКА" || currentUser.role === "ЗГКА" || currentUser.hasFullGkaAccess ||
         (currentUser.role === "Ст.Адвокат" && item.stage_role === "Стажер КА"));
     const actions = canReview
       ? `<button class="btn btn-gold" type="button" data-action="review-career-promotion" data-id="${Number(item.id)}" data-status="approved">Принять</button>
          <button class="btn" type="button" data-action="review-career-promotion" data-id="${Number(item.id)}" data-status="rejected">Отклонить</button>`
       : "";
-    const submitted = Boolean(data.practiceSubmittedAt);
     const practice = submitted
       ? (item.promotion_practice || []).map((slot) => {
         if (slot.skipped) {
@@ -1474,12 +1548,13 @@ function renderAppeals(applications) {
       <div class="meta text-muted">
         ${lawBundle
           ? item.stage_role === "Стажер КА"
-            ? `Тесты АК/УК/ПК: 3/3 · Базовый AI Case: ${Number(item.rp_practice_completed_count || 0)}/1`
-            : `Тесты АК/УК/ПК: 3/3 · Базовые AI Case: 3/3 · Подтверждения вызовов с адвокатом: ${Array.isArray(item.promotion_practice) ? item.promotion_practice.length : 0}/2`
+            ? `Тесты АК/УК/ПК: ${Array.isArray(item.career_law_passed_subjects) ? item.career_law_passed_subjects.length : 0}/3 · AI Case: ${Number(item.rp_practice_completed_count || 0)}/${Number(item.rp_practice_required_count || 1)} необходимых`
+            : `Тесты АК/УК/ПК: ${Array.isArray(item.career_law_passed_subjects) ? item.career_law_passed_subjects.length : 0}/3 · AI Case: ${Number(item.rp_practice_completed_count || 0)}/${Number(item.rp_practice_required_count || 3)} · Подтверждения вызовов: ${(item.promotion_practice || []).filter((slot) => !slot.skipped && slot.partnerName?.trim() && (slot.evidenceUrl || slot.hasImage)).length}/${(item.promotion_practice || []).length}`
           : item.stage_role === "Юрист"
           ? `Вызовы: ${Number(data.completedCalls || 0)} / ${Number(data.requiredCalls || 0)} · Пробный иск: ${escapeHtml(data.trialLawsuitReference || "не указан")} · Обзвон: ${item.interview_status === "ready" ? "готов" : "ожидает"}`
           : Array.isArray(data.lawTests) ? "Три обязательных теста по АК, УК и ПК сданы." : "Обязательный карьерный тест сдан."}
       </div>
+      ${requirements}
       ${submitted ? `<details class="career-practice-evidence"><summary>Практика задержаний · доказательства</summary><ol>${practice}</ol></details>` : ""}
       ${actions ? `<div class="table-actions" style="margin-top:10px">${actions}</div>` : ""}
     </article>`;
@@ -2161,6 +2236,19 @@ function renderPromotionPractice(data) {
     : "Заполните три обязательных слота и прикрепите ссылку на откат или скриншот. Остальные три можно выполнить или пропустить.";
   const isNewCareerFlow = Boolean(data.lawBundle);
   const traineeStage = data.stageRole === "Стажер КА";
+  const checklist = $("#promotion-practice-checklist");
+  checklist.innerHTML = isNewCareerFlow
+    ? renderCareerRequirements({
+      stageRole: data.stageRole,
+      passedSubjects: data.passedLawSubjects || [],
+      cases: data.rpPracticeCases || [],
+      requiredCaseCount: Number(data.rpPracticeRequiredCount || 0),
+      completedCaseCount: (data.rpPracticeCompletedCaseIds || []).length,
+      slots,
+      evidenceRequiredCount: Number(data.evidenceRequiredCount || 0)
+    })
+    : "";
+  checklist.classList.toggle("hidden", !isNewCareerFlow);
   $("#promotion-practice-progress").textContent = isNewCareerFlow
     ? traineeStage
       ? `${data.rpPracticeCompletedCaseIds.length}/${data.rpPracticeRequiredCount} AI Case`

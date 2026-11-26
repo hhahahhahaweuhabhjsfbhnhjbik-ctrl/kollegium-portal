@@ -1094,11 +1094,20 @@ test("AK UK PK seals create staged promotion requests and reset after decisions"
       .find((item) => Array.isArray(item.promotion_data?.lawTests));
     assert.ok(firstRequest);
     assert.equal(firstRequest.requested_role, "Юрист");
+    assert.deepEqual(firstRequest.career_law_passed_subjects.sort(), ["ak", "pk", "uk"]);
+    assert.equal(firstRequest.rp_practice_required_count, 1);
+    assert.equal(firstRequest.rp_practice_cases.filter((scenario) => scenario.completed).length, 0);
+    assert.equal(firstRequest.career_requirements_complete, false);
+    assert.equal((await candidate(`/api/applications/${firstRequest.id}/promotion-practice/submit`, "POST", {})).status, 409);
     assert.equal((await candidate(`/api/exams/current?subject=ak`)).status, 409);
     assert.equal((await head(`/api/applications/${firstRequest.id}/review`, "PATCH", {
       status: "rejected", note: "Нужно исправить отчёт.", criteria: {}
     })).status, 409);
     await completeCareerRpPractice(candidate, careerRpPracticeCases[0]);
+    const traineeChecklist = (await candidate("/api/applications")).data.applications
+      .find((item) => Number(item.id) === Number(firstRequest.id));
+    assert.equal(traineeChecklist.rp_practice_cases.filter((scenario) => scenario.completed).length, 1);
+    assert.equal(traineeChecklist.career_requirements_complete, true);
     assert.equal((await candidate(`/api/applications/${firstRequest.id}/promotion-practice/submit`, "POST", {})).status, 200);
     assert.equal((await head(`/api/applications/${firstRequest.id}/review`, "PATCH", {
       status: "rejected", note: "Нужно исправить отчёт.", criteria: {}
@@ -1115,6 +1124,7 @@ test("AK UK PK seals create staged promotion requests and reset after decisions"
     })).status, 200);
     assert.equal((await candidate("/api/auth/me")).data.user.role, "Юрист");
     assert.deepEqual((await candidate("/api/exams/law-progress")).data.passedSubjects, []);
+    assert.equal((await candidate("/api/career-path/study", "POST", {})).status, 200);
 
     assert.equal((await head("/api/promotion-requirements", "PATCH", {
       lawyerCallsRequired: 2
@@ -1124,16 +1134,29 @@ test("AK UK PK seals create staged promotion requests and reset after decisions"
       .find((item) => Array.isArray(item.promotion_data?.lawTests) && item.status === "pending");
     assert.ok(lawyerRequest);
     assert.equal(lawyerRequest.requested_role, "Адвокат");
+    assert.equal(lawyerRequest.rp_practice_required_count, 3);
+    assert.equal((await candidate(`/api/applications/${lawyerRequest.id}/promotion-practice/submit`, "POST", {})).status, 409);
     for (const scenario of careerRpPracticeCases) {
       await completeCareerRpPractice(candidate, scenario);
     }
+    const lawyerChecklist = (await candidate("/api/applications")).data.applications
+      .find((item) => Number(item.id) === Number(lawyerRequest.id));
+    assert.equal(lawyerChecklist.rp_practice_cases.filter((scenario) => scenario.completed).length, 3);
+    assert.equal(lawyerChecklist.career_requirements_complete, false);
+    assert.equal((await candidate(`/api/applications/${lawyerRequest.id}/promotion-practice/submit`, "POST", {})).status, 409);
     for (let slotNo = 1; slotNo <= 2; slotNo += 1) {
       assert.equal((await candidate("/api/promotion-practice/slots", "POST", {
         slotNo,
         partnerName: `Партнёр ${slotNo}`,
         evidenceUrl: `https://example.test/joint-call-${slotNo}`
       })).status, 200);
+      if (slotNo === 1) {
+        assert.equal((await candidate(`/api/applications/${lawyerRequest.id}/promotion-practice/submit`, "POST", {})).status, 409);
+      }
     }
+    const readyLawyerChecklist = (await candidate("/api/applications")).data.applications
+      .find((item) => Number(item.id) === Number(lawyerRequest.id));
+    assert.equal(readyLawyerChecklist.career_requirements_complete, true);
     assert.equal((await candidate(`/api/applications/${lawyerRequest.id}/promotion-practice/submit`, "POST", {})).status, 200);
     assert.equal((await head(`/api/applications/${lawyerRequest.id}/review`, "PATCH", {
       status: "approved", criteria: { practiceVerified: true }
