@@ -1403,7 +1403,7 @@ test("promotion decrees skip legacy approvals and mark only successfully sent en
       (user_id,type,requested_role,stage_role,career_flow,details,promotion_data_json,status,reviewed_at)
       VALUES (?,'exam','Юрист','Стажер КА',1,'new approval','{"practiceSubmittedAt":"2026-11-25T12:00:00.000Z"}','approved','2026-11-25 12:00:00')`)
       .run(secondMemberId);
-    assert.equal((await head("/api/promotion-decree/preview", "POST", {
+    const manualOverridesApprovedPromotion = await head("/api/promotion-decree/preview", "POST", {
       applicationIds: [Number(secondPromotion.lastInsertRowid)],
       manualEntries: [{
         userId: secondMemberId,
@@ -1412,7 +1412,11 @@ test("promotion decrees skip legacy approvals and mark only successfully sent en
         fromRole: "Юрист",
         toRole: "Адвокат"
       }]
-    })).status, 400);
+    });
+    assert.equal(manualOverridesApprovedPromotion.status, 200);
+    assert.equal(manualOverridesApprovedPromotion.data.count, 1);
+    assert.match(manualOverridesApprovedPromotion.data.bbcode,
+      /с должности Юрист Коллегии адвокатов на должность Адвокат Коллегии адвокатов/);
     failDiscordMessage = true;
     assert.equal((await head("/api/promotion-decree/send", "POST", {
       applicationIds: [Number(secondPromotion.lastInsertRowid)]

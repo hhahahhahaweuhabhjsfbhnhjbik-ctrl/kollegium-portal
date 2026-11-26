@@ -1680,12 +1680,6 @@ async function loadAppeals() {
 }
 
 function getPromotionDecreeSelection() {
-  const selected = $$("[data-decree-entry]:checked", $("#promotion-decree-candidates"));
-  const applicationIds = selected.map((checkbox) => Number(checkbox.value));
-  const passports = {};
-  for (const id of applicationIds) {
-    passports[String(id)] = $(`[data-decree-passport="${id}"]`, $("#promotion-decree-candidates")).value.trim();
-  }
   const manualEntries = $$("[data-decree-manual-entry]", $("#promotion-decree-manual-entries"))
     .filter((entry) => $("[data-decree-manual-select]", entry).checked)
     .map((entry) => ({
@@ -1695,6 +1689,18 @@ function getPromotionDecreeSelection() {
       fromRole: entry.dataset.fromRole,
       toRole: entry.dataset.toRole
     }));
+  const manualUserIds = new Set(manualEntries.map((entry) => entry.userId));
+  const selected = $$("[data-decree-entry]:checked", $("#promotion-decree-candidates"))
+    .filter((checkbox) => {
+      const candidate = promotionDecreeState?.candidates?.find((entry) =>
+        Number(entry.applicationId) === Number(checkbox.value));
+      return !candidate || !manualUserIds.has(Number(candidate.userId));
+    });
+  const applicationIds = selected.map((checkbox) => Number(checkbox.value));
+  const passports = {};
+  for (const id of applicationIds) {
+    passports[String(id)] = $(`[data-decree-passport="${id}"]`, $("#promotion-decree-candidates")).value.trim();
+  }
   return { applicationIds, passports, manualEntries };
 }
 
@@ -1793,15 +1799,17 @@ function addManualPromotionDecreeEntry() {
   if (promotionDecreeManualEntries.some((entry) => Number(entry.userId) === userId)) {
     throw new Error("Этот сотрудник уже добавлен в указ.");
   }
-  const selectedCandidate = $$("[data-decree-entry]:checked", $("#promotion-decree-candidates"))
-    .some((checkbox) => Number(promotionDecreeState.candidates.find((entry) =>
-      Number(entry.applicationId) === Number(checkbox.value))?.userId) === userId);
-  if (selectedCandidate) throw new Error("Для этого сотрудника уже выбрано одобренное повышение.");
   const fromRole = $("#promotion-decree-manual-from-role").value;
   const toRole = $("#promotion-decree-manual-to-role").value;
   const transition = (promotionDecreeState.roleTransitions || [])
     .find((item) => item.fromRole === fromRole && item.toRole === toRole);
   if (!transition) throw new Error("Выберите корректный переход между должностями.");
+  const approvedApplicationIds = new Set((promotionDecreeState.candidates || [])
+    .filter((entry) => Number(entry.userId) === userId)
+    .map((entry) => Number(entry.applicationId)));
+  for (const checkbox of $$("[data-decree-entry]", $("#promotion-decree-candidates"))) {
+    if (approvedApplicationIds.has(Number(checkbox.value))) checkbox.checked = false;
+  }
   promotionDecreeManualEntries.push({
     userId,
     displayName: member.displayName,

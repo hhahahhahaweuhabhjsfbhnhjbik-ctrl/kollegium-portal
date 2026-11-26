@@ -3022,12 +3022,14 @@ export function createPortalServer(options = {}) {
     if (selectedUsers.size !== selected.length) {
       throw new HttpError(400, "В одном указе нельзя дважды повысить одного сотрудника.");
     }
+    const manualUsers = new Set();
     const manual = rawManualEntries.map((rawEntry) => {
       const entry = requireObject(rawEntry);
       const userId = Number(entry.userId);
-      if (!Number.isSafeInteger(userId) || userId < 1 || selectedUsers.has(userId)) {
+      if (!Number.isSafeInteger(userId) || userId < 1 || manualUsers.has(userId)) {
         throw new HttpError(400, "Укажите каждого сотрудника в указе только один раз.");
       }
+      manualUsers.add(userId);
       const member = db.prepare(`SELECT id FROM users
         WHERE id = ? AND status = 'active' AND role IN (${Object.keys(nextRank).map(() => "?").join(",")})`)
         .get(userId, ...Object.keys(nextRank));
@@ -3047,7 +3049,6 @@ export function createPortalServer(options = {}) {
       if (!passportId || passportId.length > 40) {
         throw new HttpError(400, "Укажите номер паспорта длиной не более 40 символов.");
       }
-      selectedUsers.add(userId);
       return {
         applicationId: null,
         userId,
@@ -3057,7 +3058,7 @@ export function createPortalServer(options = {}) {
         toRole
       };
     });
-    return [...selected, ...manual];
+    return [...selected.filter((entry) => !manualUsers.has(entry.userId)), ...manual];
   }
 
   let calendarReminderInProgress = false;
