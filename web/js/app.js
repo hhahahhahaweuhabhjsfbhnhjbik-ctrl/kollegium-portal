@@ -739,17 +739,19 @@ function renderCareerPath(data) {
       optional: true,
       action: `<button class="btn btn-gold" type="button" data-action="career-path-open-ai">Открыть AI Case</button>`
     });
-    tasks.push({
-      title: `Разбор ситуационных кейсов · ${completedGeneralRpCases}/${requiredGeneralRpCases}`,
-      description: "Пройдите все 18 кейсов из трёх уровней. Верные ответы сохраняются в вашем прогрессе.",
-      done: generalRpReady,
-      locked: false,
-      action: generalRpReady ? "" : `<button class="btn btn-gold" type="button"
-        data-action="career-path-open-practice" data-target="general">Открыть разбор кейсов</button>`
-    });
+    if (!generalRpReady) {
+      tasks.push({
+        title: `Разбор ситуационных кейсов · ${completedGeneralRpCases}/${requiredGeneralRpCases}`,
+        description: "Пройдите все 18 кейсов из трёх уровней. Верные ответы сохраняются в вашем прогрессе.",
+        done: false,
+        locked: false,
+        action: `<button class="btn btn-gold" type="button"
+          data-action="career-path-open-practice" data-target="general">Открыть разбор кейсов</button>`
+      });
+    }
     tasks.push({
       title: `Подтвердить совместные вызовы · ${Number(data.completedEvidenceCount || 0)}/${Number(data.requiredEvidenceCount || 2)}`,
-      description: "После ситуационных кейсов добавьте подтверждения двух совместных вызовов с адвокатом.",
+      description: "Вызовы засчитываются после одобрения отчёта адвоката, который указал вас участником.",
       done: callsReady,
       locked: !generalRpReady,
       action: generalRpReady && !callsReady
@@ -1533,35 +1535,29 @@ function renderCareerRequirements({
       ));
     });
   }
-  if (stageRole === "Юрист" && generalRpRequiredCount > 0) {
+  if (stageRole === "Юрист" && generalRpRequiredCount > 0 &&
+      generalRpCompletedCount < generalRpRequiredCount) {
     rows.push(renderCareerRequirementRow(
       "Разбор ситуационных кейсов",
-      generalRpCompletedCount >= generalRpRequiredCount,
+      false,
       `Пройдено ${generalRpCompletedCount} из ${generalRpRequiredCount}; требуется пройти все кейсы.`
     ));
+    const incompleteCases = generalRpCases.filter((scenario) => !scenario.completed);
     generalRpDetails = `<details class="career-practice-evidence">
-      <summary>Статус каждого ситуационного кейса</summary>
-      <ul class="career-requirements">${generalRpCases.map((scenario) => renderCareerRequirementRow(
+      <summary>Осталось кейсов: ${incompleteCases.length}</summary>
+      <ul class="career-requirements">${incompleteCases.map((scenario) => renderCareerRequirementRow(
         scenario.title || scenario.id,
-        Boolean(scenario.completed),
+        false,
         scenario.subtitle || ""
       )).join("")}</ul>
     </details>`;
   }
   if (stageRole === "Юрист" && evidenceRequiredCount > 0) {
-    slots.slice(0, evidenceRequiredCount).forEach((slot, index) => {
-      const complete = !slot.skipped && Boolean(slot.partnerName?.trim()) &&
-        Boolean(slot.evidenceUrl || slot.hasImage);
-      const missing = [
-        !slot.partnerName?.trim() ? "адвокат не указан" : "",
-        !(slot.evidenceUrl || slot.hasImage) ? "нет ссылки или скриншота" : ""
-      ].filter(Boolean).join(" · ");
-      rows.push(renderCareerRequirementRow(
-        `Совместный вызов ${index + 1}`,
-        complete,
-        complete ? `Адвокат: ${slot.partnerName}` : missing
-      ));
-    });
+    rows.push(renderCareerRequirementRow(
+      "Совместные вызовы по одобренным отчётам",
+      slots.length >= evidenceRequiredCount,
+      `Засчитано ${slots.length} из ${evidenceRequiredCount}. Адвокат указывает вас участником при отправке отчёта.`
+    ));
   } else if (stageRole === "Стажер КА") {
     rows.push(renderCareerRequirementRow("Совместные вызовы с адвокатом", null, "Не требуются на этом этапе."));
   }
@@ -1637,19 +1633,14 @@ function renderAppeals(applications) {
         if (slot.skipped) {
           return `<li><strong>Слот ${Number(slot.slotNo)}:</strong> пропущен</li>`;
         }
-        const evidence = [
-          slot.evidenceUrl
-            ? `<a href="${escapeHtml(slot.evidenceUrl)}" target="_blank" rel="noopener noreferrer">Откат / ссылка</a>`
-            : "",
-          slot.photoUrl
-            ? `<a href="${escapeHtml(slot.photoUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(slot.imageName || "Скриншот")}</a>`
-            : ""
-        ].filter(Boolean).join(" · ");
+        const evidence = slot.photoUrl
+          ? `<a href="${escapeHtml(slot.photoUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(slot.imageName || "Фото отчёта")}</a>`
+          : "";
         return `<li><strong>Слот ${Number(slot.slotNo)}:</strong> ${escapeHtml(slot.partnerName || "—")} · ${evidence || "доказательство не найдено"}</li>`;
       }).join("")
       : "";
     const progressLabel = lawyerPath
-      ? `Ситуационные кейсы: ${Number(item.general_rp_practice_completed_count || 0)}/${Number(item.general_rp_practice_required_count || 18)} · Совместные вызовы: ${(item.promotion_practice || []).filter((slot) => !slot.skipped && slot.partnerName?.trim() && (slot.evidenceUrl || slot.hasImage)).length}/${(item.promotion_practice || []).length} · Обзвон: ${item.interview_status === "ready" ? "готовность отмечена" : "ожидает"}`
+      ? `Ситуационные кейсы: ${Number(item.general_rp_practice_completed_count || 0)}/${Number(item.general_rp_practice_required_count || 18)} · Совместные вызовы по одобренным отчётам: ${(item.promotion_practice || []).length}/2 · Обзвон: ${item.interview_status === "ready" ? "готовность отмечена" : "ожидает"}`
       : lawBundle && item.stage_role === "Стажер КА"
         ? `Тесты АК/УК/ПК: ${Array.isArray(item.career_law_passed_subjects) ? item.career_law_passed_subjects.length : 0}/3 · AI Case: ${Number(item.rp_practice_completed_count || 0)}/${Number(item.rp_practice_required_count || 3)} необходимых`
         : item.stage_role === "Юрист"
@@ -2012,7 +2003,10 @@ async function loadTests() {
     api("/api/exams/law-progress"),
     practicePromise
   ]);
-  renderExamHistory(history.exams);
+  const examHistory = ["Адвокат", "Ст.Адвокат"].includes(currentUser.role)
+    ? history.exams.filter((exam) => !["law:ak", "law:uk", "law:pk"].includes(exam.track))
+    : history.exams;
+  renderExamHistory(examHistory);
   renderLawExamButtons(progress);
   if (practice) renderPromotionPractice(practice);
   const careerApplication = (applications.applications || [])
@@ -2123,7 +2117,14 @@ const lawExamTracks = [
 
 function renderLawExamButtons(progress) {
   const container = $("#law-exam-buttons");
+  const lawExamsRemoved = ["Адвокат", "Ст.Адвокат"].includes(currentUser.role);
+  $("#law-exams-panel").classList.toggle("hidden", lawExamsRemoved);
   $("#law-exam-role").textContent = currentUser.role;
+  if (lawExamsRemoved) {
+    container.innerHTML = "";
+    $("#law-exam-progress-note").textContent = "";
+    return;
+  }
   if (!progress.available) {
     const message = currentUser.role === "Юрист"
       ? "Юристу не нужно пересдавать АК, УК и ПК для перехода в адвокаты."
@@ -2172,9 +2173,7 @@ function renderLawExamButtons(progress) {
     ? "Сначала изучите законодательство в разделе «Мой путь» и отметьте выполнение шага."
     : remaining.length
     ? `Сдано ${passed.size} из 3. Тесты открываются по порядку. Осталось: ${remaining.join(", ")}.`
-    : currentUser.role === "Адвокат"
-      ? "Все тесты текущего этапа пройдены. Адвокат — последняя ступень с доступом к этим экзаменам."
-      : "Все три теста сданы. Выполните базовые AI Case и практику; после этого портал предложит подать заявку.";
+    : "Все три теста сданы. Выполните базовые AI Case и практику; после этого портал предложит подать заявку.";
 }
 
 async function startExam(subject = "") {
@@ -2359,7 +2358,7 @@ function renderPromotionPractice(data) {
   $("#promotion-practice-role").textContent = data.stageRole;
   const slots = data.slots || [];
   const resolvedCount = slots.filter((slot) => slot.skipped ||
-    (slot.partnerName && (slot.evidenceUrl || slot.hasImage))).length;
+    (slot.partnerName && slot.hasImage)).length;
   const lawyerPath = Boolean(data.lawyerPromotionPath);
   const traineeStage = data.stageRole === "Стажер КА";
   const careerCasesComplete = !traineeStage || !data.lawBundle ||
@@ -2374,9 +2373,9 @@ function renderPromotionPractice(data) {
     ? traineeStage
       ? "Стажёру нужно пройти все три базовых AI Case. Совместные задержания с адвокатом не требуются."
       : careerPracticesComplete
-        ? "После прохождения всех ситуационных кейсов добавьте два подтверждения совместных вызовов с адвокатом."
-        : "Сначала пройдите все 18 ситуационных кейсов. Затем откроются подтверждения совместных вызовов."
-    : "Заполните три обязательных слота и прикрепите ссылку на откат или скриншот. Остальные три можно выполнить или пропустить.";
+        ? "После прохождения всех ситуационных кейсов дождитесь одобрения двух отчётов о совместных вызовах."
+        : "Сначала пройдите все 18 ситуационных кейсов. Затем начнут учитываться одобренные отчёты о совместных вызовах."
+    : "Заполните три обязательных слота и прикрепите фото-доказательство. Остальные три можно выполнить или пропустить.";
   const isNewCareerFlow = Boolean(data.lawBundle);
   const checklist = $("#promotion-practice-checklist");
   checklist.innerHTML = isNewCareerFlow
@@ -2400,20 +2399,26 @@ function renderPromotionPractice(data) {
       ? `${data.rpPracticeCompletedCaseIds.length}/${data.rpPracticeRequiredCount} AI Case`
       : careerSlotsLocked
         ? `${generalRpCompletedCount}/${generalRpRequiredCount} ситуационных кейсов`
-        : `${data.evidenceCompletedCount}/2 ссылок`
+        : `${data.evidenceCompletedCount}/2 одобренных отчётов`
     : `${resolvedCount} из 6`;
   $("#promotion-practice-slots").classList.toggle("hidden",
     (isNewCareerFlow && traineeStage) || careerSlotsLocked);
-  $("#promotion-practice-slots").innerHTML = slots.map((slot) => {
+  $("#promotion-practice-slots").innerHTML = lawyerPath
+    ? slots.length
+      ? `<p class="text-muted">Совместные вызовы засчитаны по одобренным отчётам адвокатов:</p>
+        ${slots.map((slot) => `<article class="promotion-practice-slot">
+          <h3>Отчёт о вызове · ${escapeHtml(displayDate(slot.occurredAt))}</h3>
+          <p>Адвокат: ${escapeHtml(slot.partnerName)}</p>
+          <a href="${escapeHtml(slot.photoUrl)}" target="_blank" rel="noopener noreferrer">
+            ${escapeHtml(slot.imageName || "Фото отчёта")}
+          </a>
+        </article>`).join("")}`
+      : `<p class="text-muted">Совместные вызовы появятся здесь после того, как адвокат отметит вас участником в отчёте, а ГКА/ЗГКА одобрит отметку и сам отчёт.</p>`
+    : slots.map((slot) => {
     const optional = !isNewCareerFlow && Number(slot.slotNo) > 3;
-    const proofLinks = [
-      slot.evidenceUrl
-        ? `<a href="${escapeHtml(slot.evidenceUrl)}" target="_blank" rel="noopener noreferrer">Открыть ссылку</a>`
-        : "",
-      slot.photoUrl
-        ? `<a href="${escapeHtml(slot.photoUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(slot.imageName || "Скриншот")}</a>`
-        : ""
-    ].filter(Boolean);
+    const proofLinks = slot.photoUrl
+      ? `<a href="${escapeHtml(slot.photoUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(slot.imageName || "Фото-доказательство")}</a>`
+      : "";
     return `<article class="promotion-practice-slot${slot.skipped ? " is-skipped" : ""}" data-practice-slot="${Number(slot.slotNo)}">
       <div class="promotion-practice-slot-heading">
         <h3>Слот ${Number(slot.slotNo)}</h3>
@@ -2423,10 +2428,7 @@ function renderPromotionPractice(data) {
       <label>Адвокат на совместном вызове
         <input class="input" type="text" maxlength="80" required data-practice-partner value="${escapeHtml(slot.partnerName)}" ${data.submittedAt ? "disabled" : ""}>
       </label>
-      <label>Ссылка на откат
-        <input class="input" type="url" maxlength="500" placeholder="https://..." data-practice-evidence value="${escapeHtml(slot.evidenceUrl)}" ${data.submittedAt ? "disabled" : ""}>
-      </label>
-      <label>Скриншот (необязательно, JPG / PNG / WebP, до 2 МБ)
+      <label>Фото-доказательство (JPG / PNG / WebP, до 2 МБ)
         <input class="input" type="file" accept="image/jpeg,image/png,image/webp" data-practice-image ${data.submittedAt ? "disabled" : ""}>
       </label>
       ${proofLinks.length ? `<p class="promotion-practice-proof">${proofLinks.join(" · ")}</p>` : ""}
@@ -2461,7 +2463,7 @@ function renderPromotionPractice(data) {
     readiness.textContent = data.readinessMessage ||
       `Ситуационные кейсы: ${generalRpCompletedCount}/${generalRpRequiredCount}.`;
   } else if (isNewCareerFlow) {
-    status.textContent = "Для повышения до адвоката пройдите все 18 ситуационных кейсов и приложите подтверждения двух совместных вызовов.";
+    status.textContent = "Для повышения до адвоката пройдите все 18 ситуационных кейсов и дождитесь одобрения двух совместных отчётов.";
     readiness.textContent = data.canRequestInterview
       ? "Все условия выполнены. Отметьте готовность к обзвону кнопкой сверху."
       : data.readinessMessage || "Готовность к обзвону откроется после 18 кейсов и двух совместных вызовов.";
@@ -2484,7 +2486,7 @@ function maybeOfferCareerPromotion(data, { force = false } = {}) {
   const nextRole = promotionPracticeRanks[data.stageRole];
   $("#career-promotion-offer-description").textContent =
     `Вы сдали АК, УК и ПК и выполнили практику${data.stageRole === "Юрист"
-      ? ", включая три AI Case, 18 ситуационных кейсов и два вызова с адвокатом"
+      ? ", включая три AI Case, 18 ситуационных кейсов и два одобренных совместных отчёта"
       : " — три базовых AI Case"}. Хотите подать заявку на повышение до «${nextRole}»? Должность изменится только после одобрения ГКА или ЗГКА.`;
   const dialog = $("#career-promotion-offer-dialog");
   dialog.classList.remove("hidden");
@@ -2550,15 +2552,15 @@ async function savePromotionPracticeSlot(button) {
   const slotNo = Number(button.dataset.slot);
   const slot = button.closest("[data-practice-slot]");
   const file = slot.querySelector("[data-practice-image]").files[0];
+  if (!file) throw new Error("Прикрепите фото-доказательство вызова.");
   if (file && file.size > 2 * 1024 * 1024) {
     throw new Error("Скриншот не должен превышать 2 МБ.");
   }
   const body = {
     slotNo,
-    partnerName: slot.querySelector("[data-practice-partner]").value.trim(),
-    evidenceUrl: slot.querySelector("[data-practice-evidence]").value.trim()
+    partnerName: slot.querySelector("[data-practice-partner]").value.trim()
   };
-  if (file) body.image = { name: file.name, type: file.type, data: await fileAsBase64(file, "скриншот") };
+  body.image = { name: file.name, type: file.type, data: await fileAsBase64(file, "скриншот") };
   await api("/api/promotion-practice/slots", { method: "POST", body });
   notify(`Слот ${slotNo} сохранён.`);
   await Promise.all([
@@ -3491,6 +3493,7 @@ async function loadActivityReports() {
   }
   const data = await api("/api/activity-reports");
   const reports = data.reports || [];
+  updateActivityReportLawyerOptions(data.availableLawyers || []);
   $("#activity-reports-title").textContent = data.canReview ? "Отчёты на одобрение" : "Мои отчёты";
   $("#activity-report-list").innerHTML = reports.length ? reports.map((report) => `
     <article class="activity-report-card">
@@ -3505,11 +3508,14 @@ async function loadActivityReports() {
       <p>${escapeHtml(report.details)}</p>
       ${Number(report.lawyer_trip_claimed) === 1 ? `
         <p class="activity-report-trip-status">
-          <strong>Ездил с юристом:</strong> ${
+          <strong>Юрист(ы) на вызове:</strong> ${
+            (report.lawyer_trip_participants || []).map((participant) =>
+              escapeHtml(participant.display_name)).join(", ") || "не указаны"
+          }<br>          <strong>Подтверждение совместного вызова:</strong> ${
             report.lawyer_trip_status === "approved"
-              ? "подтверждено (+2 балла за одобренный вызов)"
+              ? "подтверждено (+1 бонусный балл автору, вызов засчитан юристу)"
               : report.lawyer_trip_status === "rejected"
-                ? `отклонено${report.lawyer_trip_decision ? `: ${escapeHtml(report.lawyer_trip_decision)}` : ""} (+1 балл за одобренный вызов)`
+                ? `отклонено${report.lawyer_trip_decision ? `: ${escapeHtml(report.lawyer_trip_decision)}` : ""}`
                 : "заявлено, ожидает решения ГКА/ЗГКА"
           }
         </p>` : ""}
@@ -3520,8 +3526,8 @@ async function loadActivityReports() {
       ${report.decision ? `<p class="activity-report-meta">Решение ГКА: ${escapeHtml(report.decision)}</p>` : ""}
       ${data.canReview && report.lawyer_trip_status === "pending" ? `
         <div class="activity-report-actions">
-          <button class="btn btn-gold" type="button" data-action="review-lawyer-trip" data-id="${Number(report.id)}" data-status="approved">Подтвердить поездку (+2 балла)</button>
-          <button class="btn" type="button" data-action="review-lawyer-trip" data-id="${Number(report.id)}" data-status="rejected">Отклонить поездку</button>
+          <button class="btn btn-gold" type="button" data-action="review-lawyer-trip" data-id="${Number(report.id)}" data-status="approved">Подтвердить совместный вызов</button>
+          <button class="btn" type="button" data-action="review-lawyer-trip" data-id="${Number(report.id)}" data-status="rejected">Отклонить совместный вызов</button>
         </div>` : ""}
       ${data.canReview && report.status === "pending" ? `
         <div class="activity-report-actions">
@@ -3545,6 +3551,14 @@ function renderActivityReportPhoto() {
   preview.classList.remove("hidden");
 }
 
+function updateActivityReportLawyerOptions(availableLawyers = []) {
+  const options = availableLawyers.map((lawyer) =>
+    `<option value="${Number(lawyer.id)}">${escapeHtml(lawyer.display_name)}</option>`
+  ).join("");
+  $("#activity-report-lawyer-1").innerHTML = `<option value="">Выберите юриста</option>${options}`;
+  $("#activity-report-lawyer-2").innerHTML = `<option value="">Не выбран</option>${options}`;
+}
+
 function updateActivityReportFields() {
   const reportType = $("#activity-report-type").value;
   const callOption = $("#activity-report-type option[value='call']");
@@ -3555,6 +3569,13 @@ function updateActivityReportFields() {
   $("#activity-report-photo-field").classList.toggle("hidden", !isCallReport);
   $("#activity-report-upload-hint").classList.toggle("hidden", !isCallReport);
   $("#activity-report-lawyer-trip-field").classList.toggle("hidden", !isCallReport);
+  const lawyerTripClaimed = isCallReport && $("#activity-report-lawyer-trip").checked;
+  $("#activity-report-lawyers-field").classList.toggle("hidden", !lawyerTripClaimed);
+  $("#activity-report-lawyer-1").required = lawyerTripClaimed;
+  if (!lawyerTripClaimed) {
+    $("#activity-report-lawyer-1").value = "";
+    $("#activity-report-lawyer-2").value = "";
+  }
   if (!isCallReport) clearActivityReportPhoto();
 }
 
@@ -3621,12 +3642,21 @@ async function submitActivityReport(event) {
   const reportType = $("#activity-report-type").value;
   const photo = reportType === "call" ? activityReportPhoto : null;
   if (reportType === "call" && !photo) throw new Error("Добавьте фото-доказательство к отчёту о вызове.");
+  const lawyerTripClaimed = reportType === "call" && $("#activity-report-lawyer-trip").checked;
+  const lawyerTripUserIds = [
+    $("#activity-report-lawyer-1").value,
+    $("#activity-report-lawyer-2").value
+  ].filter(Boolean).map(Number);
+  if (lawyerTripClaimed && (!lawyerTripUserIds.length || new Set(lawyerTripUserIds).size !== lawyerTripUserIds.length)) {
+    throw new Error("Выберите одного или двух разных юристов на совместном вызове.");
+  }
   const photoData = photo ? activityReportPhotoUrl : null;
   const result = await api("/api/activity-reports", {
     method: "POST",
     body: {
       reportType,
-      lawyerTripClaimed: reportType === "call" && $("#activity-report-lawyer-trip").checked,
+      lawyerTripClaimed,
+      lawyerTripUserIds: lawyerTripClaimed ? lawyerTripUserIds : [],
       occurredAt: $("#activity-report-date").value,
       details: $("#activity-report-details").value.trim(),
       ...(photo ? { photo: {
@@ -3679,7 +3709,7 @@ async function reviewLawyerTrip(button) {
     body: { lawyerTripStatus, decision }
   });
   notify(lawyerTripStatus === "approved"
-    ? "Совместная поездка подтверждена. За одобренный вызов начислится 2 балла."
+    ? "Совместный вызов подтверждён: автору начислен бонус, участие юриста учтено в практике."
     : "Отметка о совместной поездке отклонена.");
   await loadReports();
 }
@@ -3947,6 +3977,10 @@ document.addEventListener("change", (event) => {
     return;
   }
   if (event.target.closest("#activity-report-type")) {
+    updateActivityReportFields();
+    return;
+  }
+  if (event.target.closest("#activity-report-lawyer-trip")) {
     updateActivityReportFields();
     return;
   }

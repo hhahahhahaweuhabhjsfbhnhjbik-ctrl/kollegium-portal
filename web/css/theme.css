@@ -1462,6 +1462,8 @@ body::before {
 .activity-report-form label { display: grid; gap: 6px; color: var(--text-secondary); font-size: 12px; }
 .activity-report-form .activity-report-trip-option { grid-template-columns: auto 1fr; align-items: start; gap: 8px; padding: 9px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); }
 .activity-report-trip-option input { margin-top: 2px; accent-color: var(--accent-gold); }
+.activity-report-form .activity-report-lawyers { display: grid; gap: 10px; min-width: 0; margin: 0; padding: 10px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); }
+.activity-report-lawyers legend { padding: 0 6px; color: var(--text-muted); font-size: 11px; }
 .activity-report-form textarea { resize: vertical; }
 .activity-report-upload-hint { margin: -5px 0 0; color: var(--text-muted); font-size: 10px; line-height: 1.45; }
 .activity-report-photo-preview { display: grid; grid-template-columns: minmax(0, 120px) 1fr; align-items: center; gap: 10px; padding: 8px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: rgba(8, 12, 20, .48); }

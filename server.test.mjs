@@ -229,21 +229,17 @@ async function createClient(baseUrl) {
   return request;
 }
 
-async function completePromotionPractice(client, screenshotSlot = 0) {
+async function completePromotionPractice(client) {
   for (let slotNo = 1; slotNo <= 3; slotNo += 1) {
     const body = {
       slotNo,
       partnerName: `Адвокат ${slotNo}`,
-      evidenceUrl: `https://example.test/rollback-${slotNo}`
-    };
-    if (slotNo === screenshotSlot) {
-      body.evidenceUrl = "";
-      body.image = {
+      image: {
         name: `proof-${slotNo}.png`,
         type: "image/png",
         data: Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0]).toString("base64")
-      };
-    }
+      }
+    };
     assert.equal((await client("/api/promotion-practice/slots", "POST", body)).status, 200);
   }
   for (let slotNo = 4; slotNo <= 6; slotNo += 1) {
@@ -251,6 +247,34 @@ async function completePromotionPractice(client, screenshotSlot = 0) {
       slotNo, skip: true
     })).status, 200);
   }
+}
+
+async function approveJointCallReports(reporter, reviewer, participantsByReport) {
+  const reportIds = [];
+  for (const [index, lawyerTripUserIds] of participantsByReport.entries()) {
+    const submission = await reporter("/api/activity-reports", "POST", {
+      reportType: "call",
+      lawyerTripClaimed: true,
+      lawyerTripUserIds,
+      occurredAt: new Date().toISOString().slice(0, 10),
+      details: `Совместный вызов для проверки ${index + 1}`,
+      photo: {
+        name: `joint-call-${index + 1}.png`,
+        type: "image/png",
+        data: "data:image/png;base64,iVBORw0KGgo="
+      }
+    });
+    assert.equal(submission.status, 201);
+    const reportId = submission.data.id;
+    assert.equal((await reviewer(`/api/activity-reports/${reportId}`, "PATCH", {
+      status: "approved"
+    })).status, 200);
+    assert.equal((await reviewer(`/api/activity-reports/${reportId}`, "PATCH", {
+      lawyerTripStatus: "approved"
+    })).status, 200);
+    reportIds.push(reportId);
+  }
+  return reportIds;
 }
 
 const careerRpPracticeCases = [...rpInterviewCases, ...rpInterviewExtraCases].slice(0, 3);
@@ -601,7 +625,6 @@ test("staff accounts require website approval, server-approved exams, attestatio
 
     const result = await trainee("/api/exams", "POST", { answers: [1, 1, 1, 2, 1] });
     assert.deepEqual({ score: result.data.score, passed: result.data.passed }, { score: 5, passed: true });
-    await completePromotionPractice(trainee);
     assert.equal((await trainee(`/api/applications/${application.data.id}/promotion-practice/submit`, "POST", {})).status, 200);
     assert.equal((await admin(`/api/applications/${application.data.id}/review`, "PATCH", {
       status: "approved", criteria: { lectureVerified: true }
@@ -793,12 +816,12 @@ test("lawyers need situations, joint calls and interview readiness instead of pr
   const passwordHash = `scrypt$${salt.toString("base64")}$${hash.toString("base64")}`;
   db.prepare("INSERT INTO users (username,password_hash,display_name,role,status) VALUES (?,?,?,?,?)")
     .run("career-head", passwordHash, "Глава", "ГКА", "active");
-  db.prepare("INSERT INTO users (username,password_hash,display_name,role,status) VALUES (?,?,?,?,?)")
-    .run("career-trainee", passwordHash, "Стажёр", "Стажер КА", "active");
-  db.prepare("INSERT INTO users (username,password_hash,display_name,role,status) VALUES (?,?,?,?,?)")
-    .run("career-lawyer", passwordHash, "Юрист", "Юрист", "active");
-  db.prepare("INSERT INTO users (username,password_hash,display_name,role,status) VALUES (?,?,?,?,?)")
-    .run("career-senior", passwordHash, "Старший", "Ст.Адвокат", "active");
+  const traineeUserId = Number(db.prepare("INSERT INTO users (username,password_hash,display_name,role,status) VALUES (?,?,?,?,?)")
+    .run("career-trainee", passwordHash, "Стажёр", "Стажер КА", "active").lastInsertRowid);
+  const lawyerUserId = Number(db.prepare("INSERT INTO users (username,password_hash,display_name,role,status) VALUES (?,?,?,?,?)")
+    .run("career-lawyer", passwordHash, "Юрист", "Юрист", "active").lastInsertRowid);
+  const seniorUserId = Number(db.prepare("INSERT INTO users (username,password_hash,display_name,role,status) VALUES (?,?,?,?,?)")
+    .run("career-senior", passwordHash, "Старший", "Ст.Адвокат", "active").lastInsertRowid);
   db.prepare("INSERT INTO users (username,password_hash,display_name,role,status) VALUES (?,?,?,?,?)")
     .run("career-deputy", passwordHash, "Заместитель", "ЗГКА", "active");
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -854,6 +877,8 @@ test("lawyers need situations, joint calls and interview readiness instead of pr
     assert.equal((await lawyer("/api/exams/start", "POST", { studyConfirmed: true })).status, 403);
     assert.equal((await lawyer("/api/exams/current?subject=ak")).status, 403);
     assert.equal((await lawyer("/api/exams/law-progress")).data.available, false);
+    assert.equal((await senior("/api/exams/current?subject=ak")).status, 403);
+    assert.equal((await senior("/api/exams/law-progress")).data.available, false);
     assert.equal((await lawyer("/api/rp-career-practice")).status, 200);
     assert.equal((await lawyer("/api/career-path")).data.lawsReviewed, true);
     assert.equal((await lawyer("/api/career-path/interview-ready", "POST", {})).status, 409);
@@ -865,12 +890,9 @@ test("lawyers need situations, joint calls and interview readiness instead of pr
       assert.equal(result.status, 200);
       assert.equal(result.data.correct, true);
     }
-    assert.equal((await lawyer("/api/promotion-practice/slots", "POST", {
-      slotNo: 1, partnerName: "Партнёр 1", evidenceUrl: "https://example.test/joint-call-1"
-    })).status, 200);
-    assert.equal((await lawyer("/api/promotion-practice/slots", "POST", {
-      slotNo: 2, partnerName: "Партнёр 2", evidenceUrl: "https://example.test/joint-call-2"
-    })).status, 200);
+    await approveJointCallReports(senior, head, [
+      [lawyerUserId], [lawyerUserId, traineeUserId]
+    ]);
     const lawyerPath = await lawyer("/api/career-path");
     assert.equal(lawyerPath.data.canRequestInterview, true);
     assert.equal((await lawyer("/api/career-path/interview-later", "POST", {})).status, 200);
@@ -991,7 +1013,7 @@ test("career AI practice gates lawyer reports and unlocks them only after manage
     assert.equal(initialProgress.data.evidenceRequiredCount, 2);
     assert.equal(initialProgress.data.generalRpPracticeRequiredCount, rpPracticeCases.length);
     assert.equal(rpPracticeCases.length, 18);
-    assert.equal(initialProgress.data.slots.length, 2);
+    assert.equal(initialProgress.data.slots.length, 0);
     assert.equal(initialProgress.data.canSubmit, false);
     assert.equal(initialProgress.data.rpPracticeRequiredCount, 0);
     assert.equal((await lawyer("/api/activity-reports")).status, 403);
@@ -1030,24 +1052,18 @@ test("career AI practice gates lawyer reports and unlocks them only after manage
     assert.equal((await lawyer("/api/rp-practice/completions")).data.completedCaseIds.length, 18);
     assert.equal((await lawyer("/api/promotion-practice/slots", "POST", {
       slotNo: 3, partnerName: "Другой адвокат", evidenceUrl: "https://example.test/proof"
-    })).status, 400);
+    })).status, 410);
     assert.equal((await lawyer("/api/promotion-practice/slots", "POST", {
       slotNo: 1, skip: true
-    })).status, 400);
-    assert.equal((await lawyer("/api/promotion-practice/slots", "POST", {
-      slotNo: 1,
-      partnerName: "Партнёр 1",
-      evidenceUrl: "https://example.test/joint-call-1"
-    })).status, 200);
+    })).status, 410);
+    const firstJointReport = await approveJointCallReports(nonManager, manager, [[lawyerId]]);
+    assert.equal((await lawyer("/api/promotion-practice")).data.evidenceCompletedCount, 1);
+    assert.equal((await lawyer.raw(`/api/activity-reports/${firstJointReport[0]}/photo`)).status, 200);
     const oneCall = await lawyer("/api/promotion-practice");
     assert.equal(oneCall.data.evidenceCompletedCount, 1);
     assert.equal(oneCall.data.canSubmit, false);
     assert.match(oneCall.data.readinessMessage, /1\/2/);
-    assert.equal((await lawyer("/api/promotion-practice/slots", "POST", {
-      slotNo: 2,
-      partnerName: "Партнёр 2",
-      evidenceUrl: "https://example.test/joint-call-2"
-    })).status, 200);
+    await approveJointCallReports(nonManager, manager, [[lawyerId]]);
     const ready = await lawyer("/api/promotion-practice");
     assert.equal(ready.data.canSubmit, false);
     assert.equal(ready.data.canRequestInterview, true);
@@ -1116,15 +1132,20 @@ test("AK UK PK seals create staged promotion requests and reset after decisions"
   const passwordHash = `scrypt$${salt.toString("base64")}$${hash.toString("base64")}`;
   db.prepare("INSERT INTO users (username,password_hash,display_name,role,status) VALUES (?,?,?,?,?)")
     .run("bundle-head", passwordHash, "Глава", "ГКА", "active");
+  const bundleTraineeId = Number(db.prepare("INSERT INTO users (username,password_hash,display_name,role,status) VALUES (?,?,?,?,?)")
+    .run("bundle-trainee", passwordHash, "Стажёр", "Стажер КА", "active").lastInsertRowid);
   db.prepare("INSERT INTO users (username,password_hash,display_name,role,status) VALUES (?,?,?,?,?)")
-    .run("bundle-trainee", passwordHash, "Стажёр", "Стажер КА", "active");
+    .run("bundle-deputy", passwordHash, "Заместитель", "ЗГКА", "active");
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
   const head = await createClient(baseUrl);
   const candidate = await createClient(baseUrl);
+  const deputy = await createClient(baseUrl);
 
   try {
-    for (const [client, username] of [[head, "bundle-head"], [candidate, "bundle-trainee"]]) {
+    for (const [client, username] of [
+      [head, "bundle-head"], [candidate, "bundle-trainee"], [deputy, "bundle-deputy"]
+    ]) {
       assert.equal((await client("/api/auth/login", "POST", {
         username, password: "CareerLawBundlePassword!23"
       })).status, 200);
@@ -1211,13 +1232,10 @@ test("AK UK PK seals create staged promotion requests and reset after decisions"
       assert.equal(result.status, 200);
       assert.equal(result.data.correct, true);
     }
-    for (let slotNo = 1; slotNo <= 2; slotNo += 1) {
-      assert.equal((await candidate("/api/promotion-practice/slots", "POST", {
-        slotNo,
-        partnerName: `Партнёр ${slotNo}`,
-        evidenceUrl: `https://example.test/joint-call-${slotNo}`
-      })).status, 200);
-    }
+    assert.equal((await candidate("/api/promotion-practice/slots", "POST", {
+      slotNo: 1, partnerName: "Партнёр", evidenceUrl: "https://example.test/joint-call"
+    })).status, 410);
+    await approveJointCallReports(deputy, head, [[bundleTraineeId], [bundleTraineeId]]);
     assert.equal((await candidate("/api/promotion-practice")).data.canRequestInterview, true);
     assert.equal((await candidate("/api/career-path/interview-ready", "POST", {})).status, 200);
     const lawyerRequest = (await candidate("/api/applications")).data.applications
@@ -1389,7 +1407,6 @@ test("promotion stages enforce attendance, call counts, exam review and GKA appr
     });
     assert.equal(traineeRequest.status, 201);
     assert.equal((await candidate("/api/exams", "POST", { answers: [1, 1, 1, 1, 1] })).data.passed, true);
-    await completePromotionPractice(candidate);
     assert.equal((await candidate(`/api/applications/${traineeRequest.data.id}/promotion-practice/submit`, "POST", {})).status, 200);
     assert.equal((await head(`/api/applications/${traineeRequest.data.id}/review`, "PATCH", {
       status: "approved"
@@ -1411,6 +1428,12 @@ test("promotion stages enforce attendance, call counts, exam review and GKA appr
     });
     assert.equal(lawyerExam.status, 201);
     assert.equal((await candidate("/api/exams", "POST", { answers: [1, 0, 0, 1, 0] })).data.passed, true);
+    for (const question of rpPracticeCases) {
+      const answerIndex = question.options.findIndex((option) => option.startsWith(`${question.correct})`));
+      assert.equal((await candidate("/api/rp-practice/answer", "POST", {
+        caseId: question.id, answerIndex
+      })).data.correct, true);
+    }
     await completePromotionPractice(candidate);
     assert.equal((await candidate(`/api/applications/${lawyerExam.data.id}/promotion-practice/submit`, "POST", {})).status, 200);
     assert.equal((await head(`/api/applications/${lawyerExam.data.id}/review`, "PATCH", {
@@ -2429,7 +2452,10 @@ test("all law tests are available to staff and supplied law text omits copied im
     assert.equal((await lawyer("/api/rp-practice/answer", "POST", {
       caseId: "unknown-case", answerIndex: 0
     })).status, 404);
-    for (const subject of ["ak", "pk", "uk", "zot", "advocacy", "road", "labor", "ethics", "documents", "justice"]) {
+    for (const subject of ["ak", "pk", "uk"]) {
+      assert.equal((await lawyer(`/api/exams/current?subject=${subject}`)).status, 403);
+    }
+    for (const subject of ["zot", "advocacy", "road", "labor", "ethics", "documents", "justice"]) {
       const exam = await lawyer(`/api/exams/current?subject=${subject}`);
       assert.equal(exam.status, 200);
       assert.equal(exam.data.subject, subject);
@@ -2438,11 +2464,6 @@ test("all law tests are available to staff and supplied law text omits copied im
     for (const subject of ["rp_easy", "rp_medium", "rp_hard"]) {
       assert.equal((await lawyer(`/api/exams/current?subject=${subject}`)).status, 400);
     }
-    const passedAk = await lawyer("/api/exams", "POST", {
-      subject: "ak", answers: [1, 0, 1, 0, 1]
-    });
-    assert.deepEqual({ score: passedAk.data.score, total: passedAk.data.total, passed: passedAk.data.passed },
-      { score: 5, total: 5, passed: true });
     for (const [subject, answers] of [
       ["zot", [1, 1, 0, 1, 1]],
       ["advocacy", [1, 0, 1, 1, 1]],
@@ -2458,14 +2479,8 @@ test("all law tests are available to staff and supplied law text omits copied im
     }
     const examHistory = await lawyer("/api/exams/history");
     assert.equal(examHistory.status, 200);
-    assert.equal(examHistory.data.exams.length, 8);
-    const completedAk = examHistory.data.exams.find((exam) => exam.track === "law:ak");
-    assert.equal(completedAk.title, "Административный кодекс");
-    assert.equal(completedAk.total, 5);
-    assert.equal(completedAk.passed, true);
-    assert.equal(completedAk.questions.length, 5);
-    assert.equal(completedAk.questions[0].correct, true);
-    assert.equal(completedAk.questions[0].selectedAnswer, completedAk.questions[0].correctAnswer);
+    assert.equal(examHistory.data.exams.length, 7);
+    assert.equal(examHistory.data.exams.some((exam) => ["law:ak", "law:uk", "law:pk"].includes(exam.track)), false);
     assert.equal((await lawyer("/api/exams/current?subject=invalid")).status, 400);
     const code = await lawyer("/api/laws/ak");
     assert.equal(code.status, 200);
@@ -2620,6 +2635,7 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
   const gkaId = addUser("report-gka", "Глава", "ГКА");
   const deputyId = addUser("report-deputy", "Заместитель", "ЗГКА");
   const lawyerId = addUser("report-lawyer", "Адвокат", "Адвокат");
+  const juniorLawyerId = addUser("report-junior", "Младший юрист", "Юрист");
   addUser("report-trainee", "Стажёр", "Стажер КА");
   addUser("report-citizen", "Гражданин", "Гражданин");
   const suspendedId = addUser("report-suspended", "Неактивный", "Юрист", "suspended");
@@ -2658,21 +2674,22 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
   const trainee = await createClient(baseUrl);
   const citizen = await createClient(baseUrl);
   const lawyer = await createClient(baseUrl);
+  const juniorLawyer = await createClient(baseUrl);
   try {
     for (const [client, username] of [
       [gka, "report-gka"], [deputy, "report-deputy"], [trainee, "report-trainee"], [citizen, "report-citizen"],
-      [lawyer, "report-lawyer"]
+      [lawyer, "report-lawyer"], [juniorLawyer, "report-junior"]
     ]) {
       assert.equal((await client("/api/auth/login", "POST", { username, password })).status, 200);
     }
     const auditMembers = await gka("/api/members");
     assert.deepEqual(auditMembers.data.members.map((member) => member.role),
-      ["ГКА", "ЗГКА", "Адвокат", "Юрист", "Стажер КА", "Гражданин"]);
+      ["ГКА", "ЗГКА", "Адвокат", "Юрист", "Юрист", "Стажер КА", "Гражданин"]);
     const report = await gka("/api/reports?period=2026-10");
     assert.equal(report.status, 200);
     assert.equal(report.data.googleSheetsConfigured, true);
-    assert.equal(report.data.rows.length, 4);
-    assert.equal(report.data.employees.length, 4);
+    assert.equal(report.data.rows.length, 5);
+    assert.equal(report.data.employees.length, 5);
     assert.equal(report.data.rows.some((row) => row.userId === suspendedId), false);
     const lawyerReport = report.data.rows.find((row) => row.userId === lawyerId);
     assert.deepEqual({
@@ -2732,9 +2749,18 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
       details: "Отчёт без фото"
     });
     assert.equal(missingPhoto.status, 400);
+    const missingParticipants = await lawyer("/api/activity-reports", "POST", {
+      reportType: "call",
+      lawyerTripClaimed: true,
+      occurredAt: "2026-10-25",
+      details: "Совместный вызов без выбранного юриста",
+      photo: { name: "missing-participant.png", type: "image/png", data: "data:image/png;base64,iVBORw0KGgo=" }
+    });
+    assert.equal(missingParticipants.status, 400);
     const submission = await lawyer("/api/activity-reports", "POST", {
       reportType: "call",
       lawyerTripClaimed: true,
+      lawyerTripUserIds: [juniorLawyerId],
       occurredAt: "2026-10-25",
       details: "Дефф — помог по вызову и зафиксировал результат",
       photo: {
@@ -2775,6 +2801,8 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
     assert.equal(pendingReport.lawyer_trip_status, "pending");
     assert.equal(pendingReport.attachment_name, "call-evidence.png");
     assert.equal(pendingReport.reference_url, "");
+    assert.deepEqual(pendingReport.lawyer_trip_participants.map((participant) => participant.display_name),
+      ["Младший юрист"]);
     assert.match(pendingReport.reference, /^Вызов №\d+$/);
     const pendingBailReport = pending.data.reports.find((item) => item.id === bailWithoutPhoto.data.id);
     assert.equal(pendingBailReport.report_type, "bail");
@@ -2784,12 +2812,13 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
     assert.equal(storedPhoto.status, 200);
     assert.equal(storedPhoto.contentType, "image/png");
     assert.deepEqual(storedPhoto.bytes, Buffer.from("iVBORw0KGgo=", "base64"));
-    assert.equal((await deputy.raw(`/api/activity-reports/${submission.data.id}/photo`)).status, 403);
+    assert.equal((await deputy.raw(`/api/activity-reports/${submission.data.id}/photo`)).status, 200);
     assert.equal((await citizen.raw(`/api/activity-reports/${submission.data.id}/photo`)).status, 403);
-    assert.equal((await deputy(`/api/activity-reports/${submission.data.id}`, "PATCH", {
+    assert.equal((await juniorLawyer.raw(`/api/activity-reports/${submission.data.id}/photo`)).status, 403);
+    assert.equal((await lawyer(`/api/activity-reports/${submission.data.id}`, "PATCH", {
       status: "approved"
     })).status, 403);
-    assert.equal((await deputy(`/api/activity-reports/${submission.data.id}`, "PATCH", {
+    assert.equal((await lawyer(`/api/activity-reports/${submission.data.id}`, "PATCH", {
       lawyerTripStatus: "approved"
     })).status, 403);
     const invalidTripOnBail = await lawyer("/api/activity-reports", "POST", {
@@ -2802,6 +2831,7 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
     const declinedTripSubmission = await lawyer("/api/activity-reports", "POST", {
       reportType: "call",
       lawyerTripClaimed: true,
+      lawyerTripUserIds: [juniorLawyerId],
       occurredAt: "2026-10-25",
       details: "Совместный вызов без подтверждения поездки",
       photo: {
@@ -2846,7 +2876,7 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
     assert.equal(webhookBodies[0].payload.embeds[0].fields
       .some((field) => field.name === "Ссылка на вызов"), false);
     assert.match(webhookBodies[0].payload.embeds[0].fields
-      .find((field) => field.name === "Ездил с юристом").value, /ожидает решения/);
+      .find((field) => field.name === "Ездил с юристом").value, /Младший юрист/);
     assert.equal(webhookBodies[0].payload.embeds[0].image.url, "attachment://call-evidence.png");
     assert.ok(webhookBodies[0].body.get("files[0]"));
     assert.equal(db.prepare("SELECT points FROM giveaway_point_entries WHERE report_id = ?")
@@ -2862,6 +2892,9 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
     assert.equal(approvedTrip.data.lawyerTripStatus, "approved");
     assert.equal(db.prepare("SELECT points FROM giveaway_point_entries WHERE report_id = ?")
       .get(submission.data.id).points, 2);
+    const approvedParticipantPhoto = await juniorLawyer.raw(`/api/activity-reports/${submission.data.id}/photo`);
+    assert.equal(approvedParticipantPhoto.status, 200);
+    assert.equal(approvedParticipantPhoto.contentType, "image/png");
     assert.equal((await gka(`/api/activity-reports/${submission.data.id}`, "PATCH", {
       status: "approved"
     })).status, 409);

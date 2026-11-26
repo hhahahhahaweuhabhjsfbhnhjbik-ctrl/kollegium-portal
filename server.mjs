@@ -18,7 +18,7 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 const roles = ["Стажер КА", "Юрист", "Адвокат", "Ст.Адвокат", "ЗГКА", "ГКА"];
 const citizenRole = "Гражданин";
 const managementRoles = ["ГКА", "ЗГКА"];
-const careerLawExamRoles = ["Стажер КА", "Адвокат"];
+const careerLawExamRoles = ["Стажер КА"];
 const careerLawExamSubjects = ["ak", "uk", "pk"];
 const careerLawyerJointCallsRequired = 2;
 const activityReportTypes = Object.freeze({
@@ -418,6 +418,17 @@ function recordGiveawayPointsForApprovedReport(db, report, lawyerTripStatus = re
       eligible.campaign_epoch, eligible.week_start);
 }
 
+function addActivityReportLawyerParticipants(db, reports) {
+  const participantsForReport = db.prepare(`SELECT participant.user_id, user.display_name
+    FROM activity_report_lawyer_participants participant
+    JOIN users user ON user.id = participant.user_id
+    WHERE participant.report_id = ? ORDER BY user.display_name COLLATE NOCASE`);
+  return reports.map((report) => ({
+    ...report,
+    lawyer_trip_participants: participantsForReport.all(report.id)
+  }));
+}
+
 function createDatabase(dbPath) {
   const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;");
@@ -639,6 +650,13 @@ function createDatabase(dbPath) {
       content BLOB NOT NULL,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS activity_report_lawyer_participants (
+      report_id INTEGER NOT NULL REFERENCES activity_reports(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      PRIMARY KEY (report_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS activity_report_lawyer_participants_user_idx
+      ON activity_report_lawyer_participants(user_id, report_id);
     CREATE INDEX IF NOT EXISTS activity_reports_status_idx ON activity_reports(status, occurred_at DESC);
     CREATE INDEX IF NOT EXISTS activity_reports_user_idx ON activity_reports(user_id, id DESC);
     CREATE TABLE IF NOT EXISTS portal_notifications (
@@ -2263,7 +2281,32 @@ function getGeneralRpPracticeState(db, userId) {
   };
 }
 
+function getApprovedCareerJointCallReports(db, userId) {
+  return db.prepare(`SELECT r.id AS report_id, r.occurred_at, r.details,
+      caller.display_name AS partner_name, attachment.file_name AS image_name
+    FROM activity_report_lawyer_participants participant
+    JOIN activity_reports r ON r.id = participant.report_id
+    JOIN users caller ON caller.id = r.user_id
+    JOIN activity_report_attachments attachment ON attachment.report_id = r.id
+    WHERE participant.user_id = ? AND r.report_type = 'call' AND r.status = 'approved'
+      AND r.lawyer_trip_claimed = 1 AND r.lawyer_trip_status = 'approved'
+    ORDER BY r.occurred_at, r.id LIMIT ${careerLawyerJointCallsRequired}`).all(userId);
+}
+
 function getPromotionPracticeSlots(db, userId, stageRole, applicationId = 0, { lawBundle = false } = {}) {
+  if (lawBundle && stageRole === "Юрист") {
+    return getApprovedCareerJointCallReports(db, userId).map((report, index) => ({
+      slotNo: index + 1,
+      reportId: Number(report.report_id),
+      occurredAt: report.occurred_at,
+      partnerName: report.partner_name,
+      imageName: report.image_name,
+      hasImage: true,
+      photoUrl: `/api/activity-reports/${Number(report.report_id)}/photo`,
+      evidenceUrl: "",
+      skipped: false
+    }));
+  }
   const saved = new Map(db.prepare(`SELECT slot_no, partner_name, evidence_url, image_name,
       image_type, image_content IS NOT NULL AS has_image, skipped, updated_at
     FROM promotion_practice_slots WHERE user_id = ? AND stage_role = ?`)
@@ -2295,13 +2338,12 @@ function getPromotionPracticeSlots(db, userId, stageRole, applicationId = 0, { l
 function promotionPracticeIsComplete(db, userId, stageRole, { lawBundle = false } = {}) {
   if (!promotionPracticeStages.includes(stageRole)) return false;
   if (stageRole === "Стажер КА") return true;
+  if (lawBundle) {
+    return getApprovedCareerJointCallReports(db, userId).length >= careerLawyerJointCallsRequired;
+  }
   return getPromotionPracticeSlots(db, userId, stageRole, 0, { lawBundle }).every((slot, index) => {
-    if (lawBundle) {
-      return !slot.skipped && slot.partnerName.trim().length >= 2 &&
-        Boolean(slot.evidenceUrl || slot.hasImage);
-    }
     if (slot.skipped) return index >= 3;
-    return slot.partnerName.trim().length >= 2 && Boolean(slot.evidenceUrl || slot.hasImage);
+    return slot.partnerName.trim().length >= 2 && slot.hasImage;
   });
 }
 
@@ -2322,11 +2364,11 @@ function getCareerPromotionReadiness(db, item) {
     }
     const evidenceCount = getPromotionPracticeSlots(db, item.user_id, item.stage_role, 0, { lawBundle: true })
       .filter((slot) => !slot.skipped && slot.partnerName.trim().length >= 2 &&
-        Boolean(slot.evidenceUrl || slot.hasImage)).length;
+        slot.hasImage).length;
     if (evidenceCount < careerLawyerJointCallsRequired) {
       return {
         ready: false,
-        reason: `Прикрепите два подтверждения совместных вызовов с адвокатом: ${evidenceCount}/${careerLawyerJointCallsRequired}.`
+        reason: `Дождитесь одобрения двух отчётов адвокатов, где вы отмечены участником: ${evidenceCount}/${careerLawyerJointCallsRequired}.`
       };
     }
     if (item.interview_status !== "ready") {
@@ -2358,11 +2400,11 @@ function getCareerPromotionReadiness(db, item) {
       }
       const evidenceCount = getPromotionPracticeSlots(db, item.user_id, item.stage_role, 0, { lawBundle })
         .filter((slot) => !slot.skipped && slot.partnerName.trim().length >= 2 &&
-          Boolean(slot.evidenceUrl || slot.hasImage)).length;
+          slot.hasImage).length;
       if (evidenceCount < careerLawyerJointCallsRequired) {
         return {
           ready: false,
-          reason: `Прикрепите два подтверждения совместных вызовов с адвокатом: ${evidenceCount}/${careerLawyerJointCallsRequired}.`
+          reason: `Дождитесь одобрения двух отчётов адвокатов, где вы отмечены участником: ${evidenceCount}/${careerLawyerJointCallsRequired}.`
         };
       }
       return { ready: true, reason: "" };
@@ -4485,7 +4527,7 @@ ${examples}
             ? parseStoredJson(application.promotion_data_json, "отчёт о повышении")
             : {};
           const completedEvidenceCount = slots.filter((slot) => !slot.skipped &&
-            slot.partnerName.trim().length >= 2 && Boolean(slot.evidenceUrl || slot.hasImage)).length;
+            slot.partnerName.trim().length >= 2 && slot.hasImage).length;
           const practicesComplete = lawyerPath &&
             generalRpPractice.completedCaseIds.length >= generalRpPractice.requiredCount &&
             completedEvidenceCount >= careerLawyerJointCallsRequired;
@@ -4561,7 +4603,7 @@ ${examples}
           const generalPractice = getGeneralRpPracticeState(db, user.id);
           const slots = getPromotionPracticeSlots(db, user.id, user.role, 0, { lawBundle: true });
           const completedEvidenceCount = slots.filter((slot) => !slot.skipped &&
-            slot.partnerName.trim().length >= 2 && Boolean(slot.evidenceUrl || slot.hasImage)).length;
+            slot.partnerName.trim().length >= 2 && slot.hasImage).length;
           if (generalPractice.completedCaseIds.length < generalPractice.requiredCount ||
               completedEvidenceCount < careerLawyerJointCallsRequired) {
             throw new HttpError(409, "Сначала пройдите 18 ситуационных кейсов и подтвердите два совместных вызова.");
@@ -4588,7 +4630,7 @@ ${examples}
           const generalPractice = getGeneralRpPracticeState(db, user.id);
           const slots = getPromotionPracticeSlots(db, user.id, user.role, 0, { lawBundle: true });
           const completedEvidenceCount = slots.filter((slot) => !slot.skipped &&
-            slot.partnerName.trim().length >= 2 && Boolean(slot.evidenceUrl || slot.hasImage)).length;
+            slot.partnerName.trim().length >= 2 && slot.hasImage).length;
           if (generalPractice.completedCaseIds.length < generalPractice.requiredCount ||
               completedEvidenceCount < careerLawyerJointCallsRequired) {
             throw new HttpError(409, "Сначала пройдите 18 ситуационных кейсов и подтвердите два совместных вызова.");
@@ -4700,7 +4742,7 @@ ${examples}
           const generalRpPractice = getGeneralRpPracticeState(db, user.id);
           const slots = getPromotionPracticeSlots(db, user.id, user.role, application?.id || 0, { lawBundle });
           const completedEvidence = slots.filter((slot) => !slot.skipped && slot.partnerName.trim().length >= 2 &&
-            Boolean(slot.evidenceUrl || slot.hasImage)).length;
+            slot.hasImage).length;
           const path = user.role === "Юрист"
             ? getCareerPathProgressRow(db, user.id, user.role)
             : null;
@@ -4769,6 +4811,9 @@ ${examples}
           if (careerBundle && user.role === "Стажер КА") {
             throw new HttpError(403, "Стажёру не нужно прикладывать задержания с адвокатом.");
           }
+          if (careerBundle && user.role === "Юрист") {
+            throw new HttpError(410, "Совместные вызовы подтверждаются одобренными отчётами адвокатов. Заполнять слоты вручную не нужно.");
+          }
           const body = await readJson(req, 3 * 1024 * 1024);
           const slotNo = Number(body.slotNo);
           const maxSlot = careerBundle ? careerLawyerJointCallsRequired : 6;
@@ -4792,18 +4837,7 @@ ${examples}
           if (partnerName.length < 2 || partnerName.length > 80) {
             throw new HttpError(400, "Укажите имя другого адвоката (от 2 до 80 символов).");
           }
-          if (evidenceUrl.length > 500) throw new HttpError(400, "Ссылка на доказательство слишком длинная.");
-          if (evidenceUrl) {
-            let parsedUrl;
-            try {
-              parsedUrl = new URL(evidenceUrl);
-            } catch {
-              throw new HttpError(400, "Укажите корректную ссылку на откат или скриншот.");
-            }
-            if (!["http:", "https:"].includes(parsedUrl.protocol) || parsedUrl.username || parsedUrl.password) {
-              throw new HttpError(400, "Ссылка на доказательство должна начинаться с http:// или https://.");
-            }
-          }
+          if (evidenceUrl) throw new HttpError(400, "Ссылки на доказательства больше не принимаются — прикрепите фото.");
           let image = null;
           if (body.image !== undefined && body.image !== null) {
             image = parseApplicationAttachments([body.image], {
@@ -4820,9 +4854,7 @@ ${examples}
           const imageName = image?.name || previous?.image_name || "";
           const imageType = image?.contentType || previous?.image_type || "";
           const imageContent = image?.content || previous?.image_content || null;
-          if (!evidenceUrl && !imageContent) {
-            throw new HttpError(400, "Добавьте ссылку на откат или скриншот.");
-          }
+          if (!imageContent) throw new HttpError(400, "Прикрепите фото-доказательство вызова.");
           db.prepare(`INSERT INTO promotion_practice_slots
             (user_id, stage_role, slot_no, partner_name, evidence_url, image_name, image_type, image_content, skipped)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
@@ -4830,7 +4862,7 @@ ${examples}
               partner_name = excluded.partner_name, evidence_url = excluded.evidence_url,
               image_name = excluded.image_name, image_type = excluded.image_type,
               image_content = excluded.image_content, skipped = 0, updated_at = CURRENT_TIMESTAMP`)
-            .run(user.id, user.role, slotNo, partnerName, evidenceUrl, imageName, imageType, imageContent);
+            .run(user.id, user.role, slotNo, partnerName, "", imageName, imageType, imageContent);
           return sendJson(res, 200, { ok: true, slotNo });
         }
 
@@ -5950,7 +5982,7 @@ ${examples}
             lawyerCallsRequired: Number(settings.lawyer_calls_required),
             message: available ? "" : user.role === "Юрист"
               ? "На этапе юриста тесты АК, УК и ПК повторно не сдаются."
-              : "Тесты по АК, УК и ПК доступны только стажёрам и адвокатам."
+              : "Тесты по АК, УК и ПК доступны только стажёрам КА."
           });
         }
 
@@ -7340,7 +7372,8 @@ ${examples}
           if (user.role === "Юрист") {
             throw new HttpError(403, "Отчёты по вызовам и залогам откроются после одобрения заявки на адвоката.");
           }
-          const reports = hasGkaAccess(user)
+          const canReview = managementRoles.includes(user.role);
+          const reports = canReview
             ? db.prepare(`SELECT r.*, a.file_name AS attachment_name, u.display_name AS reporter_name, u.role AS reporter_role,
                 reviewer.display_name AS reviewer_name
               FROM activity_reports r JOIN users u ON u.id = r.user_id
@@ -7360,19 +7393,33 @@ ${examples}
               LEFT JOIN users reviewer ON reviewer.id = r.reviewed_by
               WHERE r.user_id = ? AND r.report_type IN ('call', 'bail')
               ORDER BY r.id DESC LIMIT 3`).all(user.id);
-          return sendJson(res, 200, { reports, canReview: hasGkaAccess(user) });
+          const availableLawyers = db.prepare(`SELECT id, display_name FROM users
+            WHERE role = 'Юрист' AND status = 'active'
+            ORDER BY display_name COLLATE NOCASE`).all()
+            .map((item) => ({ id: Number(item.id), display_name: item.display_name }));
+          return sendJson(res, 200, {
+            reports: addActivityReportLawyerParticipants(db, reports),
+            availableLawyers,
+            canReview
+          });
         }
 
         const activityReportPhotoRoute = pathname.match(/^\/api\/activity-reports\/(\d+)\/photo$/);
         if (activityReportPhotoRoute && req.method === "GET") {
           if (user.role === citizenRole) throw new HttpError(403, "Фото отчётов доступны только сотрудникам Коллегии.");
-          if (user.role === "Юрист") {
-            throw new HttpError(403, "Отчёты по вызовам и залогам откроются после одобрения заявки на адвоката.");
-          }
           const reportId = Number(activityReportPhotoRoute[1]);
-          const report = db.prepare("SELECT user_id FROM activity_reports WHERE id = ?").get(reportId);
+          const report = db.prepare(`SELECT user_id, status, lawyer_trip_claimed, lawyer_trip_status
+            FROM activity_reports WHERE id = ?`).get(reportId);
           if (!report) throw new HttpError(404, "Отчёт не найден.");
-          if (!hasGkaAccess(user) && Number(report.user_id) !== Number(user.id)) {
+          const approvedParticipant = Number(report.lawyer_trip_claimed) === 1 &&
+            report.status === "approved" && report.lawyer_trip_status === "approved" &&
+            Boolean(db.prepare(`SELECT 1 FROM activity_report_lawyer_participants
+              WHERE report_id = ? AND user_id = ?`).get(reportId, user.id));
+          if (user.role === "Юрист" && !approvedParticipant) {
+            throw new HttpError(403, "Доступно только фото одобренного совместного вызова, где вы указаны участником.");
+          }
+          if (!managementRoles.includes(user.role) &&
+              Number(report.user_id) !== Number(user.id) && !approvedParticipant) {
             throw new HttpError(403, "Фото доступно автору отчёта и руководству.");
           }
           const attachment = db.prepare(`SELECT content_type, content FROM activity_report_attachments
@@ -7397,6 +7444,7 @@ ${examples}
           const occurredAt = String(body.occurredAt || "");
           const details = String(body.details || "").trim();
           const lawyerTripClaimed = body.lawyerTripClaimed === true;
+          const lawyerTripUserIds = body.lawyerTripUserIds || [];
           const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(occurredAt)
             ? new Date(`${occurredAt}T00:00:00Z`)
             : null;
@@ -7411,6 +7459,23 @@ ${examples}
           }
           if (lawyerTripClaimed && reportType !== "call") {
             throw new HttpError(400, "Отметка «Ездил с юристом» доступна только для отчёта о вызове.");
+          }
+          if (lawyerTripClaimed) {
+            if (!Array.isArray(lawyerTripUserIds) || lawyerTripUserIds.length < 1 ||
+                lawyerTripUserIds.length > 2 ||
+                lawyerTripUserIds.some((id) => !Number.isSafeInteger(id) || id < 1) ||
+                new Set(lawyerTripUserIds).size !== lawyerTripUserIds.length) {
+              throw new HttpError(400, "Укажите одного или двух юристов, участвовавших в совместном вызове.");
+            }
+            const placeholders = lawyerTripUserIds.map(() => "?").join(",");
+            const selectedLawyers = db.prepare(`SELECT id FROM users
+              WHERE role = 'Юрист' AND status = 'active' AND id IN (${placeholders})`)
+              .all(...lawyerTripUserIds);
+            if (selectedLawyers.length !== lawyerTripUserIds.length) {
+              throw new HttpError(400, "Выберите одного или двух действующих юристов из списка.");
+            }
+          } else if (!Array.isArray(lawyerTripUserIds) || lawyerTripUserIds.length > 0) {
+            throw new HttpError(400, "Укажите юристов только при включённой отметке о совместном вызове.");
           }
           if (!parsedDate || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== occurredAt) {
             throw new HttpError(400, "Укажите корректную дату события.");
@@ -7447,6 +7512,11 @@ ${examples}
                 (report_id, file_name, content_type, content) VALUES (?, ?, ?, ?)`)
                 .run(reportId, photo.name, photo.contentType, photo.content);
             }
+            if (lawyerTripClaimed) {
+              const addParticipant = db.prepare(`INSERT INTO activity_report_lawyer_participants
+                (report_id, user_id) VALUES (?, ?)`);
+              for (const lawyerId of lawyerTripUserIds) addParticipant.run(reportId, lawyerId);
+            }
             const giveawayState = db.prepare("SELECT enabled, campaign_epoch FROM giveaway_state WHERE id = 1").get();
             if (Number(giveawayState.enabled) === 1) {
               db.prepare(`INSERT INTO giveaway_report_eligibility (report_id, campaign_epoch, week_start)
@@ -7461,7 +7531,10 @@ ${examples}
             type: "activity_report",
             title: `Новый отчёт: ${activityReportTypes[reportType]}`,
             body: `${user.display_name} отправил отчёт «${reference}» на одобрение.${
-              lawyerTripClaimed ? " Также требуется проверить отметку «Ездил с юристом» (+1 дополнительный балл)." : ""
+              lawyerTripClaimed
+                ? ` Совместный вызов с юристом: ${lawyerTripUserIds.map((id) =>
+                  db.prepare("SELECT display_name FROM users WHERE id = ?").get(id).display_name).join(", ")}. Проверьте отметку для начисления дополнительного балла.`
+                : ""
             }`,
             href: "/page/reports"
           }, user.id);
@@ -7474,7 +7547,9 @@ ${examples}
 
         const activityReportRoute = pathname.match(/^\/api\/activity-reports\/(\d+)$/);
         if (activityReportRoute && req.method === "PATCH") {
-          if (!hasGkaAccess(user)) throw new HttpError(403, "Одобрять отчёты может только ГКА.");
+          if (!managementRoles.includes(user.role)) {
+            throw new HttpError(403, "Одобрять отчёты могут ГКА и ЗГКА.");
+          }
           const reportId = Number(activityReportRoute[1]);
           const report = db.prepare("SELECT * FROM activity_reports WHERE id = ?").get(reportId);
           if (!report) throw new HttpError(404, "Отчёт не найден.");
@@ -7512,7 +7587,7 @@ ${examples}
             await notifyPortalUser({
               userId: report.user_id,
               type: "activity_report_review",
-              title: lawyerTripStatus === "approved" ? "Поездка с юристом подтверждена" : "Поездка с юристом не подтверждена",
+              title: lawyerTripStatus === "approved" ? "Совместный вызов подтверждён" : "Совместный вызов не подтверждён",
               body: `${activityReportTypes[report.report_type]} «${report.reference}»: ${
                 lawyerTripStatus === "approved"
                   ? `отметка одобрена ГКА/ЗГКА.${report.status === "approved" ? " Начислено 2 балла за вызов." : " Дополнительный балл будет начислен после одобрения отчёта."}`
@@ -7573,6 +7648,11 @@ ${examples}
             } else {
               const reporter = db.prepare("SELECT display_name, role FROM users WHERE id = ?")
                 .get(report.user_id);
+              const tripParticipants = db.prepare(`SELECT user.display_name
+                FROM activity_report_lawyer_participants participant
+                JOIN users user ON user.id = participant.user_id
+                WHERE participant.report_id = ? ORDER BY user.display_name COLLATE NOCASE`)
+                .all(reportId).map((participant) => participant.display_name);
               const attachment = db.prepare(`SELECT file_name, content_type, content
                 FROM activity_report_attachments WHERE report_id = ?`).get(reportId);
               webhookWarning = await deliverWebhook(
@@ -7588,10 +7668,10 @@ ${examples}
                   ...(Number(report.lawyer_trip_claimed) === 1 ? [{
                     name: "Ездил с юристом",
                     value: report.lawyer_trip_status === "approved"
-                      ? "Подтверждено ГКА/ЗГКА: 2 балла за вызов"
+                      ? `Подтверждено ГКА/ЗГКА: ${tripParticipants.join(", ") || "юрист(ы)"} отмечены участниками; автору начислен бонусный балл`
                       : report.lawyer_trip_status === "rejected"
-                        ? "Отклонено ГКА/ЗГКА: 1 балл за вызов"
-                        : "Заявлено сотрудником; ожидает решения ГКА/ЗГКА"
+                        ? `Отклонено ГКА/ЗГКА: ${tripParticipants.join(", ") || "участие юриста"}`
+                        : `Заявлено сотрудником; ожидает решения ГКА/ЗГКА. Участники: ${tripParticipants.join(", ") || "не указаны"}`
                   }] : [])
                 ],
                 attachment ? {

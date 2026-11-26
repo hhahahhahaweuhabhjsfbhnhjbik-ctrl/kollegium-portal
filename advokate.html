@@ -652,7 +652,7 @@
 
         <section id="view-tests" class="page-view staff-only hidden">
           <div class="grid-12">
-            <section class="card col-span-12 law-exams-panel" aria-labelledby="career-exam-title">
+            <section id="law-exams-panel" class="card col-span-12 law-exams-panel" aria-labelledby="career-exam-title">
               <span class="badge badge-gold">ЭКЗАМЕНЫ НА ЭТАПЕ · <span id="law-exam-role">—</span></span>
               <h3 id="career-exam-title">Экзамены по кодексам</h3>
               <p id="career-exam-description" class="text-muted">Экзамены по АК, УК и ПК обязательны для перехода со стажёра в юристы.</p>
@@ -975,8 +975,21 @@
                 </label>
                 <label class="activity-report-trip-option hidden" id="activity-report-lawyer-trip-field">
                   <input id="activity-report-lawyer-trip" type="checkbox">
-                  <span>Ездил с юристом — запросить 2 балла вместо 1 (после подтверждения ГКА/ЗГКА)</span>
+                  <span>На вызове были юрист(ы) — запросить 2 балла вместо 1 и подтвердить участие юриста после проверки ГКА/ЗГКА</span>
                 </label>
+                <fieldset class="activity-report-lawyers hidden" id="activity-report-lawyers-field">
+                  <legend>Выберите юриста или двух юристов на вызове</legend>
+                  <label>Юрист 1
+                    <select class="input" id="activity-report-lawyer-1">
+                      <option value="">Выберите юриста</option>
+                    </select>
+                  </label>
+                  <label>Юрист 2 (необязательно)
+                    <select class="input" id="activity-report-lawyer-2">
+                      <option value="">Не выбран</option>
+                    </select>
+                  </label>
+                </fieldset>
                 <label>Дата события<input class="input" id="activity-report-date" type="date" required></label>
                 <p class="text-muted">Нумерация будет назначена автоматически после отправки.</p>
                 <label>Описание<textarea class="input" id="activity-report-details" minlength="4" maxlength="2000" rows="4" required placeholder="Дефф / Недефф / Смягчил — добавьте пояснение при необходимости"></textarea></label>
