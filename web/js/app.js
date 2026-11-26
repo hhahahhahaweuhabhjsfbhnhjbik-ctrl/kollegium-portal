@@ -95,6 +95,7 @@ let auditMembers = [];
 let auditReprimandCounts = new Map();
 let promotionPracticeState = null;
 let promotionDecreeState = null;
+let promotionDecreeManualEntries = [];
 let discordDmEnabled = true;
 let discordSettings = null;
 let aiLawsAnswer = "";
@@ -1685,14 +1686,67 @@ function getPromotionDecreeSelection() {
   for (const id of applicationIds) {
     passports[String(id)] = $(`[data-decree-passport="${id}"]`, $("#promotion-decree-candidates")).value.trim();
   }
-  return { applicationIds, passports };
+  const manualEntries = $$("[data-decree-manual-entry]", $("#promotion-decree-manual-entries"))
+    .filter((entry) => $("[data-decree-manual-select]", entry).checked)
+    .map((entry) => ({
+      userId: Number(entry.dataset.userId),
+      characterName: $("[data-decree-manual-name]", entry).value.trim(),
+      passportId: $("[data-decree-manual-passport]", entry).value.trim(),
+      fromRole: entry.dataset.fromRole,
+      toRole: entry.dataset.toRole
+    }));
+  return { applicationIds, passports, manualEntries };
+}
+
+function updatePromotionDecreeTargetRole() {
+  const fromRole = $("#promotion-decree-manual-from-role").value;
+  const transitions = (promotionDecreeState?.roleTransitions || [])
+    .filter((item) => item.fromRole === fromRole);
+  $("#promotion-decree-manual-to-role").innerHTML = transitions
+    .map((item) => `<option value="${escapeHtml(item.toRole)}">${escapeHtml(item.toRole)}</option>`)
+    .join("");
+}
+
+function updatePromotionDecreeSourceRole(memberId = $("#promotion-decree-manual-user").value) {
+  const member = (promotionDecreeState?.members || [])
+    .find((item) => Number(item.userId) === Number(memberId));
+  const transitions = promotionDecreeState?.roleTransitions || [];
+  const defaultTransition = transitions.find((item) => item.fromRole === member?.role) || transitions[0];
+  if (defaultTransition) $("#promotion-decree-manual-from-role").value = defaultTransition.fromRole;
+  updatePromotionDecreeTargetRole();
+}
+
+function renderPromotionDecreeManualEntries() {
+  const container = $("#promotion-decree-manual-entries");
+  container.innerHTML = promotionDecreeManualEntries.length
+    ? promotionDecreeManualEntries.map((entry) => `<article class="promotion-decree-manual-entry"
+        data-decree-manual-entry data-user-id="${Number(entry.userId)}"
+        data-from-role="${escapeHtml(entry.fromRole)}" data-to-role="${escapeHtml(entry.toRole)}">
+        <label class="promotion-decree-candidate-select">
+          <input type="checkbox" data-decree-manual-select checked>
+          <span><strong>${escapeHtml(entry.displayName)}</strong>
+            <small>Добавлено вручную · ${escapeHtml(entry.fromRole)} → ${escapeHtml(entry.toRole)}</small></span>
+        </label>
+        <button class="text-button" type="button" data-action="remove-manual-decree-entry">Убрать</button>
+        <label class="promotion-decree-passport">Имя персонажа
+          <input class="input" type="text" maxlength="100" data-decree-manual-name
+            value="${escapeHtml(entry.characterName)}" placeholder="Укажите имя персонажа">
+        </label>
+        <label class="promotion-decree-passport">Номер паспорта
+          <input class="input" type="text" maxlength="40" data-decree-manual-passport
+            value="${escapeHtml(entry.passportId)}" placeholder="Укажите номер паспорта">
+        </label>
+      </article>`).join("")
+    : `<p class="text-muted">Сотрудники вручную ещё не добавлены.</p>`;
 }
 
 function renderPromotionDecreeCandidates(data) {
   promotionDecreeState = data;
+  promotionDecreeManualEntries = [];
   const number = String(Number(data.nextNumber || 0)).padStart(3, "0");
   $("#promotion-decree-number").textContent = `Следующий №${number}`;
   const candidates = data.candidates || [];
+  const members = data.members || [];
   $("#promotion-decree-candidates").innerHTML = candidates.length
     ? candidates.map((entry) => `<article class="promotion-decree-candidate">
         <label class="promotion-decree-candidate-select">
@@ -1705,6 +1759,20 @@ function renderPromotionDecreeCandidates(data) {
         </label>
       </article>`).join("")
     : emptyState("Новых одобренных повышений для указа пока нет.");
+  $("#promotion-decree-manual-user").innerHTML = members.length
+    ? `<option value="">Выберите сотрудника</option>${members.map((member) =>
+      `<option value="${Number(member.userId)}">${escapeHtml(member.displayName)} · ${escapeHtml(member.role)}</option>`
+    ).join("")}`
+    : `<option value="">Нет активных сотрудников для повышения</option>`;
+  const transitions = data.roleTransitions || [];
+  const sourceRoles = [...new Set(transitions.map((item) => item.fromRole))];
+  $("#promotion-decree-manual-from-role").innerHTML = sourceRoles.map((role) =>
+    `<option value="${escapeHtml(role)}">${escapeHtml(role)}</option>`
+  ).join("");
+  updatePromotionDecreeSourceRole();
+  $("#promotion-decree-manual-user").disabled = members.length === 0;
+  $('[data-action="add-manual-decree-entry"]').disabled = members.length === 0;
+  renderPromotionDecreeManualEntries();
   $("#promotion-decree-history").innerHTML = (data.history || []).length
     ? `<ul>${data.history.map((item) =>
       `<li>Указ №${String(Number(item.decree_number)).padStart(3, "0")} · ${Number(item.item_count)} записей · ${escapeHtml(item.sent_at)}</li>`
@@ -1713,8 +1781,46 @@ function renderPromotionDecreeCandidates(data) {
   $("#promotion-decree-preview").value = "";
   $("#send-promotion-decree").disabled = true;
   $("#promotion-decree-status").textContent = candidates.length
-    ? `Доступно новых повышений: ${candidates.length}. Снимите отметку, чтобы удалить запись из этого указа.`
-    : "Все новые одобренные повышения уже включены в отправленные указы.";
+    ? `Доступно одобренных повышений: ${candidates.length}. Можно также добавить сотрудника вручную.`
+    : "Одобренных повышений нет — при необходимости добавьте сотрудников вручную.";
+}
+
+function addManualPromotionDecreeEntry() {
+  const userId = Number($("#promotion-decree-manual-user").value);
+  const member = (promotionDecreeState?.members || [])
+    .find((item) => Number(item.userId) === userId);
+  if (!member) throw new Error("Выберите сотрудника Коллегии.");
+  if (promotionDecreeManualEntries.some((entry) => Number(entry.userId) === userId)) {
+    throw new Error("Этот сотрудник уже добавлен в указ.");
+  }
+  const selectedCandidate = $$("[data-decree-entry]:checked", $("#promotion-decree-candidates"))
+    .some((checkbox) => Number(promotionDecreeState.candidates.find((entry) =>
+      Number(entry.applicationId) === Number(checkbox.value))?.userId) === userId);
+  if (selectedCandidate) throw new Error("Для этого сотрудника уже выбрано одобренное повышение.");
+  const fromRole = $("#promotion-decree-manual-from-role").value;
+  const toRole = $("#promotion-decree-manual-to-role").value;
+  const transition = (promotionDecreeState.roleTransitions || [])
+    .find((item) => item.fromRole === fromRole && item.toRole === toRole);
+  if (!transition) throw new Error("Выберите корректный переход между должностями.");
+  promotionDecreeManualEntries.push({
+    userId,
+    displayName: member.displayName,
+    characterName: member.characterName || "",
+    passportId: member.passportId || "",
+    fromRole: transition.fromRole,
+    toRole: transition.toRole
+  });
+  renderPromotionDecreeManualEntries();
+  invalidatePromotionDecreePreview($("#promotion-decree-manual-entries"));
+}
+
+function removeManualPromotionDecreeEntry(button) {
+  const entry = button.closest("[data-decree-manual-entry]");
+  const userId = Number(entry?.dataset.userId);
+  promotionDecreeManualEntries = promotionDecreeManualEntries
+    .filter((item) => Number(item.userId) !== userId);
+  renderPromotionDecreeManualEntries();
+  invalidatePromotionDecreePreview($("#promotion-decree-manual-entries"));
 }
 
 async function loadPromotionDecrees() {
@@ -1725,14 +1831,16 @@ async function loadPromotionDecrees() {
 }
 
 function invalidatePromotionDecreePreview(target) {
-  if (!target.closest("#promotion-decree-candidates")) return;
+  if (!target.closest("#promotion-decree-candidates, #promotion-decree-manual-entries")) return;
   $("#promotion-decree-preview").value = "";
   $("#send-promotion-decree").disabled = true;
 }
 
 async function previewPromotionDecree() {
   const selection = getPromotionDecreeSelection();
-  if (!selection.applicationIds.length) throw new Error("Выберите хотя бы одно повышение для указа.");
+  if (!selection.applicationIds.length && !selection.manualEntries.length) {
+    throw new Error("Выберите повышение или добавьте сотрудника вручную.");
+  }
   const preview = await api("/api/promotion-decree/preview", {
     method: "POST",
     body: selection
@@ -1745,11 +1853,12 @@ async function previewPromotionDecree() {
 
 async function sendPromotionDecree() {
   const selection = getPromotionDecreeSelection();
-  if (!selection.applicationIds.length || !$("#promotion-decree-preview").value) {
+  const selectionCount = selection.applicationIds.length + selection.manualEntries.length;
+  if (!selectionCount || !$("#promotion-decree-preview").value) {
     throw new Error("Сначала сформируйте предпросмотр указа.");
   }
   const number = String(Number(promotionDecreeState?.nextNumber || 0)).padStart(3, "0");
-  if (!window.confirm(`Отправить указ №${number} (${selection.applicationIds.length} записей) в ваш Discord?`)) return;
+  if (!window.confirm(`Отправить указ №${number} (${selectionCount} записей) в ваш Discord?`)) return;
   const result = await api("/api/promotion-decree/send", {
     method: "POST",
     body: selection
@@ -3875,6 +3984,8 @@ async function handleAction(button) {
   else if (action === "refresh-promotion-decree") await loadPromotionDecrees();
   else if (action === "preview-promotion-decree") await previewPromotionDecree();
   else if (action === "send-promotion-decree") await sendPromotionDecree();
+  else if (action === "add-manual-decree-entry") addManualPromotionDecreeEntry();
+  else if (action === "remove-manual-decree-entry") removeManualPromotionDecreeEntry(button);
   else if (["application-details", "assign-appeal", "close-appeal"].includes(action)) await handleAppealAction(button);
   else if (action === "select-attorney") await selectAttorney(button.dataset.id);
   else if (action === "attorney-profile") await viewAttorneyProfile(button.dataset.id);
@@ -3972,7 +4083,16 @@ document.addEventListener("click", (event) => {
   }
 });
 document.addEventListener("change", (event) => {
-  if (event.target.closest("#promotion-decree-candidates")) {
+  const manualMember = event.target.closest("#promotion-decree-manual-user");
+  if (manualMember) {
+    updatePromotionDecreeSourceRole(manualMember.value);
+    return;
+  }
+  if (event.target.closest("#promotion-decree-manual-from-role")) {
+    updatePromotionDecreeTargetRole();
+    return;
+  }
+  if (event.target.closest("#promotion-decree-candidates, #promotion-decree-manual-entries")) {
     invalidatePromotionDecreePreview(event.target);
     return;
   }

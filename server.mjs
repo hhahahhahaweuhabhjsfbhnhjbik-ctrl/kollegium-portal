@@ -603,6 +603,7 @@ function createDatabase(dbPath) {
       id INTEGER PRIMARY KEY,
       decree_id INTEGER NOT NULL REFERENCES promotion_decrees(id) ON DELETE CASCADE,
       application_id INTEGER UNIQUE REFERENCES applications(id) ON DELETE SET NULL,
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
       character_name TEXT NOT NULL,
       passport_id TEXT NOT NULL,
       from_role TEXT NOT NULL,
@@ -957,6 +958,13 @@ function createDatabase(dbPath) {
     CREATE INDEX IF NOT EXISTS member_employment_history_user_idx ON member_employment_history(user_id, id DESC);
     CREATE INDEX IF NOT EXISTS academy_materials_category_idx ON academy_materials(category, updated_at DESC);
   `);
+  const promotionDecreeItemColumns = db.prepare("PRAGMA table_info(promotion_decree_items)").all();
+  if (!promotionDecreeItemColumns.some((item) => item.name === "user_id")) {
+    db.exec("ALTER TABLE promotion_decree_items ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL");
+  }
+  db.prepare(`UPDATE promotion_decree_items SET user_id = (
+    SELECT user_id FROM applications WHERE applications.id = promotion_decree_items.application_id
+  ) WHERE user_id IS NULL AND application_id IS NOT NULL`).run();
   db.prepare(`INSERT OR IGNORE INTO promotion_decree_state (id, next_number, first_application_id)
     SELECT 1, 0, COALESCE(MAX(id), 0) FROM applications`).run();
   migrateActivityReportTypes(db);
@@ -2427,11 +2435,13 @@ function getCareerPromotionReadiness(db, item) {
 }
 
 const promotionDecreeRoleTitles = Object.freeze({
+  "Стажер КА": "Стажёр Коллегии адвокатов",
   "Юрист": "Юрист Коллегии адвокатов",
   "Адвокат": "Адвокат Коллегии адвокатов",
   "Ст.Адвокат": "Старший адвокат Коллегии адвокатов",
   "ЗГКА": "Заместитель главы Коллегии адвокатов"
 });
+const promotionDecreeRoles = Object.keys(promotionDecreeRoleTitles);
 
 function escapeDecreeText(value) {
   return String(value || "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ")
@@ -2446,8 +2456,9 @@ function buildPromotionDecree(entries, decreeNumber, date = new Date()) {
   const dateText = `${dateValue("day")} ${dateValue("month")} ${dateValue("year")} г.`;
   const numberText = String(decreeNumber).padStart(3, "0");
   const appointments = entries.map((entry, index) =>
-    `[INDENT][SIZE=5][FONT=times new roman]${index + 1}. Назначить ${escapeDecreeText(entry.characterName)} ` +
-    `(н.п.${escapeDecreeText(entry.passportId)}) на должность ` +
+    `[INDENT][SIZE=5][FONT=times new roman]${index + 1}. Повысить ${escapeDecreeText(entry.characterName)} ` +
+    `(н.п.${escapeDecreeText(entry.passportId)}) с должности ` +
+    `${escapeDecreeText(promotionDecreeRoleTitles[entry.fromRole] || entry.fromRole)} на должность ` +
     `${escapeDecreeText(promotionDecreeRoleTitles[entry.toRole] || entry.toRole)}, ` +
     `Коллегия адвокатов штата Сан-Андреас.[/FONT][/SIZE][/INDENT]`
   );
@@ -2956,9 +2967,36 @@ export function createPortalServer(options = {}) {
     return { nextNumber: Number(state.next_number), candidates };
   }
 
-  function resolvePromotionDecreeSelection(rawIds, rawPassports = {}) {
-    if (!Array.isArray(rawIds) || rawIds.length < 1 || rawIds.length > 100) {
-      throw new HttpError(400, "Выберите от 1 до 100 одобренных повышений.");
+  function getPromotionDecreeMembers() {
+    const admissions = new Map();
+    for (const admission of db.prepare(`SELECT user_id, passport_id, promotion_data_json
+      FROM applications WHERE type = 'employment' AND status = 'approved'
+      ORDER BY reviewed_at DESC, id DESC`).all()) {
+      if (!admissions.has(Number(admission.user_id))) {
+        admissions.set(Number(admission.user_id), admission);
+      }
+    }
+    return db.prepare(`SELECT id, display_name, role FROM users
+      WHERE status = 'active' AND role IN (${Object.keys(nextRank).map(() => "?").join(",")})
+      ORDER BY display_name COLLATE NOCASE`).all(...Object.keys(nextRank)).map((member) => {
+      const admission = admissions.get(Number(member.id));
+      const admissionData = admission
+        ? parseStoredJson(admission.promotion_data_json, "заявка на вступление")
+        : {};
+      return {
+        userId: Number(member.id),
+        displayName: member.display_name,
+        role: member.role,
+        characterName: String(admissionData.gtaName || member.display_name || "").trim(),
+        passportId: String(admission?.passport_id || "").trim()
+      };
+    });
+  }
+
+  function resolvePromotionDecreeSelection(rawIds, rawPassports = {}, rawManualEntries = []) {
+    if (!Array.isArray(rawIds) || !Array.isArray(rawManualEntries) ||
+        rawIds.length + rawManualEntries.length < 1 || rawIds.length + rawManualEntries.length > 100) {
+      throw new HttpError(400, "Выберите или добавьте от 1 до 100 сотрудников для указа.");
     }
     const ids = rawIds.map(Number);
     if (ids.some((id) => !Number.isSafeInteger(id) || id < 1) || new Set(ids).size !== ids.length) {
@@ -2980,7 +3018,46 @@ export function createPortalServer(options = {}) {
       }
       return { ...entry, passportId };
     });
-    return selected;
+    const selectedUsers = new Set(selected.map((entry) => entry.userId));
+    if (selectedUsers.size !== selected.length) {
+      throw new HttpError(400, "В одном указе нельзя дважды повысить одного сотрудника.");
+    }
+    const manual = rawManualEntries.map((rawEntry) => {
+      const entry = requireObject(rawEntry);
+      const userId = Number(entry.userId);
+      if (!Number.isSafeInteger(userId) || userId < 1 || selectedUsers.has(userId)) {
+        throw new HttpError(400, "Укажите каждого сотрудника в указе только один раз.");
+      }
+      const member = db.prepare(`SELECT id FROM users
+        WHERE id = ? AND status = 'active' AND role IN (${Object.keys(nextRank).map(() => "?").join(",")})`)
+        .get(userId, ...Object.keys(nextRank));
+      if (!member) throw new HttpError(409, "Выберите действующего сотрудника Коллегии.");
+      const fromRole = String(entry.fromRole || "").trim();
+      const toRole = String(entry.toRole || "").trim();
+      const fromRoleIndex = promotionDecreeRoles.indexOf(fromRole);
+      const toRoleIndex = promotionDecreeRoles.indexOf(toRole);
+      if (fromRoleIndex < 0 || toRoleIndex <= fromRoleIndex) {
+        throw new HttpError(400, "Выберите повышение на должность выше текущей.");
+      }
+      const characterName = String(entry.characterName || "").trim();
+      const passportId = String(entry.passportId || "").trim();
+      if (characterName.length < 2 || characterName.length > 100) {
+        throw new HttpError(400, "Имя персонажа должно содержать от 2 до 100 символов.");
+      }
+      if (!passportId || passportId.length > 40) {
+        throw new HttpError(400, "Укажите номер паспорта длиной не более 40 символов.");
+      }
+      selectedUsers.add(userId);
+      return {
+        applicationId: null,
+        userId,
+        characterName,
+        passportId,
+        fromRole,
+        toRole
+      };
+    });
+    return [...selected, ...manual];
   }
 
   let calendarReminderInProgress = false;
@@ -4996,16 +5073,20 @@ ${examples}
         if (pathname === "/api/promotion-decree" && req.method === "GET") {
           if (!hasGkaAccess(user)) throw new HttpError(403, "Указы может формировать только ГКА.");
           const { nextNumber, candidates } = getPromotionDecreeCandidates();
+          const roleTransitions = promotionDecreeRoles.slice(0, -1).flatMap((fromRole, index) =>
+            promotionDecreeRoles.slice(index + 1).map((toRole) => ({ fromRole, toRole })));
           const history = db.prepare(`SELECT d.id, d.decree_number, d.sent_at, COUNT(i.id) AS item_count
             FROM promotion_decrees d LEFT JOIN promotion_decree_items i ON i.decree_id = d.id
             GROUP BY d.id ORDER BY d.id DESC LIMIT 20`).all();
-          return sendJson(res, 200, { nextNumber, candidates, history });
+          return sendJson(res, 200, {
+            nextNumber, candidates, members: getPromotionDecreeMembers(), roleTransitions, history
+          });
         }
 
         if (pathname === "/api/promotion-decree/preview" && req.method === "POST") {
           if (!hasGkaAccess(user)) throw new HttpError(403, "Указы может формировать только ГКА.");
           const body = await readJson(req);
-          const entries = resolvePromotionDecreeSelection(body.applicationIds, body.passports);
+          const entries = resolvePromotionDecreeSelection(body.applicationIds, body.passports, body.manualEntries);
           const { nextNumber } = getPromotionDecreeCandidates();
           return sendJson(res, 200, {
             decreeNumber: nextNumber,
@@ -5023,7 +5104,7 @@ ${examples}
             throw new HttpError(409, "Привяжите Discord в профиле, чтобы получить указ в личные сообщения.");
           }
           const body = await readJson(req);
-          const entries = resolvePromotionDecreeSelection(body.applicationIds, body.passports);
+          const entries = resolvePromotionDecreeSelection(body.applicationIds, body.passports, body.manualEntries);
           const { nextNumber } = getPromotionDecreeCandidates();
           const bbcode = buildPromotionDecree(entries, nextNumber);
           promotionDecreeSending = true;
@@ -5054,11 +5135,11 @@ ${examples}
                 .run(nextNumber, bbcode, user.id);
               const decreeId = Number(inserted.lastInsertRowid);
               const insertItem = db.prepare(`INSERT INTO promotion_decree_items
-                (decree_id, application_id, character_name, passport_id, from_role, to_role)
-                VALUES (?, ?, ?, ?, ?, ?)`);
+                (decree_id, application_id, user_id, character_name, passport_id, from_role, to_role)
+                VALUES (?, ?, ?, ?, ?, ?, ?)`);
               for (const entry of entries) {
-                insertItem.run(decreeId, entry.applicationId, entry.characterName,
-                  entry.passportId, entry.fromRole, entry.toRole);
+                insertItem.run(decreeId, entry.applicationId || null, entry.userId || null,
+                  entry.characterName, entry.passportId, entry.fromRole, entry.toRole);
               }
               db.prepare("UPDATE promotion_decree_state SET next_number = next_number + 1 WHERE id = 1")
                 .run();

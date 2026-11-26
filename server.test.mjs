@@ -1320,6 +1320,9 @@ test("promotion decrees skip legacy approvals and mark only successfully sent en
     assert.equal(list.data.candidates[0].applicationId, Number(newPromotion.lastInsertRowid));
     assert.equal(list.data.candidates[0].characterName, "Denny Thag");
     assert.equal(list.data.candidates[0].passportId, "1461471");
+    assert.ok(list.data.roleTransitions.some((transition) =>
+      transition.fromRole === "Юрист" && transition.toRole === "Адвокат"));
+    assert.ok(list.data.members.some((member) => member.userId === memberId && member.characterName === "Denny Thag"));
     const preview = await head("/api/promotion-decree/preview", "POST", {
       applicationIds: [Number(newPromotion.lastInsertRowid)]
     });
@@ -1327,6 +1330,7 @@ test("promotion decrees skip legacy approvals and mark only successfully sent en
     assert.match(preview.data.bbcode, /№000/);
     assert.match(preview.data.bbcode, /Denny Thag/);
     assert.match(preview.data.bbcode, /н\.п\.1461471/);
+    assert.match(preview.data.bbcode, /с должности Стажёр Коллегии адвокатов на должность Юрист Коллегии адвокатов/);
     const sent = await head("/api/promotion-decree/send", "POST", {
       applicationIds: [Number(newPromotion.lastInsertRowid)]
     });
@@ -1348,16 +1352,73 @@ test("promotion decrees skip legacy approvals and mark only successfully sent en
       (user_id,type,passport_id,promotion_data_json,status,reviewed_at,details)
       VALUES (?,'employment','2222222','{"gtaName":"Second Player"}','approved','2026-11-25 12:00:00','approved employment')`)
       .run(secondMemberId);
+    db.prepare("INSERT INTO users (username,password_hash,display_name,role,status) VALUES (?,?,?,?,?)")
+      .run("decree-manual", passwordHash, "Manual Portal Name", "Юрист", "active");
+    const manualMemberId = Number(db.prepare("SELECT id FROM users WHERE username = 'decree-manual'").get().id);
+    db.prepare(`INSERT INTO applications
+      (user_id,type,passport_id,promotion_data_json,status,reviewed_at,details)
+      VALUES (?,'employment','3333333','{"gtaName":"Manual Character"}','approved','2026-11-25 12:00:00','approved employment')`)
+      .run(manualMemberId);
+    const manualEntry = {
+      userId: manualMemberId,
+      characterName: "Manual Character",
+      passportId: "3333333",
+      fromRole: "Юрист",
+      toRole: "Адвокат"
+    };
+    const manualPreview = await head("/api/promotion-decree/preview", "POST", {
+      applicationIds: [],
+      manualEntries: [manualEntry]
+    });
+    assert.equal(manualPreview.status, 200);
+    assert.equal(manualPreview.data.decreeNumber, 1);
+    assert.match(manualPreview.data.bbcode, /Manual Character/);
+    assert.match(manualPreview.data.bbcode, /с должности Юрист Коллегии адвокатов на должность Адвокат Коллегии адвокатов/);
+    const directPromotionPreview = await head("/api/promotion-decree/preview", "POST", {
+      applicationIds: [],
+      manualEntries: [{ ...manualEntry, toRole: "Ст.Адвокат" }]
+    });
+    assert.equal(directPromotionPreview.status, 200);
+    assert.match(directPromotionPreview.data.bbcode,
+      /с должности Юрист Коллегии адвокатов на должность Старший адвокат Коллегии адвокатов/);
+    assert.equal((await head("/api/promotion-decree/preview", "POST", {
+      applicationIds: [],
+      manualEntries: [{ ...manualEntry, toRole: "Юрист" }]
+    })).status, 400);
+    const manualSent = await head("/api/promotion-decree/send", "POST", {
+      applicationIds: [],
+      manualEntries: [manualEntry]
+    });
+    assert.equal(manualSent.status, 200);
+    assert.equal(manualSent.data.decreeNumber, "001");
+    assert.deepEqual({ ...db.prepare(`SELECT user_id, character_name, passport_id, from_role, to_role
+      FROM promotion_decree_items WHERE decree_id = 2`).get() }, {
+      user_id: manualMemberId,
+      character_name: "Manual Character",
+      passport_id: "3333333",
+      from_role: "Юрист",
+      to_role: "Адвокат"
+    });
     const secondPromotion = db.prepare(`INSERT INTO applications
       (user_id,type,requested_role,stage_role,career_flow,details,promotion_data_json,status,reviewed_at)
       VALUES (?,'exam','Юрист','Стажер КА',1,'new approval','{"practiceSubmittedAt":"2026-11-25T12:00:00.000Z"}','approved','2026-11-25 12:00:00')`)
       .run(secondMemberId);
+    assert.equal((await head("/api/promotion-decree/preview", "POST", {
+      applicationIds: [Number(secondPromotion.lastInsertRowid)],
+      manualEntries: [{
+        userId: secondMemberId,
+        characterName: "Second Player",
+        passportId: "2222222",
+        fromRole: "Юрист",
+        toRole: "Адвокат"
+      }]
+    })).status, 400);
     failDiscordMessage = true;
     assert.equal((await head("/api/promotion-decree/send", "POST", {
       applicationIds: [Number(secondPromotion.lastInsertRowid)]
     })).status, 502);
     const afterFailure = await head("/api/promotion-decree");
-    assert.equal(afterFailure.data.nextNumber, 1);
+    assert.equal(afterFailure.data.nextNumber, 2);
     assert.equal(afterFailure.data.candidates.length, 1);
     assert.equal(afterFailure.data.candidates[0].applicationId, Number(secondPromotion.lastInsertRowid));
   } finally {

@@ -664,6 +664,15 @@ html, body {
 .promotion-decree-panel { display: grid; gap: 14px; }
 .promotion-decree-candidates { display: grid; gap: 9px; }
 .promotion-decree-candidate { display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, .4fr); align-items: center; gap: 14px; padding: 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-body); }
+.promotion-decree-manual { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: rgba(255, 255, 255, .02); }
+.promotion-decree-manual h3 { margin: 0 0 4px; font-size: 13px; }
+.promotion-decree-manual p { margin: 0; font-size: 11px; }
+.promotion-decree-manual-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; align-items: end; gap: 9px; }
+.promotion-decree-manual-form label { display: grid; gap: 6px; color: var(--text-secondary); font-size: 11px; font-weight: 700; }
+.promotion-decree-manual-entries { display: grid; gap: 9px; }
+.promotion-decree-manual-entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px 14px; padding: 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-body); }
+.promotion-decree-manual-entry .promotion-decree-passport { min-width: 0; }
+.promotion-decree-manual-entry .input { min-width: 0; }
 .promotion-decree-candidate-select { display: flex; align-items: flex-start; gap: 10px; color: var(--text-primary); cursor: pointer; }
 .promotion-decree-candidate-select input { margin-top: 3px; accent-color: var(--accent-gold); }
 .promotion-decree-candidate-select span { display: grid; gap: 4px; }
@@ -717,10 +726,12 @@ html, body {
   .audit-table-toolbar { align-items: stretch; flex-direction: column; }
   .audit-search { width: 100%; }
   .lawsuit-form, .lawsuit-editor, .audit-reprimand-form { grid-template-columns: 1fr; }
+  .promotion-decree-manual-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .lawsuit-editor > label, .lawsuit-editor > label:nth-child(3), .lawsuit-editor > .lawsuit-fields, .lawsuit-editor > .form-actions { grid-column: 1; }
   .rp-practice-controls { grid-template-columns: 1fr; }
   .promotion-practice-heading, .promotion-decree-heading { align-items: flex-start; flex-direction: column; }
-  .promotion-practice-slots, .promotion-decree-candidate { grid-template-columns: 1fr; }
+  .promotion-practice-slots, .promotion-decree-candidate, .promotion-decree-manual-entry,
+  .promotion-decree-manual-form { grid-template-columns: 1fr; }
   .promotion-practice-submit { align-items: stretch; flex-direction: column; }
   .promotion-practice-submit .btn, .promotion-decree-actions .btn { width: 100%; justify-content: center; }
   .rp-phone-launch { align-items: stretch; flex-direction: column; }

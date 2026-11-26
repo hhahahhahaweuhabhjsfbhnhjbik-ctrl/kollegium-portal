@@ -939,6 +939,27 @@
             </div>
             <p id="promotion-decree-status" class="promotion-decree-status" role="status" aria-live="polite"></p>
             <div id="promotion-decree-candidates" class="promotion-decree-candidates"></div>
+            <section class="promotion-decree-manual" aria-labelledby="promotion-decree-manual-title">
+              <div>
+                <h3 id="promotion-decree-manual-title">Добавить сотрудника вручную</h3>
+                <p class="text-muted">Запись попадёт в указ, но сама по себе не изменит должность сотрудника в системе.</p>
+              </div>
+              <div class="promotion-decree-manual-form">
+                <label>Сотрудник Коллегии
+                  <select id="promotion-decree-manual-user" class="input">
+                    <option value="">Выберите сотрудника</option>
+                  </select>
+                </label>
+                <label>С какой должности
+                  <select id="promotion-decree-manual-from-role" class="input"></select>
+                </label>
+                <label>На какую должность
+                  <select id="promotion-decree-manual-to-role" class="input"></select>
+                </label>
+                <button class="btn" type="button" data-action="add-manual-decree-entry">Добавить в указ</button>
+              </div>
+              <div id="promotion-decree-manual-entries" class="promotion-decree-manual-entries"></div>
+            </section>
             <div class="promotion-decree-actions">
               <button class="btn" type="button" data-action="refresh-promotion-decree">Обновить список</button>
               <button class="btn btn-gold" type="button" data-action="preview-promotion-decree">Показать предпросмотр</button>
