@@ -868,6 +868,33 @@ window.renderAppeals([{
 check(document.querySelectorAll('[data-action="review-career-promotion"]').length === 2 &&
   document.querySelector("#appealsList .career-requirement.is-missing") === null,
 "Полная заявка должна показывать все выполненные условия и действия для рассмотрения.");
+const careerPracticeNav = document.querySelector("#practice-nav");
+window.renderCareerPath({
+  role: "Стажер КА",
+  passedSubjects: [],
+  allTestsPassed: false,
+  completedCaseIds: [],
+  requiredCaseCount: 1,
+  completedEvidenceCount: 0,
+  requiredEvidenceCount: 0,
+  practiceSubmitted: false
+});
+check(!careerPracticeNav.disabled && !careerPracticeNav.classList.contains("locked") &&
+  !document.querySelector('[data-action="career-path-open-ai"]'),
+"Раздел карьерной практики должен открываться для просмотра, а AI Case оставаться закрытым до тестов.");
+window.renderCareerPath({
+  role: "Стажер КА",
+  passedSubjects: ["ak", "uk", "pk"],
+  allTestsPassed: true,
+  completedCaseIds: [],
+  requiredCaseCount: 1,
+  completedEvidenceCount: 0,
+  requiredEvidenceCount: 0,
+  practiceSubmitted: false
+});
+check(!careerPracticeNav.disabled &&
+  Boolean(document.querySelector('[data-action="career-path-open-ai"]')),
+"После сдачи тестов переход к карьерному AI Case должен открываться.");
 let confirmLogout = false;
 window.confirm = () => confirmLogout;
 await window.logout();

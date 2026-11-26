@@ -483,7 +483,7 @@ function applyRoleVisibility() {
   setHidden(".career-path-only", !careerPathRole);
   setHidden(".career-general-practice-only", careerPathRole);
   const practiceNav = $("#practice-nav");
-  const practiceLocked = !hasPractice || careerPathRole;
+  const practiceLocked = !hasPractice;
   practiceNav.disabled = practiceLocked;
   practiceNav.classList.toggle("locked", practiceLocked);
   practiceNav.setAttribute("aria-disabled", String(practiceLocked));
@@ -765,11 +765,9 @@ function renderCareerPath(data) {
   if (openAi) openAi.disabled = !allTestsPassed || !lawsReady || casesReady;
   const practiceNav = $("#practice-nav");
   if (practiceNav && Object.hasOwn(promotionPracticeRanks, role)) {
-    const practiceAvailable = allTestsPassed && lawsReady &&
-      (!casesReady || (role === "Юрист" && !callsReady) || !practiceSubmitted);
-    practiceNav.disabled = !practiceAvailable;
-    practiceNav.classList.toggle("locked", !practiceAvailable);
-    practiceNav.setAttribute("aria-disabled", String(!practiceAvailable));
+    practiceNav.disabled = false;
+    practiceNav.classList.remove("locked");
+    practiceNav.setAttribute("aria-disabled", "false");
   }
 }
 
