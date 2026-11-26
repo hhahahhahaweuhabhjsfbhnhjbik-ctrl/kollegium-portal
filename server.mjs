@@ -1644,7 +1644,9 @@ function buildAttorneyRanking(db, period) {
         tasksCompleted: Number(attorney.completed_tasks),
         reviews: Number(attorney.review_points)
       };
-      const score = Object.entries(weights).reduce((total, [key, weight]) => total + metrics[key] * weight, 0);
+      const score = Object.entries(weights).reduce((total, [key, weight]) => total + metrics[key] * weight, 0) +
+        Number(attorney.call_count) * giveawayPointsPerReport.call +
+        Number(attorney.bail_count) * giveawayPointsPerReport.bail;
       return {
         ...attorney, ...metrics, score,
         cases_handled: Number(attorney.cases_handled),
@@ -7039,7 +7041,6 @@ ${examples}
           const reportType = String(body.reportType || "");
           const occurredAt = String(body.occurredAt || "");
           const details = String(body.details || "").trim();
-          const referenceUrl = String(body.referenceUrl || "").trim();
           const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(occurredAt)
             ? new Date(`${occurredAt}T00:00:00Z`)
             : null;
@@ -7047,21 +7048,7 @@ ${examples}
             throw new HttpError(400, "Выберите тип отчёта.");
           }
           if (reportType === "call" && !activityReportCallRoles.has(user.role)) {
-            throw new HttpError(403, "Отчёты о вызовах с ссылкой доступны начиная с должности «Юрист».");
-          }
-          if (reportType === "call") {
-            let parsedReferenceUrl;
-            try {
-              parsedReferenceUrl = new URL(referenceUrl);
-            } catch {
-              throw new HttpError(400, "Добавьте корректную ссылку на вызов.");
-            }
-            if (!["http:", "https:"].includes(parsedReferenceUrl.protocol) ||
-                parsedReferenceUrl.username || parsedReferenceUrl.password || referenceUrl.length > 500) {
-              throw new HttpError(400, "Ссылка на вызов должна быть корректным HTTP(S)-адресом до 500 символов.");
-            }
-          } else if (referenceUrl) {
-            throw new HttpError(400, "Ссылка на вызов указывается только для отчёта о вызове.");
+            throw new HttpError(403, "Отчёты о вызовах доступны начиная с должности «Юрист».");
           }
           if (!parsedDate || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== occurredAt) {
             throw new HttpError(400, "Укажите корректную дату события.");
@@ -7086,9 +7073,9 @@ ${examples}
           let reference;
           try {
             const created = db.prepare(`INSERT INTO activity_reports
-              (user_id, report_type, occurred_at, reference, reference_url, details)
-              VALUES (?, ?, ?, ?, ?, ?)`)
-              .run(user.id, reportType, occurredAt, "", referenceUrl, details);
+              (user_id, report_type, occurred_at, reference, details)
+              VALUES (?, ?, ?, ?, ?)`)
+              .run(user.id, reportType, occurredAt, "", details);
             reportId = Number(created.lastInsertRowid);
             reference = `${reportType === "call" ? "Вызов" : "Залог"} №${reportId}`;
             db.prepare("UPDATE activity_reports SET reference = ? WHERE id = ?").run(reference, reportId);
@@ -7184,10 +7171,7 @@ ${examples}
                   { name: "Тип", value: activityReportTypes[report.report_type], inline: true },
                   { name: "Дата события", value: report.occurred_at, inline: true },
                   { name: "Автор", value: `${reporter.display_name} · ${reporter.role}`, inline: true },
-                  { name: "Номер отчёта", value: report.reference },
-                  ...(report.reference_url
-                    ? [{ name: "Ссылка на вызов", value: report.reference_url }]
-                    : [])
+                  { name: "Номер отчёта", value: report.reference }
                 ],
                 attachment ? {
                   name: attachment.file_name,

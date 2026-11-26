@@ -1012,7 +1012,6 @@ test("career AI practice gates lawyer reports and unlocks them only after manage
     assert.equal((await lawyer("/api/activity-reports", "POST", {
       reportType: "call",
       occurredAt: new Date().toISOString().slice(0, 10),
-      referenceUrl: "https://forum.gta5rp.com/topic/career-call",
       details: "Отчёт о вызове после одобрения.",
       photo: { name: "proof.png", type: "image/png", data: "data:image/png;base64,iVBORw0KGgo=" }
     })).status, 201);
@@ -2099,7 +2098,7 @@ test("citizens can choose and rate an attorney only after the assigned case clos
       assert.equal(ranking.data.period, period);
       assert.equal(rated.review_count, 1);
       assert.equal(rated.average_rating, 5);
-      assert.equal(rated.score, 7);
+      assert.equal(rated.score, 10);
       assert.equal(rated.calls, 1);
       assert.equal(rated.bails, 1);
     }
@@ -2110,7 +2109,7 @@ test("citizens can choose and rate an attorney only after the assigned case clos
       documentsApproved: 0, casesClosed: 0, lawsuitsFiled: 0, tasksCompleted: 0, reviews: 2
     } })).status, 200);
     const updatedRanking = await citizen("/api/attorneys?period=all");
-    assert.equal(updatedRanking.data.attorneys.find((item) => item.id === requestedLawyerId).score, 10);
+    assert.equal(updatedRanking.data.attorneys.find((item) => item.id === requestedLawyerId).score, 13);
     assert.equal((await manager("/api/rating-settings")).data.history.length, 1);
 
     const profile = await citizen(`/api/profiles/${requestedLawyerId}`);
@@ -2618,7 +2617,6 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
     assert.equal((await trainee("/api/activity-reports", "POST", {
       reportType: "call",
       occurredAt: "2026-10-25",
-      referenceUrl: "https://forum.gta5rp.com/topic/123",
       details: "Стажёр не может отправить отчёт о вызове"
     })).status, 403);
     const invalidPhoto = await lawyer("/api/activity-reports", "POST", {
@@ -2643,7 +2641,6 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
     const submission = await lawyer("/api/activity-reports", "POST", {
       reportType: "call",
       occurredAt: "2026-10-25",
-      referenceUrl: "https://forum.gta5rp.com/topic/123",
       details: "Дефф — помог по вызову и зафиксировал результат",
       photo: {
         name: "call-evidence.png",
@@ -2680,7 +2677,7 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
     const pendingReport = pending.data.reports.find((item) => item.id === submission.data.id);
     assert.equal(pendingReport.status, "pending");
     assert.equal(pendingReport.attachment_name, "call-evidence.png");
-    assert.equal(pendingReport.reference_url, "https://forum.gta5rp.com/topic/123");
+    assert.equal(pendingReport.reference_url, "");
     assert.match(pendingReport.reference, /^Вызов №\d+$/);
     const pendingBailReport = pending.data.reports.find((item) => item.id === bailWithoutPhoto.data.id);
     assert.equal(pendingBailReport.report_type, "bail");
@@ -2716,8 +2713,8 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
     assert.equal(webhookBodies[0].url, callsWebhook);
     assert.match(webhookBodies[0].payload.embeds[0].title, /Одобренный отчёт/);
     assert.match(webhookBodies[0].payload.embeds[0].description, /Дефф/);
-    assert.ok(webhookBodies[0].payload.embeds[0].fields
-      .some((field) => field.name === "Ссылка на вызов" && field.value === "https://forum.gta5rp.com/topic/123"));
+    assert.equal(webhookBodies[0].payload.embeds[0].fields
+      .some((field) => field.name === "Ссылка на вызов"), false);
     assert.equal(webhookBodies[0].payload.embeds[0].image.url, "attachment://call-evidence.png");
     assert.ok(webhookBodies[0].body.get("files[0]"));
     assert.equal((await gka(`/api/activity-reports/${submission.data.id}`, "PATCH", {
@@ -2796,7 +2793,6 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
     const largePhotoReport = await lawyer("/api/activity-reports", "POST", {
       reportType: "call",
       occurredAt: "2026-10-25",
-      referenceUrl: "https://forum.gta5rp.com/topic/large",
       reference: "CALL-LARGE-PHOTO",
       details: "Фото отчёта больше прежнего лимита 2 МБ.",
       photo: {

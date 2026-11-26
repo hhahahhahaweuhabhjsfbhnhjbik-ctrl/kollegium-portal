@@ -916,9 +916,15 @@ function showNetworkNoticeIfDue() {
 
 function renderDashboardAttorneys(attorneys) {
   const topAttorneys = attorneys.slice(0, 3);
+  const rankAvatars = [
+    "/assets/role-senior-attorney.png",
+    "/assets/role-attorney.png",
+    "/assets/role-lawyer.png"
+  ];
   $("#dashboard-attorneys").innerHTML = topAttorneys.length ? topAttorneys.map((attorney, index) => {
     const citizen = currentUser.role === "Гражданин";
     const rating = Number(attorney.average_rating || 0);
+    const avatar = `<img src="${rankAvatars[index]}" alt="">`;
     const action = citizen
       ? `<button class="attorney-action" type="button" data-action="select-attorney" data-id="${Number(attorney.id)}">Выбрать адвоката <span aria-hidden="true">→</span></button>`
       : `<button class="attorney-action" type="button" data-action="attorney-profile" data-id="${Number(attorney.id)}">Профиль адвоката <span aria-hidden="true">→</span></button>`;
@@ -928,13 +934,13 @@ function renderDashboardAttorneys(attorneys) {
         <span class="attorney-rating"><svg class="icon icon-sm"><use href="/web/icons-sprite.svg#icon-07_top_lawyers"></use></svg>${rating ? `${rating.toFixed(1)} / 5` : "Нет отзывов"}</span>
       </div>
       <div class="attorney-identity">
-        <span class="attorney-avatar">${escapeHtml(userInitials(attorney.display_name))}</span>
+        <span class="attorney-avatar">${avatar}</span>
         <span><strong>${escapeHtml(attorney.display_name)}</strong><small>${escapeHtml(attorney.role)}</small></span>
       </div>
       <div class="attorney-stats">
-        <span><small>Обращения</small><strong>${Number(attorney.cases_closed || 0)}</strong></span>
+        <span><small>Вызовы</small><strong>${Number(attorney.calls || 0)}</strong></span>
+        <span><small>Залоги</small><strong>${Number(attorney.bails || 0)}</strong></span>
         <span><small>Иски</small><strong>${Number(attorney.lawsuit_count || 0)}</strong></span>
-        <span><small>Документы</small><strong>${Number(attorney.document_count || 0)}</strong></span>
       </div>
       ${action}
     </article>`;
@@ -2961,15 +2967,14 @@ async function loadRating() {
         <td>${index + 1}</td>
         <td>${escapeHtml(attorney.display_name)}</td>
         <td>${escapeHtml(attorney.role)}</td>
-        <td>${Number(attorney.cases_handled || 0)}</td>
-        <td>${Number(attorney.lawsuit_count || 0)}</td>
         <td>${Number(attorney.calls || 0)}</td>
         <td>${Number(attorney.bails || 0)}</td>
+        <td>${Number(attorney.lawsuit_count || 0)}</td>
         <td>${Number(attorney.score || 0).toFixed(1)}</td>
       </tr>`
-    ).join("") : `<tr><td colspan="8">${emptyState("Адвокатов в рейтинге пока нет.")}</td></tr>`;
+    ).join("") : `<tr><td colspan="7">${emptyState("Адвокатов в рейтинге пока нет.")}</td></tr>`;
   } catch (error) {
-    $("#ratingTableBody").innerHTML = `<tr><td colspan="8">${escapeHtml(error.message)}</td></tr>`;
+    $("#ratingTableBody").innerHTML = `<tr><td colspan="7">${escapeHtml(error.message)}</td></tr>`;
     throw error;
   }
 }
@@ -3231,7 +3236,6 @@ async function loadActivityReports() {
         ${data.canReview ? ` · ${escapeHtml(report.reporter_name)} (${escapeHtml(report.reporter_role)})` : ""}
       </div>
       <p>${escapeHtml(report.details)}</p>
-        ${report.reference_url ? `<p><a href="${escapeHtml(report.reference_url)}" target="_blank" rel="noopener noreferrer">Открыть вызов ↗</a></p>` : ""}
       ${report.attachment_name ? `<a class="activity-report-attachment" href="/api/activity-reports/${Number(report.id)}/photo" target="_blank" rel="noopener">
         <img src="/api/activity-reports/${Number(report.id)}/photo" alt="Фото-доказательство к отчёту">
         <span>${escapeHtml(report.attachment_name)}</span>
@@ -3266,12 +3270,9 @@ function updateActivityReportFields() {
   callOption.hidden = !canSubmitCall;
   if (!canSubmitCall && reportType === "call") $("#activity-report-type").value = "bail";
   const isCallReport = $("#activity-report-type").value === "call";
-  const isBailReport = !isCallReport;
-  $("#activity-report-link-field").classList.toggle("hidden", !isCallReport);
-  $("#activity-report-link").required = isCallReport;
-  $("#activity-report-photo-field").classList.toggle("hidden", isBailReport);
-  $("#activity-report-upload-hint").classList.toggle("hidden", isBailReport);
-  if (isBailReport) clearActivityReportPhoto();
+  $("#activity-report-photo-field").classList.toggle("hidden", !isCallReport);
+  $("#activity-report-upload-hint").classList.toggle("hidden", !isCallReport);
+  if (!isCallReport) clearActivityReportPhoto();
 }
 
 async function setActivityReportPhoto(file) {
@@ -3344,7 +3345,6 @@ async function submitActivityReport(event) {
       reportType,
       occurredAt: $("#activity-report-date").value,
       details: $("#activity-report-details").value.trim(),
-      ...(reportType === "call" ? { referenceUrl: $("#activity-report-link").value.trim() } : {}),
       ...(photo ? { photo: {
         name: photo.name,
         type: photo.type,
@@ -3353,7 +3353,6 @@ async function submitActivityReport(event) {
     }
   });
   $("#activity-report-form").reset();
-  $("#activity-report-link").value = "";
   clearActivityReportPhoto();
   updateActivityReportFields();
   $("#activity-report-date").value = localDateValue();

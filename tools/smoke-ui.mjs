@@ -52,8 +52,11 @@ const attorney = {
   role: "Адвокат",
   average_rating: 4.5,
   cases_closed: 3,
+  calls: 2,
+  bails: 1,
   lawsuit_count: 2,
-  document_count: 5
+  document_count: 5,
+  score: 8
 };
 const award = {
   title: "Мастер допроса",
@@ -166,7 +169,11 @@ const responses = {
     period: "7",
     trend: [{ period: "2026-01-01", members: 1, lawsuits: 2, documents: 3, requests: 1, promotions: 0, reprimands: 0 }]
   },
-  "/api/attorneys": { attorneys: [attorney] },
+  "/api/attorneys": { attorneys: [
+    attorney,
+    { ...attorney, id: 3, display_name: "Иван Сергеев" },
+    { ...attorney, id: 4, display_name: "Пётр Иванов" }
+  ] },
   "/api/giveaway": {
     enabled: true,
     weekStart: "2026-01-12",
@@ -381,12 +388,23 @@ const networkNotice = document.querySelector("#network-notice");
 networkNotice.close();
 window.localStorage.removeItem(`portal-network-notice:${user.id}`);
 await window.navigate("rating");
+const ratingHeaders = [...document.querySelectorAll("#view-rating th")].map((header) => header.textContent.trim());
+const ratingRow = [...document.querySelectorAll("#ratingTableBody tr:first-child td")].map((cell) => cell.textContent.trim());
+check(ratingHeaders.slice(3).join(",") === "Вызовы,Залоги,Иски,Баллы" &&
+  ratingRow.slice(3).join(",") === "2,1,2,8.0",
+"Рейтинг должен показывать вызовы, залоги, иски и баллы в этом порядке.");
 check(!networkNotice.open, "Сетевое уведомление не должно показываться вне главной страницы.");
 await window.navigate("dashboard");
 check(networkNotice.open, "Сетевое уведомление должно появиться при возвращении на главную.");
 networkNotice.close();
 await window.navigate("dashboard");
 check(!networkNotice.open, "Сетевое уведомление не должно показываться повторно в течение часа.");
+const topAttorneyCards = [...document.querySelectorAll("#dashboard-attorneys .attorney-card")];
+check(topAttorneyCards.map((card) => card.querySelector(".attorney-avatar img")?.getAttribute("src")).join(",") ===
+  "/assets/role-senior-attorney.png,/assets/role-attorney.png,/assets/role-lawyer.png" &&
+  topAttorneyCards[0]?.querySelector(".attorney-stats")?.textContent.includes("Вызовы") &&
+  topAttorneyCards[0]?.querySelector(".attorney-stats")?.textContent.includes("Залоги"),
+"Карточки топ-3 должны показывать нужные аватары и вызовы с залогами.");
 const careerButton = document.querySelector("#careerBranchBtn");
 const careerSubmenu = document.querySelector("#careerSubmenu");
 check(careerButton?.textContent.includes("Начало пути"), "Раздел обучения должен называться «Начало пути».");
@@ -748,6 +766,9 @@ document.querySelector("#activity-report-type").value = "call";
 document.querySelector("#activity-report-type").dispatchEvent(new window.Event("change", { bubbles: true }));
 document.querySelector("#activity-report-date").value = "2026-01-15";
 document.querySelector("#activity-report-details").value = "Проверка отправки жалобы.";
+check(!document.querySelector("#activity-report-link") &&
+  !document.querySelector("#activity-report-link-field"),
+"В форме сдачи отчёта не должно быть поля ссылки на вызов.");
 const reportImage = new window.File([
   new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])
 ], "report.png", { type: "image/png" });
@@ -763,8 +784,9 @@ check(document.querySelector("#activity-report-photo-preview img")?.getAttribute
   "Предпросмотр фото должен использовать загруженное содержимое, а не временный URL.");
 await window.submitActivityReport({ preventDefault() {} });
 check(requested.includes("POST /api/activity-reports"), "Форма отчёта не отправила отдельную запись.");
-check(activityReportBodies[0]?.reportType === "call" && activityReportBodies[0]?.photo?.name === "report.png",
-  "Отчёт о вызове должен отправлять выбранное фото.");
+check(activityReportBodies[0]?.reportType === "call" && activityReportBodies[0]?.photo?.name === "report.png" &&
+  !("referenceUrl" in activityReportBodies[0]),
+  "Отчёт о вызове должен отправлять фото без ссылки.");
 document.querySelector("#activity-report-type").value = "bail";
 document.querySelector("#activity-report-type").dispatchEvent(new window.Event("change", { bubbles: true }));
 check(!document.querySelector("#activity-report-reference") &&

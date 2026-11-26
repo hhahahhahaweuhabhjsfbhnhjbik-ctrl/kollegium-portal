@@ -854,10 +854,9 @@
                     <th>#</th>
                     <th>Сотрудник</th>
                     <th>Должность</th>
-                    <th>Обращения</th>
-                    <th>Иски</th>
                     <th>Вызовы</th>
                     <th>Залоги</th>
+                    <th>Иски</th>
                     <th>Баллы</th>
                   </tr>
                 </thead>
@@ -971,9 +970,6 @@
                 <label>Дата события<input class="input" id="activity-report-date" type="date" required></label>
                 <p class="text-muted">Нумерация будет назначена автоматически после отправки.</p>
                 <label>Описание<textarea class="input" id="activity-report-details" minlength="4" maxlength="2000" rows="4" required placeholder="Дефф / Недефф / Смягчил — добавьте пояснение при необходимости"></textarea></label>
-                <label id="activity-report-link-field" class="hidden">Ссылка на вызов
-                  <input class="input" id="activity-report-link" type="url" maxlength="500" placeholder="https://...">
-                </label>
                 <label id="activity-report-photo-field">Фото-доказательство
                   <input class="input" id="activity-report-photo" type="file" accept="image/jpeg,image/png,image/webp">
                 </label>
@@ -1147,6 +1143,6 @@
     </div>
   </dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="/api/frontend/loader?v=20261126-4"></script>
+  <script type="module" src="/api/frontend/loader?v=20261126-6"></script>
 </body>
 </html>
