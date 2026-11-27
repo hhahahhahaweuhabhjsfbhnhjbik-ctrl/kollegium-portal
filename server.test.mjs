@@ -8,10 +8,10 @@ import {
   applyGiveawayCommand, awardGiveawayPoints, createDiscordCitizenRequest, createInitialAdminAccount,
   createPortalServer as createPortalServerInstance,
   initialAdminExists, issueDiscordInvite,
-  isAssistantRequestAllowed, isAssistantRefusal, parseGeneratedLawsuitDocument, runDiscordPortalAction, runDiscordPortalCommand, startPortal
+  isAssistantRequestAllowed, isAssistantRefusal, isLikelyLegalQuestion, parseGeneratedLawsuitDocument, runDiscordPortalAction, runDiscordPortalCommand, startPortal
 } from "./server.mjs";
 import {
-  canControlService, parseGiveawayCommand, parsePointCommand, parseTechCommand, parseWarnCommand
+  canControlService, parseGiveawayCommand, parseIskCommand, parsePointCommand, parseTechCommand, parseWarnCommand
 } from "./discord-bot.mjs";
 import { rpInterviewCases } from "./web/js/data/rp-interviews.js";
 import { rpInterviewExtraCases } from "./web/js/data/rp-interviews-extra.js";
@@ -33,6 +33,18 @@ test("AI assistant detects paraphrased refusals for legal retry", () => {
   assert.equal(isAssistantRefusal("Отказ. Задайте вопрос, относящийся к законодательству штата San Andreas."), true);
   assert.equal(isAssistantRefusal("Запрос отклонён. Я консультирую исключительно по законодательной базе."), true);
   assert.equal(isAssistantRefusal("Согласно процессуальному кодексу сотрудник обязан вызвать адвоката."), false);
+});
+
+test("AI assistant separates legal questions from lawsuit documents", () => {
+  assert.equal(isLikelyLegalQuestion("Можно ли задерживать гражданина на закрытой территории?"), true);
+  assert.equal(isLikelyLegalQuestion("Меня задержали сотрудником LSSD с жетоном 773"), true);
+  assert.equal(isLikelyLegalQuestion("Я хочу подать иск против муниципального департамента за незаконное задержание"), false);
+});
+
+test("Discord isk command parses a personnel audit ID", () => {
+  assert.equal(parseIskCommand("!isk #0"), 0);
+  assert.equal(parseIskCommand("!isk #31"), 31);
+  assert.equal(parseIskCommand("!isk 31"), null);
 });
 
 test("AI lawsuit JSON parser keeps first-person facts and separate claims", () => {
@@ -678,6 +690,16 @@ test("Discord portal commands require a linked active account and matching serve
       memberRoleIds: ["manager-role"], roleIds
     });
     assert.match(report, /Краткий отчёт за 30 дней/);
+    const isk = await runDiscordPortalCommand({
+      db, discordUserId: "34567890123456789", commandName: "isk",
+      options: { lawsuitUserId: attorneyId }, memberRoleIds: ["manager-role"], roleIds
+    });
+    assert.match(isk, /Адвокат Discord/);
+    assert.equal(db.prepare("SELECT manual_lawsuits FROM users WHERE id = ?").get(attorneyId).manual_lawsuits, 1);
+    await assert.rejects(runDiscordPortalCommand({
+      db, discordUserId: "23456789012345678", commandName: "isk",
+      options: { lawsuitUserId: attorneyId }, memberRoleIds: ["attorney-role"], roleIds
+    }), /только руководство/);
     const reprimandId = Number(db.prepare(`INSERT INTO reprimands
       (user_id,issued_by,reason,photo_name,photo_type,photo)
       VALUES (?,?,'Проверка снятия','evidence.png','image/png',?)`)

@@ -1146,7 +1146,8 @@ function createDatabase(dbPath) {
     ["profile_bio", "TEXT NOT NULL DEFAULT ''"],
     ["profile_pinned_cases", "TEXT NOT NULL DEFAULT '[]'"],
     ["profile_effect", "TEXT NOT NULL DEFAULT 'snow'"],
-    ["profile_quote", "TEXT NOT NULL DEFAULT ''"]
+    ["profile_quote", "TEXT NOT NULL DEFAULT ''"],
+    ["manual_lawsuits", "INTEGER NOT NULL DEFAULT 0"]
   ]) {
     if (!userColumns.some((item) => item.name === column)) {
       db.exec(`ALTER TABLE users ADD COLUMN ${column} ${definition}`);
@@ -1369,7 +1370,7 @@ function publicUser(db, userId) {
   return db.prepare(`SELECT id, username, display_name, email, role, status, full_gka_access, created_at, reattest_due,
     discord_id, discord_username, discord_avatar_url, discord_sync_error, discord_nickname_error,
     (SELECT COUNT(*) FROM documents WHERE user_id = users.id AND forum_status = 'approved') AS document_count,
-    (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
+    COALESCE(users.manual_lawsuits, 0) + (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
       WHERE l.user_id = users.id AND d.forum_status = 'approved') AS lawsuit_count
     FROM users WHERE id = ?`).get(userId);
 }
@@ -1378,9 +1379,10 @@ function getAchievementMetrics(db, userId) {
   const member = db.prepare("SELECT role, member_since FROM users WHERE id = ? AND status = 'active'").get(userId);
   if (!member || member.role === citizenRole) return {};
   const metrics = {
-    approved_lawsuits: Number(db.prepare(`SELECT COUNT(*) AS count FROM lawsuits l
+    approved_lawsuits: Number(db.prepare(`SELECT COALESCE((SELECT manual_lawsuits FROM users WHERE id = ?), 0) +
+      (SELECT COUNT(*) FROM lawsuits l
       JOIN documents d ON d.id = l.document_id
-      WHERE l.user_id = ? AND d.forum_status = 'approved'`).get(userId).count),
+      WHERE l.user_id = ?) AS count`).get(userId, userId).count),
     closed_requests: Number(db.prepare(`SELECT COUNT(*) AS count FROM applications
       WHERE assigned_to = ? AND completed_at IS NOT NULL AND type IN ('citizen_help','citizen_complaint')`).get(userId).count),
     approved_documents: Number(db.prepare("SELECT COUNT(*) AS count FROM documents WHERE user_id = ? AND forum_status = 'approved'").get(userId).count),
@@ -1707,7 +1709,7 @@ function buildAttorneyRanking(db, period) {
   const attorneys = db.prepare(`SELECT u.id, u.display_name, u.role, u.discord_username, u.discord_avatar_url,
       (SELECT COUNT(*) FROM documents d WHERE d.user_id = u.id AND d.forum_status = 'approved'
         AND (? IS NULL OR julianday(d.forum_reviewed_at) >= julianday(?))) AS document_count,
-      (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
+      COALESCE(u.manual_lawsuits, 0) + (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
         WHERE l.user_id = u.id AND d.forum_status = 'approved'
           AND (? IS NULL OR julianday(l.created_at) >= julianday(?))) AS lawsuit_count,
       (SELECT COUNT(*) FROM applications a WHERE a.assigned_to = u.id
@@ -1970,6 +1972,27 @@ export async function runDiscordPortalCommand({
     if (!managementRoles.includes(account.role)) throw new Error("Краткий отчёт доступен только руководству.");
     const report = buildAnalyticsReport(db, "30");
     return `Краткий отчёт за 30 дней:\nСотрудников активно: ${report.composition.active}\nНовых аккаунтов сотрудников: ${report.composition.newAccounts}\nСудебных дел: ${report.lawsuits.total}\nОбращений граждан: ${report.requests.total} (открыто ${report.requests.open}, закрыто ${report.requests.closed})\nОдобрено документов: ${report.documents.byStatus.approved || 0}\nПовышений: ${report.humanResources.promotions}\nВыговоров: ${report.humanResources.reprimands}`;
+  }
+
+  if (commandName === "isk") {
+    if (!managementRoles.includes(account.role)) {
+      throw new Error("Начислять иски через Discord может только руководство.");
+    }
+    const targetId = Number(options.lawsuitUserId);
+    if (!Number.isSafeInteger(targetId) || targetId < 1) {
+      throw new Error("Укажите номер сотрудника в формате `!isk #31`.");
+    }
+    const target = db.prepare(`SELECT id, display_name, role, status FROM users WHERE id = ?`).get(targetId);
+    if (!target) throw new Error(`Сотрудник #${targetId} не найден.`);
+    if (target.status !== "active" || target.role === citizenRole) {
+      throw new Error(`Сотрудник #${targetId} не является активным сотрудником Коллегии.`);
+    }
+    db.prepare(`UPDATE users SET manual_lawsuits = manual_lawsuits + 1 WHERE id = ?`).run(targetId);
+    const total = db.prepare(`SELECT COALESCE(manual_lawsuits, 0) AS manual,
+      (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
+       WHERE l.user_id = users.id AND d.forum_status = 'approved') AS approved
+      FROM users WHERE id = ?`).get(targetId);
+    return `Сотруднику ${target.display_name} (#${targetId}) добавлен 1 иск. Всего в счётчике: ${Number(total.manual) + Number(total.approved)}.`;
   }
 
   if (commandName === "warn") {
@@ -2578,6 +2601,14 @@ export function isAssistantRefusal(answer) {
   const text = String(answer || "").trim();
   if (!text || text.length > 500) return false;
   return /(?:запрос\s+(?:отклонен|отклонён)|^отказ(?:[.\s]|$)|исключительно\s+по\s+законодатель|не могу\s+(?:ответить|помочь)|не консультир)/iu.test(text);
+}
+
+export function isLikelyLegalQuestion(question) {
+  const text = String(question || "").trim();
+  if (!text) return false;
+  if (/(?:подать\s+иск|составить\s+иск|подготовить\s+(?:проект\s+)?иска|иск\s+против|прошу\s+подготовить)/iu.test(text)) return false;
+  if (/[?？]/u.test(text)) return true;
+  return /(?:\b(?:можно|нужно|надо|обязан|обязаны|имеет\s+ли|имею\s+ли|сколько|какая\s+статья|какой\s+срок|что\s+(?:делать|говорить)|как\s+поступить)\b|задерж|кафнули|кафнул|закрыт\w+\s+террит|адвокат|пк|ук|ак\s+sa)/iu.test(text);
 }
 
 function parseGeneratedRpCustomCase(answer, expectedQuestionCount) {
@@ -3734,7 +3765,8 @@ export function createPortalServer(options = {}) {
           if (!geminiKey) throw new HttpError(503, "ИИ-сервис не настроен. Добавьте ключ сервера.");
           const body = await readJson(req);
           const question = String(body.question || "").trim();
-          const mode = ["laws", "lawsuit", "answer"].includes(body.mode) ? body.mode : "answer";
+          const requestedMode = ["laws", "lawsuit", "answer"].includes(body.mode) ? body.mode : "answer";
+          const mode = requestedMode === "lawsuit" && isLikelyLegalQuestion(question) ? "laws" : requestedMode;
           if (question.length < 3) throw new HttpError(400, "Опишите ситуацию подробнее.");
           if (question.length > 8000) throw new HttpError(400, "Запрос слишком длинный. Укажите не более 8000 символов.");
           if (!isAssistantRequestAllowed(question)) throw new HttpError(400, "Опишите ситуацию подробнее.");
@@ -6767,7 +6799,7 @@ ${examples}
               discord_username, discord_avatar_url, forum_profile_url, forum_profile_verified_at,
               profile_bio, profile_pinned_cases, profile_effect, profile_quote,
               (SELECT COUNT(*) FROM documents d WHERE d.user_id = users.id AND d.forum_status = 'approved') AS document_count,
-              (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
+              COALESCE(users.manual_lawsuits, 0) + (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
                 WHERE l.user_id = users.id AND d.forum_status = 'approved') AS lawsuit_count,
               (SELECT COUNT(*) FROM applications a WHERE a.assigned_to = users.id
                 AND a.completed_at IS NOT NULL AND a.type IN ('citizen_help','citizen_complaint')) AS closed_request_count,
@@ -6970,7 +7002,7 @@ ${examples}
               u.member_since, u.forum_profile_url, u.forum_profile_verified_at,
               u.profile_bio, u.profile_pinned_cases, u.profile_effect, u.profile_quote,
               (SELECT COUNT(*) FROM documents d WHERE d.user_id = u.id AND d.forum_status = 'approved') AS document_count,
-              (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
+              COALESCE(u.manual_lawsuits, 0) + (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
                 WHERE l.user_id = u.id AND d.forum_status = 'approved') AS lawsuit_count,
               (SELECT COUNT(*) FROM activity_reports ar WHERE ar.user_id = u.id
                 AND ar.report_type = 'call' AND ar.status = 'approved') AS approved_call_count,
@@ -7006,7 +7038,7 @@ ${examples}
               (SELECT COUNT(*) FROM documents d WHERE d.user_id = u.id AND d.forum_status = 'approved') AS document_count,
               (SELECT COUNT(*) FROM applications a WHERE a.assigned_to = u.id AND a.completed_at IS NOT NULL
                 AND a.type IN ('citizen_help','citizen_complaint')) AS closed_case_count,
-              (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
+              COALESCE(u.manual_lawsuits, 0) + (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
                 WHERE l.user_id = u.id AND d.forum_status = 'approved') AS lawsuit_count,
               (SELECT COUNT(*) FROM activity_reports ar WHERE ar.user_id = u.id
                 AND ar.report_type = 'call' AND ar.status = 'approved') AS approved_call_count,
@@ -7034,7 +7066,7 @@ ${examples}
           const members = db.prepare(`SELECT id, username, display_name, email, role, status, created_at, reattest_due, last_login,
             discord_id, discord_username, discord_avatar_url, forum_profile_url, forum_profile_verified_at, member_since,
             (SELECT COUNT(*) FROM documents WHERE user_id = users.id AND forum_status = 'approved') AS document_count,
-            (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
+            COALESCE(users.manual_lawsuits, 0) + (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
               WHERE l.user_id = users.id AND d.forum_status = 'approved') AS lawsuit_count
             FROM users
             ORDER BY CASE role

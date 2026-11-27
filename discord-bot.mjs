@@ -61,6 +61,13 @@ export function parseWarnCommand(content) {
   return Number.isSafeInteger(reprimandId) && reprimandId > 0 ? reprimandId : null;
 }
 
+export function parseIskCommand(content) {
+  const match = /^!isk\s+#(\d+)$/i.exec(String(content || "").trim());
+  if (!match) return null;
+  const userId = Number(match[1]);
+  return Number.isSafeInteger(userId) && userId >= 0 ? userId : null;
+}
+
 export function canControlService({ authorId, ownerId, isAdministrator }) {
   return authorId === ownerId || isAdministrator === true;
 }
@@ -365,10 +372,33 @@ export function startDiscordBot({
     const giveawayAction = parseGiveawayCommand(message.content);
     const pointCommand = parsePointCommand(message.content);
     const warnCommand = parseWarnCommand(message.content);
-    if ((!techAction && !giveawayAction && !pointCommand && warnCommand === null) ||
+    const iskCommand = parseIskCommand(message.content);
+    if ((!techAction && !giveawayAction && !pointCommand && warnCommand === null && iskCommand === null) ||
         message.author.bot || message.guildId !== guildId) return;
 
     void (async () => {
+      if (iskCommand !== null) {
+        try {
+          if (!onPortalCommand) throw new Error("Команды портала не настроены.");
+          const memberRoleIds = message.member?.roles?.cache
+            ? [...message.member.roles.cache.keys()]
+            : [];
+          const response = await onPortalCommand(
+            message.author.id, "isk", { lawsuitUserId: iskCommand }, memberRoleIds
+          );
+          await message.reply({
+            content: String(response).slice(0, 1900),
+            allowedMentions: { parse: [], repliedUser: false }
+          });
+        } catch (error) {
+          await message.reply({
+            content: `Не удалось добавить иск: ${error.message}`,
+            allowedMentions: { parse: [], repliedUser: false }
+          });
+        }
+        return;
+      }
+
       if (warnCommand !== null) {
         try {
           if (!onPortalCommand) throw new Error("Команды портала не настроены.");
