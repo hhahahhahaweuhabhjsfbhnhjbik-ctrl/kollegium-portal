@@ -8,7 +8,7 @@ import {
   applyGiveawayCommand, awardGiveawayPoints, createDiscordCitizenRequest, createInitialAdminAccount,
   createPortalServer as createPortalServerInstance,
   initialAdminExists, issueDiscordInvite,
-  isAssistantRequestAllowed, isAssistantRefusal, isLikelyLegalQuestion, parseGeneratedLawsuitDocument, runDiscordPortalAction, runDiscordPortalCommand, startPortal
+  isAssistantRequestAllowed, isAssistantRefusal, isExplicitLawsuitRequest, isLikelyLegalQuestion, parseGeneratedLawsuitDocument, runDiscordPortalAction, runDiscordPortalCommand, startPortal
 } from "./server.mjs";
 import {
   canControlService, parseGiveawayCommand, parseIskCommand, parsePointCommand, parseTechCommand, parseWarnCommand
@@ -41,6 +41,8 @@ test("AI assistant separates legal questions from lawsuit documents", () => {
   assert.equal(isLikelyLegalQuestion("меня кафнули за 12.8 а у меня нелегала не было чтобы разбирать гостинка сотрудника LSSD с жетоном 773"), true);
   assert.equal(isLikelyLegalQuestion("Создай иск меня кафнули за 12.8 а у меня нелегала не было чтобы разбирать гостинка сотрудника LSSD с жетоном 773"), false);
   assert.equal(isLikelyLegalQuestion("Я хочу подать иск против муниципального департамента за незаконное задержание"), false);
+  assert.equal(isExplicitLawsuitRequest("Создай иск меня кафнули за 12.8"), true);
+  assert.equal(isExplicitLawsuitRequest("Какая статья применима к задержанию?"), false);
 });
 
 test("Discord isk command parses a personnel audit ID", () => {
@@ -65,6 +67,58 @@ test("AI lawsuit JSON parser keeps first-person facts and separate claims", () =
   assert.match(document.facts, /^Я /);
   assert.match(document.claims, /Привлечь/);
   assert.equal(document.claimantId, "");
+});
+
+test("explicit lawsuit request generates document JSON instead of a legal consultation", async () => {
+  const geminiRequests = [];
+  const server = createPortalServer({
+    dbPath: ":memory:",
+    cookieSecure: false,
+    geminiApiKey: "test-gemini-key",
+    geminiFetch: async (_url, request) => {
+      geminiRequests.push(JSON.parse(request.body));
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: JSON.stringify({
+          template: "lawsuit-supreme",
+          title: "Незаконное задержание",
+          claimant: "", claimantId: "", claimantPhone: "", claimantEmail: "",
+          passport: "", repName: "", repId: "", repLicense: "",
+          defendant: "Сотрудник LSSD", organization: "LSSD", badge: "773",
+          facts: "Я был задержан с целью проведения разбирательства.",
+          claims: "Признать задержание незаконным",
+          evidence: "", feeProof: "", convictionDate: "", articles: "",
+          feeReady: "", passportCopy: "", otherDocs: "", filingDate: "", signature: ""
+        }) }] } }]
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+  });
+  const db = server.portalDb;
+  const password = "ExplicitLawsuitTest!23";
+  const salt = randomBytes(16);
+  const hash = scryptSync(password, salt, 64, {
+    N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024
+  });
+  db.prepare("INSERT INTO users (username,password_hash,display_name,role,status) VALUES (?,?,?,?,?)")
+    .run("explicit-lawsuit-ai", `scrypt$${salt.toString("base64")}$${hash.toString("base64")}`, "Тест документа", "Адвокат", "active");
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const client = await createClient(`http://127.0.0.1:${server.address().port}`);
+
+  try {
+    await client("/api/auth/login", "POST", { username: "explicit-lawsuit-ai", password });
+    const response = await client("/api/ai-assistant", "POST", {
+      question: "Создай иск меня кафнули за 12.8 у меня не было нелегала, гостинка LSSD жетон 773",
+      mode: "lawsuit"
+    });
+    assert.equal(response.status, 200);
+    assert.ok(response.data.document);
+    assert.equal(response.data.document.template, "lawsuit-supreme");
+    assert.equal(geminiRequests.length, 1);
+    assert.match(geminiRequests[0].systemInstruction.parts[0].text, /явная команда/i);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+    db.close();
+  }
 });
 
 test("lawsuit AI redirects legal questions instead of returning consultations", async () => {
