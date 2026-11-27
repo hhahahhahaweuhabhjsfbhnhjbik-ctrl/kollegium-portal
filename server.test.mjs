@@ -11,7 +11,7 @@ import {
   isAssistantRequestAllowed, parseGeneratedLawsuitDocument, runDiscordPortalAction, runDiscordPortalCommand, startPortal
 } from "./server.mjs";
 import {
-  canControlService, parseGiveawayCommand, parsePointCommand, parseTechCommand
+  canControlService, parseGiveawayCommand, parsePointCommand, parseTechCommand, parseWarnCommand
 } from "./discord-bot.mjs";
 import { rpInterviewCases } from "./web/js/data/rp-interviews.js";
 import { rpInterviewExtraCases } from "./web/js/data/rp-interviews-extra.js";
@@ -339,6 +339,85 @@ test("Discord point command parses a personnel audit ID and positive point amoun
   assert.equal(parsePointCommand("!point #31 3 extra"), null);
 });
 
+test("Discord warn command accepts only a positive safe personnel audit number", () => {
+  assert.equal(parseWarnCommand("!warn #12"), 12);
+  assert.equal(parseWarnCommand("!WARN #123"), 123);
+  assert.equal(parseWarnCommand("!warn 12"), null);
+  assert.equal(parseWarnCommand("!warn #0"), null);
+  assert.equal(parseWarnCommand("!warn #9007199254740992"), null);
+  assert.equal(parseWarnCommand("!warn #12 extra"), null);
+});
+
+test("reprimand webhook pings linked users and code-blocks unlinked names", async () => {
+  const warningUrl = "https://discord.com/api/webhooks/523456789012345678/warning-test-token";
+  const webhookCalls = [];
+  const server = createPortalServer({
+    dbPath: ":memory:",
+    cookieSecure: false,
+    webhookWarnings: warningUrl,
+    webhookFetch: async (url, options) => {
+      webhookCalls.push({ url: String(url), options });
+      return new Response(null, { status: 204 });
+    }
+  });
+  const db = server.portalDb;
+  const salt = randomBytes(16);
+  const password = "ReprimandWebhookTest!23";
+  const hash = scryptSync(password, salt, 64, {
+    N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024
+  });
+  const passwordHash = `scrypt$${salt.toString("base64")}$${hash.toString("base64")}`;
+  db.prepare(`INSERT INTO users (username,password_hash,display_name,role,status)
+    VALUES (?,?,?,'ГКА','active')`).run("reprimand-manager", passwordHash, "Глава");
+  const linkedId = Number(db.prepare(`INSERT INTO users
+    (username,password_hash,display_name,role,status,discord_id)
+    VALUES (?,?,?,'Адвокат','active',?)`)
+    .run("linked-target", passwordHash, "Linked Target", "23456789012345678").lastInsertRowid);
+  const unlinkedId = Number(db.prepare(`INSERT INTO users
+    (username,password_hash,display_name,role,status)
+    VALUES (?,?,?,'Адвокат','active')`)
+    .run("unlinked-target", passwordHash, "Unlinked Target").lastInsertRowid);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const client = await createClient(`http://127.0.0.1:${server.address().port}`);
+
+  try {
+    assert.equal((await client("/api/auth/login", "POST", {
+      username: "reprimand-manager", password
+    })).status, 200);
+    const photo = {
+      name: "evidence.png",
+      type: "image/png",
+      data: Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).toString("base64")
+    };
+    for (const [userId, reason] of [
+      [linkedId, "Основание выговора привязанному сотруднику"],
+      [unlinkedId, "Основание выговора сотруднику без Discord"]
+    ]) {
+      const response = await client("/api/reprimands", "POST", { userId, reason, photo });
+      assert.equal(response.status, 201);
+      assert.equal(response.data.webhookWarning, "");
+    }
+    assert.equal(webhookCalls.length, 2);
+    const payloads = webhookCalls.map(({ url, options }) => {
+      assert.equal(url, warningUrl);
+      return JSON.parse(options.body.get("payload_json"));
+    });
+    assert.equal(payloads[0].content, "<@23456789012345678>");
+    assert.deepEqual(payloads[0].allowed_mentions, {
+      parse: [],
+      users: ["23456789012345678"]
+    });
+    assert.equal(payloads[1].content, "```\nUnlinked Target\n```");
+    assert.deepEqual(payloads[1].allowed_mentions, { parse: [] });
+    assert.ok(payloads.every((payload) =>
+      payload.embeds[0].fields.some((field) => field.name === "📌 Основание" && field.value.startsWith("Основание выговора"))));
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+    db.close();
+  }
+});
+
 test("desktop first run creates a single active GKA account", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "portal-desktop-"));
   const dbPath = path.join(directory, "portal.sqlite");
@@ -518,6 +597,28 @@ test("Discord portal commands require a linked active account and matching serve
       memberRoleIds: ["manager-role"], roleIds
     });
     assert.match(report, /Краткий отчёт за 30 дней/);
+    const reprimandId = Number(db.prepare(`INSERT INTO reprimands
+      (user_id,issued_by,reason,photo_name,photo_type,photo)
+      VALUES (?,?,'Проверка снятия','evidence.png','image/png',?)`)
+      .run(attorneyId, managerId, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])).lastInsertRowid);
+    const removal = await runDiscordPortalCommand({
+      db, discordUserId: "34567890123456789", commandName: "warn",
+      options: { reprimandId }, memberRoleIds: ["manager-role"], roleIds
+    });
+    assert.match(removal, /Выговор #\d+ для Адвокат Discord снят/);
+    const revoked = db.prepare("SELECT revoked_at,revoked_by,revoked_by_name FROM reprimands WHERE id = ?")
+      .get(reprimandId);
+    assert.ok(revoked.revoked_at);
+    assert.equal(revoked.revoked_by, managerId);
+    assert.equal(revoked.revoked_by_name, "ГКА Discord");
+    await assert.rejects(runDiscordPortalCommand({
+      db, discordUserId: "34567890123456789", commandName: "warn",
+      options: { reprimandId }, memberRoleIds: ["manager-role"], roleIds
+    }), /уже снят/);
+    await assert.rejects(runDiscordPortalCommand({
+      db, discordUserId: "23456789012345678", commandName: "warn",
+      options: { reprimandId }, memberRoleIds: ["attorney-role"], roleIds
+    }), /только руководство/);
     assert.throws(() => runDiscordPortalAction({
       db, discordUserId: "23456789012345678", action: `task-complete:${taskId}`,
       memberRoleIds: ["attorney-role"], roleIds

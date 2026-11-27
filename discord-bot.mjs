@@ -53,6 +53,13 @@ export function parsePointCommand(content) {
   return match ? { userId: Number(match[1]), points: Number(match[2]) } : null;
 }
 
+export function parseWarnCommand(content) {
+  const match = /^!warn\s+#(\d+)$/i.exec(String(content || "").trim());
+  if (!match) return null;
+  const reprimandId = Number(match[1]);
+  return Number.isSafeInteger(reprimandId) && reprimandId > 0 ? reprimandId : null;
+}
+
 export function canControlService({ authorId, ownerId, isAdministrator }) {
   return authorId === ownerId || isAdministrator === true;
 }
@@ -349,10 +356,33 @@ export function startDiscordBot({
     const techAction = parseTechCommand(message.content);
     const giveawayAction = parseGiveawayCommand(message.content);
     const pointCommand = parsePointCommand(message.content);
-    if ((!techAction && !giveawayAction && !pointCommand) ||
+    const warnCommand = parseWarnCommand(message.content);
+    if ((!techAction && !giveawayAction && !pointCommand && warnCommand === null) ||
         message.author.bot || message.guildId !== guildId) return;
 
     void (async () => {
+      if (warnCommand !== null) {
+        try {
+          if (!onPortalCommand) throw new Error("Команды портала не настроены.");
+          const memberRoleIds = message.member?.roles?.cache
+            ? [...message.member.roles.cache.keys()]
+            : [];
+          const response = await onPortalCommand(
+            message.author.id, "warn", { reprimandId: warnCommand }, memberRoleIds
+          );
+          await message.reply({
+            content: String(response).slice(0, 1900),
+            allowedMentions: { parse: [], repliedUser: false }
+          });
+        } catch (error) {
+          await message.reply({
+            content: `Не удалось снять выговор: ${error.message}`,
+            allowedMentions: { parse: [], repliedUser: false }
+          });
+        }
+        return;
+      }
+
       if (!canControlService({
         authorId: message.author.id,
         ownerId: message.guild.ownerId,

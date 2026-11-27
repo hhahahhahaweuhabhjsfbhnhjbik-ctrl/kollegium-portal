@@ -20,6 +20,8 @@ jobs:
           ORACLE_SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
           ORACLE_KNOWN_HOSTS: ${{ secrets.ORACLE_KNOWN_HOSTS }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DISCORD_WEBHOOK_CAREER_INTERVIEWS: ${{ secrets.DISCORD_WEBHOOK_CAREER_INTERVIEWS }}
+          DISCORD_WEBHOOK_WARNINGS: ${{ secrets.DISCORD_WEBHOOK_WARNINGS }}
         run: |
           set -eu
           test -n "$ORACLE_HOST"
@@ -40,6 +42,15 @@ jobs:
               'sudo python3 -c "from pathlib import Path; import os,sys; key=sys.stdin.readline().rstrip(chr(10)+chr(13)); path=Path(\"/opt/kollegium-portal/.env\"); lines=[line for line in path.read_text().splitlines() if not line.startswith(\"GEMINI_API_KEY=\")]; lines.append(\"GEMINI_API_KEY=\"+key); tmp=path.with_name(\".env.tmp\"); tmp.write_text(\"\\n\".join(lines)+\"\\n\"); os.chmod(tmp,0o600); os.replace(tmp,path)"'
           else
             echo "::warning::GEMINI_API_KEY Actions secret is not set; the deployed AI API remains unconfigured."
+          fi
+
+          if [ -n "$DISCORD_WEBHOOK_CAREER_INTERVIEWS" ] || [ -n "$DISCORD_WEBHOOK_WARNINGS" ]; then
+            printf '%s\n' "$DISCORD_WEBHOOK_CAREER_INTERVIEWS" "$DISCORD_WEBHOOK_WARNINGS" | ssh -i "$HOME/.ssh/id_ed25519" \
+              -o BatchMode=yes \
+              "$ORACLE_USER@$ORACLE_HOST" \
+              'sudo python3 -c "from pathlib import Path; import os,sys; keys=(\"DISCORD_WEBHOOK_CAREER_INTERVIEWS\",\"DISCORD_WEBHOOK_WARNINGS\"); values=sys.stdin.read().splitlines(); path=Path(\"/opt/kollegium-portal/.env\"); lines=path.read_text().splitlines(); lines=[line for line in lines if not any(value and line.startswith(key+\"=\") for key,value in zip(keys,values))]; lines += [key+\"=\"+value for key,value in zip(keys,values) if value]; tmp=path.with_name(\".env.tmp\"); tmp.write_text(\"\\n\".join(lines)+\"\\n\"); os.chmod(tmp,0o600); os.replace(tmp,path)"'
+          else
+            echo "::warning::Discord webhook Actions secrets are not set; existing VM webhook settings are unchanged."
           fi
 
           ssh -i "$HOME/.ssh/id_ed25519" \

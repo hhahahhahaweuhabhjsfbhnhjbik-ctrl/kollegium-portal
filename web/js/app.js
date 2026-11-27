@@ -3452,7 +3452,7 @@ async function loadAudit() {
   $("#audit-test-notifications").classList.toggle("hidden", currentUser.username !== "yyte");
   auditMembers = members;
   auditReprimandCounts = new Map();
-  reprimands.forEach((item) => auditReprimandCounts.set(
+  reprimands.filter((item) => !item.revoked_at).forEach((item) => auditReprimandCounts.set(
     Number(item.user_id), (auditReprimandCounts.get(Number(item.user_id)) || 0) + 1
   ));
   $("#reprimand-member").innerHTML = `<option value="">Выберите сотрудника</option>${members

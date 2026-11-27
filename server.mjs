@@ -627,7 +627,10 @@ function createDatabase(dbPath) {
       photo BLOB NOT NULL,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       archived_at TEXT,
-      archive_run_id INTEGER REFERENCES weekly_reset_runs(id)
+      archive_run_id INTEGER REFERENCES weekly_reset_runs(id),
+      revoked_at TEXT,
+      revoked_by INTEGER,
+      revoked_by_name TEXT NOT NULL DEFAULT ''
     );
     CREATE INDEX IF NOT EXISTS reprimands_user_idx ON reprimands(user_id, id DESC);
     CREATE TABLE IF NOT EXISTS activity_reports (
@@ -1073,7 +1076,10 @@ function createDatabase(dbPath) {
     ["absence_requests", "archived_at", "TEXT"],
     ["absence_requests", "archive_run_id", "INTEGER REFERENCES weekly_reset_runs(id)"],
     ["reprimands", "archived_at", "TEXT"],
-    ["reprimands", "archive_run_id", "INTEGER REFERENCES weekly_reset_runs(id)"]
+    ["reprimands", "archive_run_id", "INTEGER REFERENCES weekly_reset_runs(id)"],
+    ["reprimands", "revoked_at", "TEXT"],
+    ["reprimands", "revoked_by", "INTEGER"],
+    ["reprimands", "revoked_by_name", "TEXT NOT NULL DEFAULT ''"]
   ]) {
     const columns = db.prepare(`PRAGMA table_info(${table})`).all();
     if (!columns.some((item) => item.name === column)) {
@@ -1953,6 +1959,26 @@ export async function runDiscordPortalCommand({
     return `Краткий отчёт за 30 дней:\nСотрудников активно: ${report.composition.active}\nНовых аккаунтов сотрудников: ${report.composition.newAccounts}\nСудебных дел: ${report.lawsuits.total}\nОбращений граждан: ${report.requests.total} (открыто ${report.requests.open}, закрыто ${report.requests.closed})\nОдобрено документов: ${report.documents.byStatus.approved || 0}\nПовышений: ${report.humanResources.promotions}\nВыговоров: ${report.humanResources.reprimands}`;
   }
 
+  if (commandName === "warn") {
+    if (!managementRoles.includes(account.role)) {
+      throw new Error("Снимать взыскания через Discord может только руководство.");
+    }
+    const reprimandId = Number(options.reprimandId);
+    if (!Number.isSafeInteger(reprimandId) || reprimandId < 1) {
+      throw new Error("Укажите корректный номер выговора, например `!warn #12`.");
+    }
+    const reprimand = db.prepare(`SELECT r.id, r.user_id, r.reason, r.revoked_at, target.display_name
+      FROM reprimands r JOIN users target ON target.id = r.user_id WHERE r.id = ?`)
+      .get(reprimandId);
+    if (!reprimand) throw new Error(`Выговор #${reprimandId} не найден.`);
+    if (reprimand.revoked_at) throw new Error(`Выговор #${reprimandId} уже снят.`);
+    const update = db.prepare(`UPDATE reprimands SET revoked_at = CURRENT_TIMESTAMP,
+      revoked_by = ?, revoked_by_name = ? WHERE id = ? AND revoked_at IS NULL`)
+      .run(account.id, account.display_name, reprimandId);
+    if (update.changes !== 1) throw new Error(`Выговор #${reprimandId} уже обработан.`);
+    return `Выговор #${reprimandId} для ${reprimand.display_name} снят. Запись сохранена в кадровом аудите.`;
+  }
+
   if (commandName === "absence") {
     const startDate = String(options.startDate || "");
     const endDate = String(options.endDate || "");
@@ -2729,6 +2755,7 @@ export function createPortalServer(options = {}) {
   webhooks.careerInterviews ??= options.webhookCareerInterviews
     ?? process.env.DISCORD_WEBHOOK_CAREER_INTERVIEWS
     ?? "";
+  webhooks.warnings ??= options.webhookWarnings ?? process.env.DISCORD_WEBHOOK_WARNINGS ?? "";
   webhooks.calls ??= options.webhookCalls ?? process.env.DISCORD_WEBHOOK_CALLS ?? "";
   webhooks.bails ??= options.webhookBails ?? process.env.DISCORD_WEBHOOK_BAILS ?? "";
   webhooks.casePublication ??= options.webhookCasePublication ?? process.env.DISCORD_WEBHOOK_CASE_PUBLICATION ?? "";
@@ -6683,7 +6710,8 @@ ${examples}
             db.prepare(`SELECT track, status, score, due_at, created_at, completed_at FROM attestations
               WHERE user_id = ? ORDER BY id DESC LIMIT 30`).all(user.id),
             db.prepare(`SELECT r.id, r.reason, r.created_at, issuer.display_name AS issuer_name FROM reprimands r
-              JOIN users issuer ON issuer.id = r.issued_by WHERE r.user_id = ? ORDER BY r.id DESC LIMIT 30`).all(user.id),
+              JOIN users issuer ON issuer.id = r.issued_by
+              WHERE r.user_id = ? AND r.revoked_at IS NULL ORDER BY r.id DESC LIMIT 30`).all(user.id),
             db.prepare(`SELECT t.id, t.title, t.status, t.updated_at FROM tasks t
               JOIN task_assignees ta ON ta.task_id = t.id
               WHERE ta.user_id = ? ORDER BY t.updated_at DESC LIMIT 30`).all(user.id),
@@ -7158,11 +7186,12 @@ ${examples}
           const includeArchived = requestUrl.searchParams.get("archived") === "1";
           if (includeArchived && !hasGkaAccess(user)) throw new HttpError(403, "Архив взысканий доступен только ГКА.");
           const rows = db.prepare(`SELECT r.id, r.user_id, r.issued_by, r.reason, r.photo_name, r.created_at,
+              r.revoked_at, r.revoked_by, r.revoked_by_name,
               target.display_name, target.role, target.discord_id, target.discord_username,
               issuer.display_name AS issuer_name
             FROM reprimands r JOIN users target ON target.id = r.user_id
             JOIN users issuer ON issuer.id = r.issued_by
-            WHERE (? = 1 OR r.archived_at IS NULL) ${manager ? "" : "AND r.user_id = ?"}
+            WHERE (? = 1 OR r.archived_at IS NULL) ${manager ? "" : "AND r.user_id = ? AND r.revoked_at IS NULL"}
             ORDER BY r.id DESC LIMIT 200`)
             .all(includeArchived ? 1 : 0, ...(manager ? [] : [user.id]));
           return sendJson(res, 200, { reprimands: rows });
@@ -7202,6 +7231,7 @@ ${examples}
             sendDiscord: false
           });
           const fields = [
+            { name: "🔢 Кадровый аудит", value: `Выговор #${id}`, inline: true },
             { name: "👤 Сотрудник", value: `${target.display_name} · ${target.role}`, inline: true },
             { name: "🆔 ID портала", value: `#${target.id}`, inline: true },
             { name: "🆔 Discord ID", value: target.discord_id || "не привязан", inline: true },
@@ -7211,10 +7241,19 @@ ${examples}
             { name: "📷 Фото", value: `Прикреплено: ${photo.name}`, inline: true }
           ];
           const dmWarning = await notifyReprimandByDm(target, id, reason, photo, fields);
-          const warning = await deliverWebhook(webhooks.logs, `⚠️ Выговор №${id}`, 
+          const safeDisplayName = String(target.display_name)
+            .replace(/[\r\n]/g, " ").replace(/```/g, "'''").trim() || "Имя не указано";
+          const targetContent = target.discord_id
+            ? `<@${target.discord_id}>`
+            : `\`\`\`\n${safeDisplayName}\n\`\`\``;
+          const warning = await deliverWebhook(webhooks.warnings || webhooks.logs, `⚠️ Выговор №${id}`,
             `${target.display_name} получил(а) дисциплинарное взыскание.`,
             fields,
-            { name: photo.name, contentType: photo.contentType, content: photo.content });
+            { name: photo.name, contentType: photo.contentType, content: photo.content },
+            {
+              content: targetContent,
+              mentionUsers: target.discord_id ? [target.discord_id] : []
+            });
           return sendJson(res, 201, { id, dmWarning, webhookWarning: warning });
         }
 
@@ -8340,9 +8379,10 @@ const webhookChannelLabels = {
   applications: "Заявки и приём в Коллегию",
   exams: "Экзамены и повышения",
   careerInterviews: "Обзвоны",
+  warnings: "Выговоры",
   logs: "Журнал руководства"
 };
-const publicWebhookChannels = ["applications", "exams", "careerInterviews", "logs"];
+const publicWebhookChannels = ["applications", "exams", "careerInterviews", "warnings", "logs"];
 
 /**
  * Отдача файлов фронтенда из каталога web/.
@@ -8623,6 +8663,7 @@ export async function startPortal(options = {}) {
     help: process.env.DISCORD_WEBHOOK_HELP || "",
     exams: process.env.DISCORD_WEBHOOK_EXAMS || "",
     careerInterviews: process.env.DISCORD_WEBHOOK_CAREER_INTERVIEWS || "",
+    warnings: process.env.DISCORD_WEBHOOK_WARNINGS || "",
     calls: process.env.DISCORD_WEBHOOK_CALLS || "",
     bails: process.env.DISCORD_WEBHOOK_BAILS || "",
     casePublication: process.env.DISCORD_WEBHOOK_CASE_PUBLICATION || "",
