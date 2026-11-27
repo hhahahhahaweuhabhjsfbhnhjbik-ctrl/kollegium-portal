@@ -3545,7 +3545,7 @@ function renderAuditMembers() {
       <td>${canManageAccount && Number(member.id) !== Number(currentUser.id) ? `<div class="member-controls">
         ${member.role !== "Гражданин" ? `
           <select class="input" data-member-role="${Number(member.id)}" data-original-role="${escapeHtml(member.role)}" aria-label="Должность: ${escapeHtml(member.display_name)}">
-            ${memberRoles.map((role) => `<option value="${escapeHtml(role)}"${role === member.role ? " selected" : ""}>${escapeHtml(role)}</option>`).join("")}
+            ${memberRoles.map((role) => `<option value="${escapeHtml(role)}"${role === member.role ? " selected" : ""}>${escapeHtml(role === "Губернатор" ? "Уборшик" : role)}</option>`).join("")}
           </select>
           <button class="btn" type="button" data-action="update-member-role" data-id="${Number(member.id)}" disabled>Сохранить</button>
           <button class="btn" type="button" data-action="update-member-status" data-id="${Number(member.id)}" data-status="${member.status === "active" ? "suspended" : "active"}">${member.status === "pending" ? "Одобрить" : member.status === "suspended" ? "Восстановить" : "Приостановить"}</button>` : ""}
