@@ -2606,7 +2606,7 @@ export function isAssistantRefusal(answer) {
 export function isLikelyLegalQuestion(question) {
   const text = String(question || "").trim();
   if (!text) return false;
-  if (/(?:подать\s+иск|составить\s+иск|подготовить\s+(?:проект\s+)?иска|иск\s+против|прошу\s+подготовить)/iu.test(text)) return false;
+  if (/(?:подать\s+иск|созда(?:й|ть)\s+иск|состав(?:ь|ить)\s+иск|подготов(?:ь|ить)\s+(?:проект\s+)?ис(?:к|ка)|оформ(?:и|ить)\s+иск|иск\s+против|прошу\s+(?:подготовить|составить|создать))/iu.test(text)) return false;
   if (/[?？]/u.test(text)) return true;
   return /(?:\b(?:можно|нужно|надо|обязан|обязаны|имеет\s+ли|имею\s+ли|сколько|какая\s+статья|какой\s+срок|что\s+(?:делать|говорить)|как\s+поступить)\b|задерж|кафнули|кафнул|закрыт\w+\s+террит|адвокат|пк|ук|ак\s+sa)/iu.test(text);
 }

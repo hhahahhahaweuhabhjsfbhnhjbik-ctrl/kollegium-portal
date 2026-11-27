@@ -39,6 +39,7 @@ test("AI assistant separates legal questions from lawsuit documents", () => {
   assert.equal(isLikelyLegalQuestion("Можно ли задерживать гражданина на закрытой территории?"), true);
   assert.equal(isLikelyLegalQuestion("Меня задержали сотрудником LSSD с жетоном 773"), true);
   assert.equal(isLikelyLegalQuestion("меня кафнули за 12.8 а у меня нелегала не было чтобы разбирать гостинка сотрудника LSSD с жетоном 773"), true);
+  assert.equal(isLikelyLegalQuestion("Создай иск меня кафнули за 12.8 а у меня нелегала не было чтобы разбирать гостинка сотрудника LSSD с жетоном 773"), false);
   assert.equal(isLikelyLegalQuestion("Я хочу подать иск против муниципального департамента за незаконное задержание"), false);
 });
 
