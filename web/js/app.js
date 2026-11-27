@@ -308,7 +308,9 @@ async function askAiAssistant(mode) {
     status.textContent = error.message;
     status.removeAttribute("aria-busy");
     if (insertButton) insertButton.textContent = "Ответ не получен";
-    submitButton.disabled = false;
+    const retryMatch = String(error.message || "").match(/через\s+(\d+)\s*с/iu);
+    if (retryMatch) setAiCooldown(Number(retryMatch[1]));
+    else submitButton.disabled = false;
   }
 }
 

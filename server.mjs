@@ -2574,6 +2574,12 @@ export function isAssistantRequestAllowed(question) {
   return text.length >= 3;
 }
 
+export function isAssistantRefusal(answer) {
+  const text = String(answer || "").trim();
+  if (!text || text.length > 500) return false;
+  return /(?:запрос\s+(?:отклонен|отклонён)|^отказ(?:[.\s]|$)|исключительно\s+по\s+законодатель|не могу\s+(?:ответить|помочь)|не консультир)/iu.test(text);
+}
+
 function parseGeneratedRpCustomCase(answer, expectedQuestionCount) {
   const jsonText = String(answer || "")
     .replace(/^```(?:json)?\s*/i, "")
@@ -3826,7 +3832,7 @@ export function createPortalServer(options = {}) {
             .trim();
           if (!answer) throw new HttpError(502, "ИИ-сервис не вернул текст ответа.");
           const exactRefusal = "Запрос отклонен. Я консультирую исключительно по законодательной базе штата San Andreas и составлению адвокатских документов.";
-          if (mode !== "lawsuit" && answer === exactRefusal) {
+          if (mode !== "lawsuit" && (answer === exactRefusal || isAssistantRefusal(answer))) {
             const legalHint = /(?:стать[ияеию]|ук|пк|ак|закон|адвокат|прокуратур|суд|задерж|кавул|кинули|подозре|обвин|иск|жалоб|дорожн|трудов)/iu.test(question);
             if (legalHint) {
               const retryModel = modelCandidates.find((candidate) => candidate !== model) || model;
@@ -3847,7 +3853,7 @@ export function createPortalServer(options = {}) {
                   .filter(Boolean)
                   .join("\n")
                   .trim();
-                if (retryAnswer && retryAnswer !== exactRefusal) {
+                if (retryAnswer && retryAnswer !== exactRefusal && !isAssistantRefusal(retryAnswer)) {
                   applyAiCooldown(session.user_id);
                   return sendJson(res, 200, { answer: retryAnswer, mode, document: null, cooldownSeconds: 60 });
                 }
