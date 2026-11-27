@@ -41,7 +41,7 @@ const FIELD_VALUE_LIMIT = 1024;
 const FIELD_LIMIT = 25;
 
 /** Каналы, которые знает диспетчер. */
-export const WEBHOOK_CHANNELS = Object.freeze(["applications", "help", "exams", "logs", "health"]);
+export const WEBHOOK_CHANNELS = Object.freeze(["applications", "help", "exams", "logs", "health", "careerInterviews"]);
 
 /** Человеческие подписи каналов (безопасны для логов и диагностики). */
 const CHANNEL_LABELS = Object.freeze({
@@ -49,7 +49,8 @@ const CHANNEL_LABELS = Object.freeze({
   help: "канал помощи граждан",
   exams: "канал экзаменов",
   logs: "канал логов",
-  health: "канал статуса"
+  health: "канал статуса",
+  careerInterviews: "канал обзвонов"
 });
 
 /**
@@ -416,6 +417,9 @@ export function buildWebhookPayload({
   color = null,
   emoji = "",
   imageUrl = "",
+  content = "",
+  mentionUsers = [],
+  components = [],
   seal = null,
   timestamp = new Date().toISOString()
 } = {}) {
@@ -446,7 +450,15 @@ export function buildWebhookPayload({
     embed.image = { url: String(imageUrl).trim() };
   }
 
-  const payload = { embeds: [embed], allowed_mentions: { parse: [] } };
+  const allowedUsers = Array.isArray(mentionUsers)
+    ? [...new Set(mentionUsers.filter((id) => /^\d{15,22}$/.test(String(id))))].slice(0, 100)
+    : [];
+  const payload = {
+    embeds: [embed],
+    allowed_mentions: { parse: [], ...(allowedUsers.length ? { users: allowedUsers } : {}) },
+    ...(content ? { content: clampText(content, 2000) } : {}),
+    ...(Array.isArray(components) && components.length ? { components } : {})
+  };
 
   const form = new FormData();
   // payload_json идёт первым — Discord ожидает его раньше файлов.
@@ -794,6 +806,9 @@ export function createWebhookDispatcher({
         color: event?.color,
         emoji: event?.emoji,
         imageUrl: event?.imageUrl,
+        content: event?.content,
+        mentionUsers: event?.mentionUsers,
+        components: event?.components,
         seal,
         timestamp: new Date(clock()).toISOString()
       });

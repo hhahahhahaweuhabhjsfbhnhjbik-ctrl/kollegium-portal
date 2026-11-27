@@ -872,14 +872,17 @@ document.querySelector("#activity-report-type").value = "bail";
 document.querySelector("#activity-report-type").dispatchEvent(new window.Event("change", { bubbles: true }));
 check(!document.querySelector("#activity-report-reference") &&
   document.querySelector("#activity-report-form")?.textContent.includes("Нумерация будет назначена автоматически") &&
-  document.querySelector("#activity-report-photo-field")?.classList.contains("hidden") &&
-  document.querySelector("#activity-report-upload-hint")?.classList.contains("hidden"),
-"Номер отчёта должен назначаться автоматически, а для залога не нужны поля фото.");
+  !document.querySelector("#activity-report-photo-field")?.classList.contains("hidden") &&
+  document.querySelector("#activity-report-details-field")?.classList.contains("hidden") &&
+  document.querySelector("#activity-report-photo")?.required,
+"Номер отчёта должен назначаться автоматически, а для залога нужны скриншот и необязательное описание.");
 document.querySelector("#activity-report-date").value = "2026-01-16";
 document.querySelector("#activity-report-details").value = "Залог принят и зарегистрирован.";
+await window.setActivityReportPhoto(reportImage);
 await window.submitActivityReport({ preventDefault() {} });
-check(activityReportBodies[1]?.reportType === "bail" && !("photo" in activityReportBodies[1]),
-  "Отчёт о залоге должен отправляться без скриншота.");
+check(activityReportBodies[1]?.reportType === "bail" &&
+  activityReportBodies[1]?.photo?.name === "report.png" && activityReportBodies[1]?.details === "",
+  "Отчёт о залоге должен отправлять скриншот без текстового описания.");
 const insertAiButton = document.querySelector('[data-action="insert-ai-facts"]');
 check(insertAiButton.disabled, "Перенос документа ИИ должен быть недоступен до ответа.");
 document.querySelector("#ai-lawsuit-question").value = "Меня незаконно задержали.";

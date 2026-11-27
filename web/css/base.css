@@ -631,6 +631,8 @@ html, body {
 .appeal-list-section { display: grid; gap: 10px; }
 .appeal-list-section + .appeal-list-section { margin-top: 20px; }
 .appeal-list-section > h3 { margin: 0; color: var(--text-secondary); font-size: 13px; }
+.career-application-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.career-application-columns > .appeal-list-section { align-content: start; }
 .career-promotion-application { border-color: rgba(201, 162, 39, .24); }
 .career-practice-evidence { margin-top: 12px; color: var(--text-secondary); font-size: 12px; }
 .career-practice-evidence summary { cursor: pointer; color: var(--accent-gold); font-weight: 700; }
@@ -712,6 +714,7 @@ html, body {
 .report-summary > div { padding: 12px; border-radius: var(--radius-sm); background: var(--bg-body); }
 
 @media (max-width: 900px) {
+  .career-application-columns { grid-template-columns: 1fr; }
   .lawsuit-form { grid-template-columns: 1fr; }
   .lawsuit-forum-panel { position: static; }
   .forum-document-preview { max-height: 65vh; }

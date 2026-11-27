@@ -142,8 +142,10 @@
   <div id="pending-screen" class="auth-screen hidden">
     <section class="card auth-card">
       <div class="auth-brand"><img src="/assets/site-icon.png" alt="" aria-hidden="true"></div>
-      <h1>Аккаунт ожидает решения</h1>
+      <h1 id="pending-title">Аккаунт ожидает решения</h1>
       <p id="pending-message" class="auth-copy"></p>
+      <a class="btn btn-gold hidden" id="pending-interview-link" href="https://discord.com/channels/1554369418186858586/1556226686201106432" target="_blank" rel="noopener noreferrer">Перейти в канал обзвона</a>
+      <p class="text-muted hidden" id="pending-interview-fallback">Если вас не перенаправило в канал, ожидайте в канале 🛎️Приёмная КА.</p>
       <button class="btn" id="pending-logout" type="button">Выйти</button>
     </section>
   </div>
@@ -981,7 +983,7 @@
           <div class="grid-12">
             <div class="card col-span-5">
               <h2>Сдать отчёт</h2>
-              <p class="text-muted">Номер отчёта присваивается автоматически. Фото-доказательство требуется только для вызова.</p>
+              <p class="text-muted">Номер отчёта присваивается автоматически. Для вызова и залога приложите скриншот; описание требуется только для вызова.</p>
               <div id="activity-report-restriction" class="empty-state hidden" role="status">
                 Обычные отчёты по вызовам и залогам откроются после одобрения заявки на адвоката.
                 Пока завершите карьерные тесты и практику в разделе «Практика РП».
@@ -1013,11 +1015,11 @@
                 </fieldset>
                 <label>Дата события<input class="input" id="activity-report-date" type="date" required></label>
                 <p class="text-muted">Нумерация будет назначена автоматически после отправки.</p>
-                <label>Описание<textarea class="input" id="activity-report-details" minlength="4" maxlength="2000" rows="4" required placeholder="Дефф / Недефф / Смягчил — добавьте пояснение при необходимости"></textarea></label>
-                <label id="activity-report-photo-field">Фото-доказательство
+                <label id="activity-report-details-field">Описание<textarea class="input" id="activity-report-details" minlength="4" maxlength="2000" rows="4" placeholder="Дефф / Недефф / Смягчил — добавьте пояснение при необходимости"></textarea></label>
+                <label id="activity-report-photo-field">Скриншот-доказательство
                   <input class="input" id="activity-report-photo" type="file" accept="image/jpeg,image/png,image/webp">
                 </label>
-                <p class="activity-report-upload-hint" id="activity-report-upload-hint">Можно выбрать файл или вставить скриншот через Ctrl+V. JPG, PNG или WebP, до 15 МБ.</p>
+                <p class="activity-report-upload-hint" id="activity-report-upload-hint">Скриншот обязателен. Можно выбрать файл или вставить его через Ctrl+V. JPG, PNG или WebP, до 15 МБ.</p>
                 <div id="activity-report-photo-preview" class="activity-report-photo-preview hidden" aria-live="polite"></div>
                 <button class="btn btn-gold" type="submit">Отправить на одобрение</button>
               </form>

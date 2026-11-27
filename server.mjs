@@ -2192,6 +2192,18 @@ function findLawyerCareerPromotionApplication(db, userId) {
   return rows.find((item) => isLawyerCareerPromotion(item)) || null;
 }
 
+function interviewLockState(db, userId) {
+  const rows = db.prepare(`SELECT id, stage_role, career_flow, promotion_data_json FROM applications
+    WHERE user_id = ? AND type = 'exam' AND status = 'pending' AND interview_status = 'ready'`)
+    .all(userId);
+  const item = rows.find((row) => {
+    const data = parseStoredJson(row.promotion_data_json, "отчёт о повышении");
+    return isLawyerCareerPromotion(row, data) &&
+      !["passed", "failed"].includes(data.interviewDecision);
+  });
+  return item ? { applicationId: Number(item.id) } : null;
+}
+
 function ensureLawyerCareerPromotionApplication(db, user) {
   let item = findLawyerCareerPromotionApplication(db, user.id);
   if (item) {
@@ -2714,6 +2726,9 @@ export function createPortalServer(options = {}) {
   webhooks.careerInterviewReady ??= options.webhookCareerInterviewReady
     ?? process.env.DISCORD_WEBHOOK_CAREER_INTERVIEW_READY
     ?? "";
+  webhooks.careerInterviews ??= options.webhookCareerInterviews
+    ?? process.env.DISCORD_WEBHOOK_CAREER_INTERVIEWS
+    ?? "";
   webhooks.calls ??= options.webhookCalls ?? process.env.DISCORD_WEBHOOK_CALLS ?? "";
   webhooks.bails ??= options.webhookBails ?? process.env.DISCORD_WEBHOOK_BAILS ?? "";
   webhooks.casePublication ??= options.webhookCasePublication ?? process.env.DISCORD_WEBHOOK_CASE_PUBLICATION ?? "";
@@ -2734,8 +2749,10 @@ export function createPortalServer(options = {}) {
     baseDelayMs: options.webhookBaseDelayMs ?? 400,
     timeoutMs: options.webhookTimeoutMs ?? 8000
   });
-  const deliverWebhook = async (url, title, description, fields = [], file = null) => {
-    const result = await webhookDispatcher.deliverToUrl(url, { title, description, fields, file });
+  const deliverWebhook = async (url, title, description, fields = [], file = null, payloadOptions = {}) => {
+    const result = await webhookDispatcher.deliverToUrl(url, {
+      title, description, fields, file, ...payloadOptions
+    });
     return result.warning || "";
   };
   const discordFetch = options.discordFetch || options.fetchImpl || globalThis.fetch;
@@ -3606,13 +3623,21 @@ export function createPortalServer(options = {}) {
           db.prepare("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?").run(user.id);
           const session = createSession(db, user.id);
           setSessionCookie(res, session.token, cookieSecure);
-          return sendJson(res, 200, { user: cleanUser(publicUser(db, user.id)), csrfToken: session.csrf });
+          return sendJson(res, 200, {
+            user: cleanUser(publicUser(db, user.id)),
+            csrfToken: session.csrf,
+            interviewLock: interviewLockState(db, user.id)
+          });
         }
 
         if (pathname === "/api/auth/me" && req.method === "GET") {
           const session = getSession(db, req);
           return sendJson(res, 200, session
-            ? { user: cleanUser(publicUser(db, session.user_id)), csrfToken: session.csrf_token }
+            ? {
+              user: cleanUser(publicUser(db, session.user_id)),
+              csrfToken: session.csrf_token,
+              interviewLock: interviewLockState(db, session.user_id)
+            }
             : { user: null, csrfToken: null });
         }
 
@@ -3631,6 +3656,9 @@ export function createPortalServer(options = {}) {
         const user = publicUser(db, session.user_id);
         if (req.method !== "GET") assertCsrf(req, session);
         if (user.status !== "active") throw new HttpError(403, "Аккаунт ожидает одобрения ГКА или приостановлен.");
+        if (interviewLockState(db, user.id)) {
+          throw new HttpError(423, "Вы проходите обзвон. Портал временно недоступен до решения ГКА или ЗГКА.");
+        }
 
         if (pathname === "/api/ai-assistant" && req.method === "POST") {
           const geminiKey = String(options.geminiApiKey ?? process.env.GEMINI_API_KEY ?? "").trim();
@@ -4713,20 +4741,36 @@ ${examples}
               completedEvidenceCount < careerLawyerJointCallsRequired) {
             throw new HttpError(409, "Сначала пройдите 18 ситуационных кейсов и подтвердите два совместных вызова.");
           }
-          if (!webhooks.careerInterviewReady) {
+          const interviewWebhook = webhooks.careerInterviews || webhooks.careerInterviewReady ||
+            webhooks.attorneyInterview;
+          if (!interviewWebhook) {
             throw new HttpError(503, "Не настроен Discord webhook для готовности к обзвону.");
           }
           const application = ensureLawyerCareerPromotionApplication(db, user);
-          const webhookWarning = await deliverWebhook(webhooks.careerInterviewReady, "Готовность к обзвону",
-            `${user.display_name} готов(а) пройти обзвон перед повышением до адвоката.`,
+          const candidateMention = user.discord_id ? `<@${user.discord_id}>` : user.display_name;
+          const webhookWarning = await deliverWebhook(interviewWebhook, "Новая заявка на обзвон",
+            `${candidateMention} готов(а) пройти обзвон перед повышением до адвоката.`,
             [
               { name: "Участник", value: user.display_name, inline: true },
               { name: "Переход", value: "Юрист → Адвокат", inline: true },
               { name: "Разбор ситуационных кейсов", value: `${generalPractice.completedCaseIds.length}/${generalPractice.requiredCount}`, inline: true },
               { name: "Совместные вызовы", value: `${completedEvidenceCount}/${careerLawyerJointCallsRequired}`, inline: true },
               { name: "Заявка", value: `#${application.id}`, inline: true },
-              { name: "Канал обзвона", value: "https://discord.com/channels/1554369418186858586/1556226686201106432", inline: false }
-            ]);
+              { name: "Канал обзвона", value: "[Открыть канал обзвона](https://discord.com/channels/1554369418186858586/1556226686201106432)", inline: false },
+              { name: "Если не перенаправило", value: "Ожидайте в канале 🛎️Приёмная КА.", inline: false }
+            ], null, {
+              content: candidateMention,
+              mentionUsers: user.discord_id ? [user.discord_id] : [],
+              components: [{
+                type: 1,
+                components: [{
+                  type: 2,
+                  style: 5,
+                  label: "Перейти в канал обзвона",
+                  url: "https://discord.com/channels/1554369418186858586/1556226686201106432"
+                }]
+              }]
+            });
           if (webhookWarning) {
             throw new HttpError(502, `Не удалось отправить уведомление в Discord: ${webhookWarning}`);
           }
@@ -4735,6 +4779,13 @@ ${examples}
           promotionData.careerPathVersion = 2;
           promotionData.practiceSubmittedAt = readyAt;
           promotionData.interviewReadyAt = readyAt;
+          delete promotionData.interviewDecision;
+          delete promotionData.interviewAcceptedBy;
+          delete promotionData.interviewAcceptedByName;
+          delete promotionData.interviewAcceptedAt;
+          delete promotionData.interviewResultBy;
+          delete promotionData.interviewResultByName;
+          delete promotionData.interviewResultAt;
           db.prepare(`UPDATE applications SET interview_status = 'ready', interview_ready_at = ?,
             promotion_data_json = ? WHERE id = ?`)
             .run(readyAt, JSON.stringify(promotionData), application.id);
@@ -5774,6 +5825,106 @@ ${examples}
           return sendJson(res, 200, { ok: true, webhookWarning });
         }
 
+        const interviewDecisionRoute = pathname.match(/^\/api\/applications\/(\d+)\/interview-decision$/);
+        if (interviewDecisionRoute && req.method === "PATCH") {
+          if (!managementRoles.includes(user.role)) {
+            throw new HttpError(403, "Рассматривать обзвон могут ГКА и ЗГКА.");
+          }
+          const item = db.prepare("SELECT * FROM applications WHERE id = ?")
+            .get(Number(interviewDecisionRoute[1]));
+          if (!item || item.type !== "exam" || item.stage_role !== "Юрист" ||
+              !isLawyerCareerPromotion(item) || item.status !== "pending") {
+            throw new HttpError(404, "Заявка на обзвон не найдена.");
+          }
+          const body = requireObject(await readJson(req));
+          const decision = String(body.decision || "");
+          if (!["accepted", "passed", "failed"].includes(decision)) {
+            throw new HttpError(400, "Выберите принятие заявки, прохождение или непрохождение обзвона.");
+          }
+          const promotionData = parseStoredJson(item.promotion_data_json, "отчёт о повышении");
+          const priorDecision = promotionData.interviewDecision || "";
+          if (item.interview_status !== "ready") {
+            throw new HttpError(409, "Участник ещё не отметил готовность к обзвону.");
+          }
+          if (decision === "accepted" && priorDecision) {
+            throw new HttpError(409, "Заявка на обзвон уже принята или рассмотрена.");
+          }
+          if (decision !== "accepted" && priorDecision !== "accepted") {
+            throw new HttpError(409, "Сначала примите участника на обзвон.");
+          }
+          promotionData.interviewDecision = decision;
+          if (decision === "accepted") {
+            promotionData.interviewAcceptedBy = user.id;
+            promotionData.interviewAcceptedByName = user.display_name;
+            promotionData.interviewAcceptedAt = new Date().toISOString();
+          } else {
+            promotionData.interviewResultBy = user.id;
+            promotionData.interviewResultByName = user.display_name;
+            promotionData.interviewResultAt = new Date().toISOString();
+          }
+          if (decision === "failed") {
+            delete promotionData.practiceSubmittedAt;
+            delete promotionData.interviewReadyAt;
+            db.prepare(`UPDATE applications SET interview_status = 'waiting', interview_ready_at = NULL,
+              promotion_data_json = ? WHERE id = ?`).run(JSON.stringify(promotionData), item.id);
+            db.prepare(`UPDATE career_path_progress SET interview_ready_at = NULL,
+              interview_prompt_dismissed_at = NULL WHERE user_id = ? AND stage_role = 'Юрист'`)
+              .run(item.user_id);
+          } else {
+            db.prepare("UPDATE applications SET promotion_data_json = ? WHERE id = ?")
+              .run(JSON.stringify(promotionData), item.id);
+          }
+          const candidate = db.prepare("SELECT display_name, discord_id FROM users WHERE id = ?")
+            .get(item.user_id);
+          const candidateMention = candidate.discord_id ? `<@${candidate.discord_id}>` : candidate.display_name;
+          const actorMention = user.discord_id ? `<@${user.discord_id}>` : user.display_name;
+          const decisionLabels = {
+            accepted: "принят на обзвон",
+            passed: "прошёл обзвон",
+            failed: "не прошёл обзвон"
+          };
+          const webhookUrl = webhooks.careerInterviews || webhooks.careerInterviewReady ||
+            webhooks.attorneyInterview;
+          const webhookWarning = await deliverWebhook(webhookUrl, "Решение по обзвону",
+            `${user.display_name} отметил: ${candidate.display_name} ${decisionLabels[decision]}.`,
+            [
+              { name: "Участник", value: candidate.display_name, inline: true },
+              { name: "Кто проверяет", value: user.display_name, inline: true },
+              { name: "Решение", value: decisionLabels[decision], inline: true },
+              { name: "Заявка", value: `#${item.id}`, inline: true },
+              ...(decision === "accepted" ? [{
+                name: "Канал обзвона",
+                value: "[Открыть канал обзвона](https://discord.com/channels/1554369418186858586/1556226686201106432)",
+                inline: false
+              }] : [])
+            ], null, {
+              content: `${candidateMention} ${actorMention}`,
+              mentionUsers: [candidate.discord_id, user.discord_id].filter(Boolean),
+              ...(decision === "accepted" ? {
+                components: [{
+                  type: 1,
+                  components: [{
+                    type: 2,
+                    style: 5,
+                    label: "Перейти в канал обзвона",
+                    url: "https://discord.com/channels/1554369418186858586/1556226686201106432"
+                  }]
+                }]
+              } : {})
+            });
+          db.prepare(`INSERT INTO application_history (application_id, actor_id, event_type, details)
+            VALUES (?, ?, 'interview_decision', ?)`)
+            .run(item.id, user.id, `${decisionLabels[decision]}. Проверяющий: ${user.display_name}.`);
+          await notifyPortalUser({
+            userId: item.user_id,
+            type: "career_interview_decision",
+            title: decision === "accepted" ? "Вас приняли на обзвон" : "Результат обзвона",
+            body: `${decisionLabels[decision]}. Проверяющий: ${user.display_name}.`,
+            href: "/page/career"
+          });
+          return sendJson(res, 200, { ok: true, decision, reviewer: user.display_name, webhookWarning });
+        }
+
         const applicationReview = pathname.match(/^\/api\/applications\/(\d+)\/review$/);
         if (applicationReview && req.method === "PATCH") {
           const body = await readJson(req);
@@ -5838,6 +5989,9 @@ ${examples}
             if (lawyerCareerPath) {
               if (member.role !== "Юрист" || item.requested_role !== nextRank["Юрист"]) {
                 throw new HttpError(409, "Заявка больше не соответствует текущей ступени участника.");
+              }
+              if (itemPromotionData.interviewDecision !== "passed") {
+                throw new HttpError(409, "Сначала отметьте, что участник прошёл обзвон.");
               }
               const readiness = getCareerPromotionReadiness(db, item);
               const path = getCareerPathProgressRow(db, item.user_id, "Юрист");
@@ -6885,11 +7039,17 @@ ${examples}
 
         const memberRoute = pathname.match(/^\/api\/members\/(\d+)$/);
         if (memberRoute && req.method === "PATCH") {
-          if (!hasGkaAccess(user)) throw new HttpError(403, "Изменять роли и статус аккаунта может только ГКА.");
+          if (!managementRoles.includes(user.role)) {
+            throw new HttpError(403, "Изменять роли и статус аккаунта могут ГКА и ЗГКА.");
+          }
           const body = await readJson(req);
           const memberId = Number(memberRoute[1]);
           const member = db.prepare("SELECT * FROM users WHERE id = ?").get(memberId);
           if (!member) throw new HttpError(404, "Участник не найден.");
+          if (member.role === "ГКА" && !hasGkaAccess(user) &&
+              (body.role !== undefined || body.status !== undefined)) {
+            throw new HttpError(403, "Изменять должность или статус ГКА может только ГКА с полным доступом.");
+          }
           if (body.role !== undefined && !roles.includes(body.role)) throw new HttpError(400, "Неизвестная роль.");
           if (body.status !== undefined && !["pending", "active", "suspended"].includes(body.status)) {
             throw new HttpError(400, "Неизвестный статус аккаунта.");
@@ -7562,11 +7722,12 @@ ${examples}
           if (!parsedDate || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== occurredAt) {
             throw new HttpError(400, "Укажите корректную дату события.");
           }
-          if (details.length < 4 || details.length > 2000) {
-            throw new HttpError(400, "Описание должно содержать от 4 до 2000 символов.");
+          if (details.length > 2000 || (reportType === "call" && details.length < 4)) {
+            throw new HttpError(400, "Для отчёта о вызове описание должно содержать от 4 до 2000 символов.");
           }
-          if (reportType === "call" && !body.photo) throw new HttpError(400, "Добавьте фото-доказательство к отчёту о вызове.");
-          if (reportType === "bail" && body.photo) throw new HttpError(400, "К отчёту о залоге скриншот не прикрепляется.");
+          if (!body.photo) {
+            throw new HttpError(400, `Добавьте скриншот-доказательство к отчёту о ${reportType === "call" ? "вызове" : "залоге"}.`);
+          }
           let photo = null;
           if (body.photo) {
             [photo] = parseApplicationAttachments([body.photo], {
@@ -7717,7 +7878,7 @@ ${examples}
             type: "activity_report_review",
             title: status === "approved" ? "Отчёт одобрен" : "Отчёт отклонён",
             body: `${activityReportTypes[report.report_type]} «${report.reference}»: ${
-              status === "approved" ? "одобрено ГКА." : `отказ ГКА. ${decision}`
+              status === "approved"               ? `одобрено ${user.role} (${user.display_name}).` : `отказ ${user.role} (${user.display_name}). ${decision}`
             }`,
             href: "/page/reports"
           });
@@ -7740,12 +7901,13 @@ ${examples}
               webhookWarning = await deliverWebhook(
                 reportWebhook,
                 "Одобренный отчёт сотрудника",
-                `${reporter.display_name} отправил отчёт «${report.reference}».\n\n${report.details}`,
+                `${reporter.display_name} отправил отчёт «${report.reference}».${report.details ? `\n\n${report.details}` : ""}`,
                 [
-                  { name: "Статус", value: "Одобрено ГКА", inline: true },
+                  { name: "Статус", value: `Одобрено ${user.role}`, inline: true },
                   { name: "Тип", value: activityReportTypes[report.report_type], inline: true },
                   { name: "Дата события", value: report.occurred_at, inline: true },
                   { name: "Автор", value: `${reporter.display_name} · ${reporter.role}`, inline: true },
+                  { name: "Проверил", value: user.display_name, inline: true },
                   { name: "Номер отчёта", value: report.reference },
                   ...(Number(report.lawyer_trip_claimed) === 1 ? [{
                     name: "Ездил с юристом",
@@ -7765,6 +7927,70 @@ ${examples}
             }
           }
           return sendJson(res, 200, { ok: true, status, warning: webhookWarning });
+        }
+
+        if (pathname === "/api/activity-reports/approve-all" && req.method === "POST") {
+          if (!managementRoles.includes(user.role)) {
+            throw new HttpError(403, "Одобрять отчёты могут ГКА и ЗГКА.");
+          }
+          const pendingReports = db.prepare(`SELECT * FROM activity_reports
+            WHERE report_type IN ('call', 'bail') AND status = 'pending'
+            ORDER BY id`).all();
+          if (!pendingReports.length) return sendJson(res, 200, { approvedCount: 0, warnings: [] });
+          db.exec("BEGIN IMMEDIATE");
+          try {
+            const approve = db.prepare(`UPDATE activity_reports SET status = 'approved',
+              decision = '', reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP
+              WHERE id = ? AND status = 'pending'`);
+            for (const report of pendingReports) {
+              const result = approve.run(user.id, report.id);
+              if (result.changes !== 1) throw new HttpError(409, "Часть отчётов уже была рассмотрена. Обновите список.");
+              recordGiveawayPointsForApprovedReport(db, report);
+            }
+            db.exec("COMMIT");
+          } catch (error) {
+            db.exec("ROLLBACK");
+            throw error;
+          }
+          const warnings = [];
+          for (const report of pendingReports) {
+            await notifyPortalUser({
+              userId: report.user_id,
+              type: "activity_report_review",
+              title: "Отчёт одобрен",
+              body: `${activityReportTypes[report.report_type]} «${report.reference}»: одобрено ${user.role} (${user.display_name}).`,
+              href: "/page/reports"
+            });
+            const reportWebhook = report.report_type === "call" ? webhooks.calls : webhooks.bails;
+            if (!reportWebhook) {
+              warnings.push(`Webhook отчётов о ${report.report_type === "call" ? "вызовах" : "залогах"} не настроен.`);
+              continue;
+            }
+            const reporter = db.prepare("SELECT display_name, role FROM users WHERE id = ?")
+              .get(report.user_id);
+            const attachment = db.prepare(`SELECT file_name, content_type, content
+              FROM activity_report_attachments WHERE report_id = ?`).get(report.id);
+            const warning = await deliverWebhook(
+              reportWebhook,
+              "Одобренный отчёт сотрудника",
+              `${reporter.display_name} отправил отчёт «${report.reference}».${report.details ? `\n\n${report.details}` : ""}`,
+              [
+                { name: "Статус", value: `Одобрено ${user.role}`, inline: true },
+                { name: "Тип", value: activityReportTypes[report.report_type], inline: true },
+                { name: "Дата события", value: report.occurred_at, inline: true },
+                { name: "Автор", value: `${reporter.display_name} · ${reporter.role}`, inline: true },
+                { name: "Проверил", value: user.display_name, inline: true },
+                { name: "Номер отчёта", value: report.reference }
+              ],
+              attachment ? {
+                name: attachment.file_name,
+                contentType: attachment.content_type,
+                content: attachment.content
+              } : null
+            );
+            if (warning) warnings.push(`${report.reference}: ${warning}`);
+          }
+          return sendJson(res, 200, { approvedCount: pendingReports.length, warnings });
         }
 
         if (pathname === "/api/reports/sync" && req.method === "POST") {
@@ -8073,7 +8299,7 @@ function assertCanReview(role, item) {
   const allowed = item.type === "citizen_help" || item.type === "citizen_complaint"
     ? ["ЗГКА", "ГКА"].includes(role)
     : item.type === "employment"
-    ? role === "ГКА"
+    ? ["ГКА", "ЗГКА"].includes(role)
     : item.type === "promotion"
     ? (item.requested_role === "Ст.Адвокат" || item.requested_role === "ЗГКА"
       ? role === "ГКА" : ["ГКА", "ЗГКА"].includes(role))
@@ -8113,9 +8339,10 @@ const chunkableFrontendAssets = new Set([
 const webhookChannelLabels = {
   applications: "Заявки и приём в Коллегию",
   exams: "Экзамены и повышения",
+  careerInterviews: "Обзвоны",
   logs: "Журнал руководства"
 };
-const publicWebhookChannels = ["applications", "exams", "logs"];
+const publicWebhookChannels = ["applications", "exams", "careerInterviews", "logs"];
 
 /**
  * Отдача файлов фронтенда из каталога web/.
@@ -8395,6 +8622,7 @@ export async function startPortal(options = {}) {
     applications: process.env.DISCORD_WEBHOOK_APPLICATIONS || "",
     help: process.env.DISCORD_WEBHOOK_HELP || "",
     exams: process.env.DISCORD_WEBHOOK_EXAMS || "",
+    careerInterviews: process.env.DISCORD_WEBHOOK_CAREER_INTERVIEWS || "",
     calls: process.env.DISCORD_WEBHOOK_CALLS || "",
     bails: process.env.DISCORD_WEBHOOK_BAILS || "",
     casePublication: process.env.DISCORD_WEBHOOK_CASE_PUBLICATION || "",

@@ -142,6 +142,26 @@ test("успешная доставка: один fetch, FormData, печать 
   }
 });
 
+test("уведомления о обзвоне включают упоминания по ID и ссылочную кнопку", () => {
+  const { payload } = buildWebhookPayload({
+    title: "Решение по обзвону",
+    content: "<@12345678901234567> <@22345678901234567>",
+    mentionUsers: ["12345678901234567", "22345678901234567", "invalid"],
+    components: [{
+      type: 1,
+      components: [{ type: 2, style: 5, label: "Перейти", url: "https://discord.com/channels/1/2" }]
+    }],
+    seal: SEAL
+  });
+  assert.deepEqual(payload.allowed_mentions, {
+    parse: [],
+    users: ["12345678901234567", "22345678901234567"]
+  });
+  assert.equal(payload.content, "<@12345678901234567> <@22345678901234567>");
+  assert.equal(payload.components[0].components[0].style, 5);
+  assert.equal(payload.components[0].components[0].url, "https://discord.com/channels/1/2");
+});
+
 // ---------------------------------------------------------------------------
 // 2. Пользовательское вложение
 // ---------------------------------------------------------------------------
@@ -609,7 +629,7 @@ test("pickColor сохраняет прежнюю семантику и подд
     assert.ok(Number.isInteger(value));
     assert.ok(value >= 0 && value <= 0xffffff);
   }
-  assert.deepEqual(WEBHOOK_CHANNELS, ["applications", "help", "exams", "logs", "health"]);
+  assert.deepEqual(WEBHOOK_CHANNELS, ["applications", "help", "exams", "logs", "health", "careerInterviews"]);
 });
 
 // ---------------------------------------------------------------------------

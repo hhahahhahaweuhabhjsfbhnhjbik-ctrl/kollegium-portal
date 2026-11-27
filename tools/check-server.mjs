@@ -19,6 +19,7 @@ const server = createPortalServer({
   cookieSecure: false,
   webhookApplications: "https://discord.com/api/webhooks/123456789012345678/test-token",
   webhookExams: "https://discord.com/api/webhooks/223456789012345678/test-token",
+  webhookCareerInterviews: "https://discord.com/api/webhooks/323456789012345678/test-token",
   webhookLogs: "",
   webhookFetch: async (url, options) => {
     webhookCalls.push({ url: String(url), options });
@@ -153,7 +154,7 @@ try {
   const diagnostics = await request("/api/discord/diagnostics");
   check(diagnostics.status === 200, `Диагностика Discord: HTTP ${diagnostics.status}`);
   const channels = diagnostics.payload?.webhooks || [];
-  check(channels.length === 3, "Диагностика должна возвращать три канала уведомлений.");
+  check(channels.length === 4, "Диагностика должна возвращать четыре канала уведомлений.");
   check(channels.every((channel) => !String(channel.url).includes("test-token")),
     "Диагностика не должна раскрывать токен webhook.");
   check(diagnostics.payload?.oauth?.configured === true, "OAuth должен определяться как настроенный.");
@@ -161,8 +162,8 @@ try {
 
   const status = await request("/api/webhooks/status");
   check(status.status === 200, `Состояние уведомлений: HTTP ${status.status}`);
-  check(Array.isArray(status.payload?.channels) && status.payload.channels.length === 3,
-    "Состояние должно содержать три канала.");
+  check(Array.isArray(status.payload?.channels) && status.payload.channels.length === 4,
+    "Состояние должно содержать четыре канала.");
 
   const before = webhookCalls.length;
   const test = await request("/api/webhooks/test", { method: "POST", body: { kind: "applications" } });

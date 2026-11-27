@@ -65,6 +65,7 @@ const reportMetrics = [
 
 let currentUser = null;
 let csrfToken = "";
+let interviewLocked = false;
 let toastTimer = 0;
 let quizSession = null;
 let rpPracticeLevel = null;
@@ -528,6 +529,24 @@ async function enterSession(session) {
     showAuth();
     return;
   }
+  if (session.interviewLock) {
+    interviewLocked = true;
+    $("#session-loading").classList.add("hidden");
+    $("#auth-screen").classList.add("hidden");
+    $("#app-shell").classList.add("hidden");
+    $("#pending-screen").classList.remove("hidden");
+    $("#pending-title").textContent = "Вы проходите обзвон";
+    $("#pending-message").textContent = "Портал временно вам недоступен. Доступ восстановится после решения ГКА или ЗГКА.";
+    $("#pending-interview-link").classList.remove("hidden");
+    $("#pending-interview-fallback").classList.remove("hidden");
+    $("#login-open").classList.add("hidden");
+    $("#logout-button").classList.add("hidden");
+    return;
+  }
+  interviewLocked = false;
+  $("#pending-title").textContent = "Аккаунт ожидает решения";
+  $("#pending-interview-link").classList.add("hidden");
+  $("#pending-interview-fallback").classList.add("hidden");
   if (currentUser.status !== "active") {
     $("#session-loading").classList.add("hidden");
     $("#auth-screen").classList.add("hidden");
@@ -819,14 +838,11 @@ async function sendCareerInterviewReady({ joinNow = false } = {}) {
     }
     $("#career-interview-offer-dialog").classList.add("hidden");
     careerInterviewPromptActive = false;
-    notify(result.notificationWarning
-      ? `Готовность к обзвону отправлена. Предупреждение: ${result.notificationWarning}`
-      : "Готовность к обзвону отправлена ГКА и ЗГКА.");
-    await Promise.all([
-      loadCareerPath({ showIntro: false }),
-      loadPromotionPractice({ prompt: false }),
-      loadAppeals()
-    ]);
+    await enterSession({
+      user: currentUser,
+      csrfToken,
+      interviewLock: { applicationId: result.applicationId }
+    });
   } catch (error) {
     if (joinWindow) joinWindow.close();
     throw error;
@@ -1623,12 +1639,24 @@ function renderAppeals(applications) {
       : "";
     const canReview = Number(item.user_id) !== Number(currentUser.id) && item.status === "pending" &&
       submitted && (!careerBundle || item.career_requirements_complete === true) &&
-      (currentUser.role === "ГКА" || currentUser.role === "ЗГКА" || currentUser.hasFullGkaAccess ||
+      (managerRoles.includes(currentUser.role) || currentUser.hasFullGkaAccess ||
         (currentUser.role === "Ст.Адвокат" && item.stage_role === "Стажер КА"));
-    const actions = canReview
-      ? `<button class="btn btn-gold" type="button" data-action="review-career-promotion" data-id="${Number(item.id)}" data-status="approved">Принять</button>
-         <button class="btn" type="button" data-action="review-career-promotion" data-id="${Number(item.id)}" data-status="rejected">Отклонить</button>`
-      : "";
+    const interviewDecision = data.interviewDecision || "";
+    let actions = "";
+    if (canReview && lawyerPath) {
+      if (item.interview_status === "ready" && !interviewDecision) {
+        actions = `<button class="btn btn-gold" type="button" data-action="review-career-interview" data-id="${Number(item.id)}" data-decision="accepted">Принять на обзвон</button>`;
+      } else if (item.interview_status === "ready" && interviewDecision === "accepted") {
+        actions = `<button class="btn btn-gold" type="button" data-action="review-career-interview" data-id="${Number(item.id)}" data-decision="passed">Прошёл обзвон</button>
+          <button class="btn" type="button" data-action="review-career-interview" data-id="${Number(item.id)}" data-decision="failed">Не прошёл</button>`;
+      } else if (item.interview_status === "ready" && interviewDecision === "passed") {
+        actions = `<button class="btn btn-gold" type="button" data-action="review-career-promotion" data-id="${Number(item.id)}" data-status="approved">Повысить</button>
+          <button class="btn" type="button" data-action="review-career-promotion" data-id="${Number(item.id)}" data-status="rejected">Отклонить заявку</button>`;
+      }
+    } else if (canReview) {
+      actions = `<button class="btn btn-gold" type="button" data-action="review-career-promotion" data-id="${Number(item.id)}" data-status="approved">Принять</button>
+        <button class="btn" type="button" data-action="review-career-promotion" data-id="${Number(item.id)}" data-status="rejected">Отклонить</button>`;
+    }
     const practice = submitted
       ? (item.promotion_practice || []).map((slot) => {
         if (slot.skipped) {
@@ -1640,8 +1668,13 @@ function renderAppeals(applications) {
         return `<li><strong>Слот ${Number(slot.slotNo)}:</strong> ${escapeHtml(slot.partnerName || "—")} · ${evidence || "доказательство не найдено"}</li>`;
       }).join("")
       : "";
+    const interviewStateLabel = {
+      accepted: `принял ${data.interviewAcceptedByName || "руководитель"}`,
+      passed: `прошёл · проверил ${data.interviewResultByName || "руководитель"}`,
+      failed: `не прошёл · проверил ${data.interviewResultByName || "руководитель"}`
+    }[interviewDecision] || (item.interview_status === "ready" ? "ожидает принятия" : "не назначен");
     const progressLabel = lawyerPath
-      ? `Ситуационные кейсы: ${Number(item.general_rp_practice_completed_count || 0)}/${Number(item.general_rp_practice_required_count || 18)} · Совместные вызовы по одобренным отчётам: ${(item.promotion_practice || []).length}/2 · Обзвон: ${item.interview_status === "ready" ? "готовность отмечена" : "ожидает"}`
+      ? `Ситуационные кейсы: ${Number(item.general_rp_practice_completed_count || 0)}/${Number(item.general_rp_practice_required_count || 18)} · Совместные вызовы по одобренным отчётам: ${(item.promotion_practice || []).length}/2 · Обзвон: ${interviewStateLabel}`
       : lawBundle && item.stage_role === "Стажер КА"
         ? `Тесты АК/УК/ПК: ${Array.isArray(item.career_law_passed_subjects) ? item.career_law_passed_subjects.length : 0}/3 · AI Case: ${Number(item.rp_practice_completed_count || 0)}/${Number(item.rp_practice_required_count || 3)} необходимых`
         : item.stage_role === "Юрист"
@@ -1663,7 +1696,27 @@ function renderAppeals(applications) {
   });
   const sections = [];
   if (appealCards.length) sections.push(`<div class="appeal-list-section"><h3>Обращения граждан</h3>${appealCards.join("")}</div>`);
-  if (promotionCards.length) sections.push(`<div class="appeal-list-section"><h3>${managerRoles.includes(currentUser.role) || currentUser.role === "Ст.Адвокат" ? "Заявки на повышение" : "Мои этапы повышения"}</h3>${promotionCards.join("")}</div>`);
+  if (promotionCards.length && managerRoles.includes(currentUser.role)) {
+    const interviewIds = new Set(careerApplications
+      .filter((item) => item.career_path_type === "lawyer-interview" &&
+        item.interview_status === "ready" &&
+        !["passed", "failed"].includes(item.promotion_data?.interviewDecision))
+      .map((item) => Number(item.id)));
+    const testCards = careerApplications
+      .map((item, index) => interviewIds.has(Number(item.id)) ? "" : promotionCards[index])
+      .filter(Boolean);
+    const interviewCards = careerApplications
+      .map((item, index) => interviewIds.has(Number(item.id)) ? promotionCards[index] : "")
+      .filter(Boolean);
+    sections.push(`<div class="appeal-list-section"><h3>Заявки на повышение</h3>
+      <div class="career-application-columns">
+        <section class="appeal-list-section"><h3>Тесты и практики</h3>${testCards.join("") || emptyState("Нет заявок по тестам.")}</section>
+        <section class="appeal-list-section"><h3>Ждут или проходят обзвон</h3>${interviewCards.join("") || emptyState("Нет активных заявок на обзвон.")}</section>
+      </div>
+    </div>`);
+  } else if (promotionCards.length) {
+    sections.push(`<div class="appeal-list-section"><h3>Мои этапы повышения</h3>${promotionCards.join("")}</div>`);
+  }
   $("#appealsList").innerHTML = sections.length ? sections.join("") : emptyState("Обращений и заявок на повышение пока нет.");
 }
 
@@ -2207,7 +2260,11 @@ async function loadTests() {
   } else if (lawyerPath) {
     status.textContent = careerApplication.status === "rejected"
       ? careerApplication.result || "Заявка отклонена. После повторного выполнения требований можно снова отметить готовность."
-      : careerApplication.promotion_data?.practiceSubmittedAt
+      : careerApplication.promotion_data?.interviewDecision === "failed"
+        ? "Обзвон не пройден. Доступ к порталу восстановлен; после подготовки можно снова записаться на обзвон."
+        : careerApplication.promotion_data?.interviewDecision === "passed"
+          ? "Обзвон пройден. Ожидайте итогового решения по повышению от ГКА или ЗГКА."
+          : careerApplication.promotion_data?.practiceSubmittedAt
         ? "Готовность к обзвону отмечена. Дождитесь обзвона и решения ГКА или ЗГКА."
         : "Выполните 18 ситуационных кейсов и подтвердите два совместных вызова.";
     status.classList.remove("hidden");
@@ -2424,6 +2481,26 @@ function finishStampRotation(event) {
   const key = `law-exam-stamp:${currentUser.id}:${stamp.dataset.stampStage}:${stamp.dataset.stampSubject}`;
   localStorage.setItem(key, stamp.dataset.stampAngle);
   activeStampDrag = null;
+}
+
+async function reviewCareerInterview(button) {
+  const decision = button.dataset.decision;
+  const messages = {
+    accepted: "Принять заявку и начать обзвон?",
+    passed: "Подтвердить, что участник прошёл обзвон?",
+    failed: "Отметить, что участник не прошёл обзвон?"
+  };
+  if (!messages[decision]) throw new Error("Неизвестное решение по обзвону.");
+  if (!window.confirm(messages[decision])) return;
+  const result = await api(`/api/applications/${encodeURIComponent(button.dataset.id)}/interview-decision`, {
+    method: "PATCH",
+    body: { decision }
+  });
+  const label = decision === "accepted" ? "Участник принят на обзвон."
+    : decision === "passed" ? "Обзвон отмечен как пройденный."
+      : "Обзвон отмечен как непройденный.";
+  notify(result.webhookWarning ? `${label} Webhook: ${result.webhookWarning}` : label);
+  await loadAppeals();
 }
 
 async function reviewCareerPromotion(button) {
@@ -3399,24 +3476,26 @@ function renderAuditMembers() {
   $("#audit-member-count").textContent = search
     ? `Найдено ${members.length} из ${auditMembers.length}`
     : `Всего аккаунтов: ${auditMembers.length}`;
-  $("#auditTableBody").innerHTML = members.length ? members.map((member) =>
-    `<tr>
+  $("#auditTableBody").innerHTML = members.length ? members.map((member) => {
+    const canManageAccount = managerRoles.includes(currentUser.role) &&
+      (member.role !== "ГКА" || currentUser.role === "ГКА" || currentUser.hasFullGkaAccess);
+    return `<tr>
       <td>${escapeHtml(member.display_name)}<br><span class="text-muted">#${Number(member.id)}</span></td>
       <td>${escapeHtml(displayRole(member))}<br>${statusBadge(member.status)}</td>
       <td>${auditReprimandCounts.get(Number(member.id)) || 0}</td>
       <td>${Number(member.document_count || 0)}</td>
       <td>${Number(member.lawsuit_count || 0)}</td>
-      <td>${(managerRoles.includes(currentUser.role) || currentUser.hasFullGkaAccess) && Number(member.id) !== Number(currentUser.id) ? `<div class="member-controls">
-        ${member.role !== "Гражданин" && (currentUser.role === "ГКА" || currentUser.hasFullGkaAccess) ? `
+      <td>${canManageAccount && Number(member.id) !== Number(currentUser.id) ? `<div class="member-controls">
+        ${member.role !== "Гражданин" ? `
           <select class="input" data-member-role="${Number(member.id)}" data-original-role="${escapeHtml(member.role)}" aria-label="Должность: ${escapeHtml(member.display_name)}">
             ${roles.map((role) => `<option value="${escapeHtml(role)}"${role === member.role ? " selected" : ""}>${escapeHtml(role)}</option>`).join("")}
           </select>
           <button class="btn" type="button" data-action="update-member-role" data-id="${Number(member.id)}" disabled>Сохранить</button>
           <button class="btn" type="button" data-action="update-member-status" data-id="${Number(member.id)}" data-status="${member.status === "active" ? "suspended" : "active"}">${member.status === "pending" ? "Одобрить" : member.status === "suspended" ? "Восстановить" : "Приостановить"}</button>` : ""}
-        ${managerRoles.includes(currentUser.role) ? `<button class="btn" type="button" data-action="dismiss-member" data-id="${Number(member.id)}">${member.role === "Гражданин" ? "Удалить гражданина" : "Уволить и удалить"}</button>` : ""}
+        <button class="btn" type="button" data-action="dismiss-member" data-id="${Number(member.id)}">${member.role === "Гражданин" ? "Удалить гражданина" : "Уволить и удалить"}</button>
       </div>` : "—"}</td>
-    </tr>`
-  ).join("") : `<tr><td colspan="6">${emptyState(search ? "Совпадений не найдено." : "Состав коллегии пуст.")}</td></tr>`;
+    </tr>`;
+  }).join("") : `<tr><td colspan="6">${emptyState(search ? "Совпадений не найдено." : "Состав коллегии пуст.")}</td></tr>`;
 }
 
 async function loadGiveaway() {
@@ -3612,7 +3691,15 @@ async function loadActivityReports() {
   const reports = data.reports || [];
   updateActivityReportLawyerOptions(data.availableLawyers || []);
   $("#activity-reports-title").textContent = data.canReview ? "Отчёты на одобрение" : "Мои отчёты";
-  $("#activity-report-list").innerHTML = reports.length ? reports.map((report) => `
+  const pendingCount = reports.filter((report) => report.status === "pending").length;
+  const approveAll = data.canReview && pendingCount
+    ? `<div class="activity-report-actions">
+        <button class="btn btn-gold" type="button" data-action="approve-all-activity-reports">
+          Одобрить все отчёты (${pendingCount})
+        </button>
+      </div>`
+    : "";
+  $("#activity-report-list").innerHTML = `${approveAll}${reports.length ? reports.map((report) => `
     <article class="activity-report-card">
       <div class="activity-report-heading">
         <strong>${escapeHtml(activityReportLabels[report.report_type] || report.report_type)}</strong>
@@ -3622,7 +3709,7 @@ async function loadActivityReports() {
         ${escapeHtml(report.occurred_at)} · ${escapeHtml(report.reference)}
         ${data.canReview ? ` · ${escapeHtml(report.reporter_name)} (${escapeHtml(report.reporter_role)})` : ""}
       </div>
-      <p>${escapeHtml(report.details)}</p>
+      ${report.details ? `<p>${escapeHtml(report.details)}</p>` : ""}
       ${Number(report.lawyer_trip_claimed) === 1 ? `
         <p class="activity-report-trip-status">
           <strong>Юрист(ы) на вызове:</strong> ${
@@ -3651,7 +3738,7 @@ async function loadActivityReports() {
           <button class="btn btn-gold" type="button" data-action="review-activity-report" data-id="${Number(report.id)}" data-status="approved">Одобрить</button>
           <button class="btn" type="button" data-action="review-activity-report" data-id="${Number(report.id)}" data-status="rejected">Отклонить</button>
         </div>` : ""}
-    </article>`).join("") : emptyState(data.canReview ? "Нет отправленных отчётов." : "Вы ещё не отправляли отчёты.");
+    </article>`).join("") : emptyState(data.canReview ? "Нет отправленных отчётов." : "Вы ещё не отправляли отчёты.")}`;
 }
 
 function renderActivityReportPhoto() {
@@ -3683,8 +3770,10 @@ function updateActivityReportFields() {
   callOption.hidden = !canSubmitCall;
   if (!canSubmitCall && reportType === "call") $("#activity-report-type").value = "bail";
   const isCallReport = $("#activity-report-type").value === "call";
-  $("#activity-report-photo-field").classList.toggle("hidden", !isCallReport);
-  $("#activity-report-upload-hint").classList.toggle("hidden", !isCallReport);
+  $("#activity-report-details-field").classList.toggle("hidden", !isCallReport);
+  $("#activity-report-details").required = isCallReport;
+  $("#activity-report-photo").required = true;
+  $("#activity-report-upload-hint").classList.remove("hidden");
   $("#activity-report-lawyer-trip-field").classList.toggle("hidden", !isCallReport);
   const lawyerTripClaimed = isCallReport && $("#activity-report-lawyer-trip").checked;
   $("#activity-report-lawyers-field").classList.toggle("hidden", !lawyerTripClaimed);
@@ -3693,7 +3782,6 @@ function updateActivityReportFields() {
     $("#activity-report-lawyer-1").value = "";
     $("#activity-report-lawyer-2").value = "";
   }
-  if (!isCallReport) clearActivityReportPhoto();
 }
 
 async function setActivityReportPhoto(file) {
@@ -3757,8 +3845,8 @@ async function loadReports() {
 async function submitActivityReport(event) {
   event.preventDefault();
   const reportType = $("#activity-report-type").value;
-  const photo = reportType === "call" ? activityReportPhoto : null;
-  if (reportType === "call" && !photo) throw new Error("Добавьте фото-доказательство к отчёту о вызове.");
+  const photo = activityReportPhoto;
+  if (!photo) throw new Error(`Добавьте скриншот-доказательство к отчёту о ${reportType === "call" ? "вызове" : "залоге"}.`);
   const lawyerTripClaimed = reportType === "call" && $("#activity-report-lawyer-trip").checked;
   const lawyerTripUserIds = [
     $("#activity-report-lawyer-1").value,
@@ -3775,7 +3863,7 @@ async function submitActivityReport(event) {
       lawyerTripClaimed,
       lawyerTripUserIds: lawyerTripClaimed ? lawyerTripUserIds : [],
       occurredAt: $("#activity-report-date").value,
-      details: $("#activity-report-details").value.trim(),
+      details: reportType === "call" ? $("#activity-report-details").value.trim() : "",
       ...(photo ? { photo: {
         name: photo.name,
         type: photo.type,
@@ -3789,6 +3877,22 @@ async function submitActivityReport(event) {
   $("#activity-report-date").value = localDateValue();
   notify("Отчёт отправлен ГКА на одобрение. Уведомление в Discord появится после одобрения.");
   await loadActivityReports();
+}
+
+async function approveAllActivityReports(button) {
+  const count = Number((button.textContent.match(/\d+/) || [0])[0]);
+  if (!window.confirm(`Одобрить все ожидающие отчёты (${count})?`)) return;
+  button.disabled = true;
+  try {
+    const result = await api("/api/activity-reports/approve-all", { method: "POST", body: {} });
+    const warnings = result.warnings || [];
+    notify(warnings.length
+      ? `Одобрено отчётов: ${Number(result.approvedCount)}. Предупреждения: ${warnings.join(" ")}`
+      : `Одобрено отчётов: ${Number(result.approvedCount)}. Индивидуальные уведомления отправлены.`);
+    await loadReports();
+  } finally {
+    if (button.isConnected) button.disabled = false;
+  }
 }
 
 async function reviewActivityReport(button) {
@@ -3931,6 +4035,7 @@ async function handleAction(button) {
   else if (action === "toggle-discord-dm") await toggleDiscordDmPreference(button);
   else if (action === "test-audit-notification") await testAuditNotification(button);
   else if (action === "review-activity-report") await reviewActivityReport(button);
+  else if (action === "approve-all-activity-reports") await approveAllActivityReports(button);
   else if (action === "review-lawyer-trip") await reviewLawyerTrip(button);
   else if (action === "remove-activity-report-photo") clearActivityReportPhoto();
   else if (action === "select-photozot-group") {
@@ -3948,7 +4053,7 @@ async function handleAction(button) {
   else if (action === "career-path-open-view") await openCareerPathView(button);
   else if (action === "career-path-open-practice") await openCareerPathPractice(button);
   else if (action === "career-path-open-ai") await openCareerPathAi();
-  else if (action === "career-interview-ready") await sendCareerInterviewReady();
+  else if (action === "career-interview-ready") await sendCareerInterviewReady({ joinNow: true });
   else if (action === "answer-career-interview-offer") await answerCareerInterviewOffer(button);
   else if (action === "toggle-lawsuit-form") $("#lawsuit-form").classList.toggle("hidden");
   else if (action === "ask-ai-laws") await askAiAssistant("laws");
@@ -3985,6 +4090,7 @@ async function handleAction(button) {
   else if (action === "review-lawsuit") await reviewLawsuit(button);
   else if (action === "review-forum-link") await reviewForumLink(button);
   else if (action === "review-career-promotion") await reviewCareerPromotion(button);
+  else if (action === "review-career-interview") await reviewCareerInterview(button);
   else if (action === "save-promotion-practice-slot") await savePromotionPracticeSlot(button);
   else if (action === "skip-promotion-practice-slot") await skipPromotionPracticeSlot(button);
   else if (action === "submit-promotion-practice") await submitPromotionPractice(button);
@@ -4281,6 +4387,12 @@ initializeSnow();
 initialize();
 window.setInterval(() => {
   if (currentUser?.status === "active") {
+    if (interviewLocked) {
+      api("/api/auth/me").then((session) => {
+        if (session.user && !session.interviewLock) return enterSession(session);
+      }).catch((error) => console.error("Не удалось проверить результат обзвона:", error.message));
+      return;
+    }
     loadNotifications().catch((error) => console.error("Не удалось обновить уведомления:", error.message));
   }
 }, 45000);
