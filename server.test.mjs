@@ -8,7 +8,7 @@ import {
   applyGiveawayCommand, awardGiveawayPoints, createDiscordCitizenRequest, createInitialAdminAccount,
   createPortalServer as createPortalServerInstance,
   initialAdminExists, issueDiscordInvite,
-  isAssistantRequestAllowed, isAssistantRefusal, isExplicitLawsuitRequest, isLikelyLegalQuestion, parseGeneratedLawsuitDocument, runDiscordPortalAction, runDiscordPortalCommand, startPortal
+  isAssistantRequestAllowed, isAssistantRefusal, isCourtJurisdictionQuestion, isExplicitLawsuitRequest, isLikelyLegalQuestion, getCourtJurisdictionAnswer, parseGeneratedLawsuitDocument, runDiscordPortalAction, runDiscordPortalCommand, startPortal
 } from "./server.mjs";
 import {
   canControlService, parseGiveawayCommand, parseIskCommand, parsePointCommand, parseTechCommand, parseWarnCommand
@@ -43,6 +43,13 @@ test("AI assistant separates legal questions from lawsuit documents", () => {
   assert.equal(isLikelyLegalQuestion("Я хочу подать иск против муниципального департамента за незаконное задержание"), false);
   assert.equal(isExplicitLawsuitRequest("Создай иск меня кафнули за 12.8"), true);
   assert.equal(isExplicitLawsuitRequest("Какая статья применима к задержанию?"), false);
+});
+
+test("court jurisdiction questions get a grounded legal answer", () => {
+  const question = "Как понять в какую инстанцию суда писать иск по типу Верховный федеральный окружной вообще что куда";
+  assert.equal(isCourtJurisdictionQuestion(question), true);
+  assert.match(getCourtJurisdictionAnswer(), /Конституционное судопроизводство/);
+  assert.match(getCourtJurisdictionAnswer(), /Конституция, п\. 7\.3/);
 });
 
 test("Discord isk command parses a personnel audit ID", () => {
