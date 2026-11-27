@@ -1709,9 +1709,11 @@ function buildAttorneyRanking(db, period) {
   const attorneys = db.prepare(`SELECT u.id, u.display_name, u.role, u.discord_username, u.discord_avatar_url,
       (SELECT COUNT(*) FROM documents d WHERE d.user_id = u.id AND d.forum_status = 'approved'
         AND (? IS NULL OR julianday(d.forum_reviewed_at) >= julianday(?))) AS document_count,
-      COALESCE(u.manual_lawsuits, 0) + (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
+      (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
         WHERE l.user_id = u.id AND d.forum_status = 'approved'
           AND (? IS NULL OR julianday(l.created_at) >= julianday(?))) AS lawsuit_count,
+      COALESCE(u.manual_lawsuits, 0) + (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
+        WHERE l.user_id = u.id AND d.forum_status = 'approved') AS lawsuit_count_total,
       (SELECT COUNT(*) FROM applications a WHERE a.assigned_to = u.id
         AND a.type IN ('citizen_help','citizen_complaint')
           AND (? IS NULL OR julianday(a.reviewed_at) >= julianday(?))) AS cases_handled,
@@ -1750,6 +1752,7 @@ function buildAttorneyRanking(db, period) {
         cases_handled: Number(attorney.cases_handled),
         document_count: Number(attorney.document_count),
         lawsuit_count: Number(attorney.lawsuit_count),
+        lawsuit_count_total: Number(attorney.lawsuit_count_total),
         calls: Number(attorney.call_count),
         bails: Number(attorney.bail_count),
         completed_task_count: Number(attorney.completed_tasks),

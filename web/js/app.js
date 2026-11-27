@@ -1045,7 +1045,7 @@ function renderDashboardAttorneys(attorneys) {
       <div class="attorney-stats">
         <span><small>Вызовы</small><strong>${Number(attorney.calls || 0)}</strong></span>
         <span><small>Залоги</small><strong>${Number(attorney.bails || 0)}</strong></span>
-        <span><small>Иски</small><strong>${Number(attorney.lawsuit_count || 0)}</strong></span>
+        <span><small>Иски</small><strong>${Number(attorney.lawsuit_count_total || 0)}</strong></span>
       </div>
       ${action}
     </article>`;

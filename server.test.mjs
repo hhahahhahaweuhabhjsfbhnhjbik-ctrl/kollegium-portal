@@ -718,6 +718,15 @@ test("Discord portal commands require a linked active account and matching serve
     VALUES ('Задача на проверку','Проверить заключение','review',?)`).run(managerId).lastInsertRowid);
   db.prepare("INSERT INTO task_assignees (task_id,user_id,assigned_by) VALUES (?,?,?)")
     .run(taskId, attorneyId, managerId);
+  for (let index = 0; index < 3; index += 1) {
+    const documentId = Number(db.prepare(`INSERT INTO documents
+      (user_id,template,title,bbcode,forum_status,forum_reviewed_at,created_at)
+      VALUES (?,'lawsuit-supreme',?,'[b]Иск[/b]','approved','2020-01-01 00:00:00','2020-01-01 00:00:00')`)
+      .run(attorneyId, `Старый иск ${index + 1}`).lastInsertRowid);
+    db.prepare(`INSERT INTO lawsuits (user_id,document_id,title,court,created_at,updated_at)
+      VALUES (?, ?, ?, 'Верховный суд', '2020-01-01 00:00:00', '2020-01-01 00:00:00')`)
+      .run(attorneyId, documentId, `Старый иск ${index + 1}`);
+  }
 
   try {
     const profile = await runDiscordPortalCommand({
@@ -758,6 +767,17 @@ test("Discord portal commands require a linked active account and matching serve
     });
     assert.match(isk, /Адвокат Discord/);
     assert.equal(db.prepare("SELECT manual_lawsuits FROM users WHERE id = ?").get(attorneyId).manual_lawsuits, 1);
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const client = await createClient(`http://127.0.0.1:${server.address().port}`);
+    await client("/api/auth/login", "POST", {
+      username: "discord-manager", password: "DiscordCommandsPassword!23"
+    });
+    const weeklyRanking = await client("/api/attorneys?period=week");
+    const rankedAttorney = weeklyRanking.data.attorneys.find((item) => item.id === attorneyId);
+    assert.equal(rankedAttorney.lawsuit_count, 0);
+    assert.equal(rankedAttorney.lawsuit_count_total, 4);
+    const publicProfile = await client(`/api/profiles/${attorneyId}`);
+    assert.equal(publicProfile.data.profile.lawsuit_count, 4);
     await assert.rejects(runDiscordPortalCommand({
       db, discordUserId: "23456789012345678", commandName: "isk",
       options: { lawsuitUserId: attorneyId }, memberRoleIds: ["attorney-role"], roleIds
@@ -798,6 +818,8 @@ test("Discord portal commands require a linked active account and matching serve
       memberRoleIds: ["manager-role"], roleIds
     }), /уже рассмотрено/);
   } finally {
+    server.closeAllConnections();
+    if (server.listening) await new Promise((resolve) => server.close(resolve));
     db.close();
   }
 });
