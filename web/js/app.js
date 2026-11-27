@@ -1592,11 +1592,42 @@ function renderCareerRequirementRow(label, complete, detail = "") {
   </li>`;
 }
 
+function isOlderThanDay(timestamp) {
+  if (!timestamp) return false;
+  const normalized = String(timestamp).includes("T")
+    ? String(timestamp)
+    : `${String(timestamp).replace(" ", "T")}Z`;
+  const time = Date.parse(normalized);
+  return Number.isFinite(time) && Date.now() - time >= 24 * 60 * 60 * 1000;
+}
+
 function renderAppeals(applications) {
   const appeals = applications.filter((item) => ["citizen_help", "citizen_complaint"].includes(item.type));
   const careerApplications = applications.filter((item) =>
     item.type === "exam" && ["Стажер КА", "Юрист"].includes(item.stage_role) &&
-    (Number(item.user_id) === Number(currentUser.id) || item.promotion_data?.practiceSubmittedAt));
+    (Number(item.user_id) === Number(currentUser.id) || item.promotion_data?.practiceSubmittedAt))
+    .sort((left, right) => {
+      const priority = (item) => {
+        const decision = item.promotion_data?.interviewDecision;
+        if (item.status === "pending" && item.promotion_data?.practiceSubmittedAt &&
+            (item.career_requirements_complete === true || !item.career_path_type)) return 0;
+        if (item.status === "pending" && item.career_path_type === "lawyer-interview" &&
+            item.interview_status === "ready" && decision === "passed") return 1;
+        if (item.status === "pending" && item.career_path_type === "lawyer-interview" &&
+            item.interview_status === "ready" && decision === "accepted") return 2;
+        if (item.status === "pending" && item.career_path_type === "lawyer-interview" &&
+            item.interview_status === "ready" && !decision) return 3;
+        return item.status === "pending" ? 4 : 5;
+      };
+      return priority(left) - priority(right);
+    });
+  const archivedAppeals = new Set(appeals
+    .filter((item) => (item.status === "approved" || item.completed_at) &&
+      isOlderThanDay(item.reviewed_at || item.completed_at))
+    .map((item) => Number(item.id)));
+  const archivedCareerApplications = new Set(careerApplications
+    .filter((item) => item.status === "approved" && isOlderThanDay(item.reviewed_at))
+    .map((item) => Number(item.id)));
   const appealCards = appeals.map((item) => {
     const actions = [`<button class="btn" type="button" data-action="application-details" data-id="${Number(item.id)}">Подробнее</button>`];
     if (["ГКА", "ЗГКА", "Адвокат", "Ст.Адвокат"].includes(currentUser.role)) {
@@ -1695,7 +1726,6 @@ function renderAppeals(applications) {
     </article>`;
   });
   const sections = [];
-  if (appealCards.length) sections.push(`<div class="appeal-list-section"><h3>Обращения граждан</h3>${appealCards.join("")}</div>`);
   if (promotionCards.length && managerRoles.includes(currentUser.role)) {
     const interviewIds = new Set(careerApplications
       .filter((item) => item.career_path_type === "lawyer-interview" &&
@@ -1703,10 +1733,10 @@ function renderAppeals(applications) {
         !["passed", "failed"].includes(item.promotion_data?.interviewDecision))
       .map((item) => Number(item.id)));
     const testCards = careerApplications
-      .map((item, index) => interviewIds.has(Number(item.id)) ? "" : promotionCards[index])
+      .map((item, index) => archivedCareerApplications.has(Number(item.id)) || interviewIds.has(Number(item.id)) ? "" : promotionCards[index])
       .filter(Boolean);
     const interviewCards = careerApplications
-      .map((item, index) => interviewIds.has(Number(item.id)) ? promotionCards[index] : "")
+      .map((item, index) => !archivedCareerApplications.has(Number(item.id)) && interviewIds.has(Number(item.id)) ? promotionCards[index] : "")
       .filter(Boolean);
     sections.push(`<div class="appeal-list-section"><h3>Заявки на повышение</h3>
       <div class="career-application-columns">
@@ -1715,7 +1745,21 @@ function renderAppeals(applications) {
       </div>
     </div>`);
   } else if (promotionCards.length) {
-    sections.push(`<div class="appeal-list-section"><h3>Мои этапы повышения</h3>${promotionCards.join("")}</div>`);
+    const activeCareerCards = careerApplications
+      .map((item, index) => archivedCareerApplications.has(Number(item.id)) ? "" : promotionCards[index])
+      .filter(Boolean);
+    if (activeCareerCards.length) sections.push(`<div class="appeal-list-section"><h3>Мои этапы повышения</h3>${activeCareerCards.join("")}</div>`);
+  }
+  const activeAppealCards = appeals
+    .map((item, index) => archivedAppeals.has(Number(item.id)) ? "" : appealCards[index])
+    .filter(Boolean);
+  if (activeAppealCards.length) sections.push(`<div class="appeal-list-section"><h3>Обращения граждан</h3>${activeAppealCards.join("")}</div>`);
+  const archiveCards = [
+    ...appeals.map((item, index) => archivedAppeals.has(Number(item.id)) ? appealCards[index] : ""),
+    ...careerApplications.map((item, index) => archivedCareerApplications.has(Number(item.id)) ? promotionCards[index] : "")
+  ].filter(Boolean);
+  if (archiveCards.length) {
+    sections.push(`<div class="appeal-list-section"><h3>Архив</h3>${archiveCards.join("")}</div>`);
   }
   $("#appealsList").innerHTML = sections.length ? sections.join("") : emptyState("Обращений и заявок на повышение пока нет.");
 }
