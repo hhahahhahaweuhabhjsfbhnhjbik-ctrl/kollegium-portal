@@ -766,6 +766,7 @@ test("Discord portal commands require a linked active account and matching serve
       options: { lawsuitUserId: attorneyId }, memberRoleIds: ["manager-role"], roleIds
     });
     assert.match(isk, /Адвокат Discord/);
+    assert.match(isk, /\+5 баллов в премию/);
     assert.equal(db.prepare("SELECT manual_lawsuits FROM users WHERE id = ?").get(attorneyId).manual_lawsuits, 1);
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
     const client = await createClient(`http://127.0.0.1:${server.address().port}`);
@@ -778,6 +779,19 @@ test("Discord portal commands require a linked active account and matching serve
     assert.equal(rankedAttorney.lawsuit_count_total, 4);
     const publicProfile = await client(`/api/profiles/${attorneyId}`);
     assert.equal(publicProfile.data.profile.lawsuit_count, 4);
+    const giveawayAfterFirstLawsuit = await client("/api/giveaway");
+    const firstStanding = giveawayAfterFirstLawsuit.data.standings.find((item) => item.userId === attorneyId);
+    assert.equal(firstStanding.lawsuits, 1);
+    assert.equal(firstStanding.points, 5);
+    const secondIsk = await runDiscordPortalCommand({
+      db, discordUserId: "34567890123456789", commandName: "isk",
+      options: { lawsuitUserId: attorneyId }, memberRoleIds: ["manager-role"], roleIds
+    });
+    assert.match(secondIsk, /\+5 баллов в премию/);
+    const giveawayAfterSecondLawsuit = await client("/api/giveaway");
+    const secondStanding = giveawayAfterSecondLawsuit.data.standings.find((item) => item.userId === attorneyId);
+    assert.equal(secondStanding.lawsuits, 2);
+    assert.equal(secondStanding.points, 10);
     await assert.rejects(runDiscordPortalCommand({
       db, discordUserId: "23456789012345678", commandName: "isk",
       options: { lawsuitUserId: attorneyId }, memberRoleIds: ["attorney-role"], roleIds
@@ -3357,7 +3371,8 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
         role: "Адвокат",
         points: 6,
         calls: 3,
-        bails: 1
+        bails: 1,
+        lawsuits: 0
       }
     );
     applyGiveawayCommand(db, "off", "12345678901234567");

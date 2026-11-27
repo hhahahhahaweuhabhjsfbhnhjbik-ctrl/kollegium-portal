@@ -1022,10 +1022,21 @@ function createDatabase(dbPath) {
       awarded_by_discord_id TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS giveaway_lawsuit_point_entries (
+      id INTEGER PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      points INTEGER NOT NULL DEFAULT 5 CHECK (points = 5),
+      campaign_epoch INTEGER NOT NULL,
+      week_start TEXT NOT NULL,
+      awarded_by_discord_id TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
     CREATE INDEX IF NOT EXISTS giveaway_points_week_idx
       ON giveaway_point_entries(campaign_epoch, week_start, user_id);
     CREATE INDEX IF NOT EXISTS giveaway_manual_points_week_idx
       ON giveaway_manual_point_entries(campaign_epoch, week_start, user_id);
+    CREATE INDEX IF NOT EXISTS giveaway_lawsuit_points_week_idx
+      ON giveaway_lawsuit_point_entries(campaign_epoch, week_start, user_id);
     CREATE TABLE IF NOT EXISTS giveaway_events (
       id INTEGER PRIMARY KEY,
       action TEXT NOT NULL CHECK (action IN ('on','off','reset')),
@@ -1884,9 +1895,10 @@ function getGiveawayLeaderboard(db) {
   const week = getGiveawayWeekWindow();
   backfillCurrentWeekGiveawayReports(db, state, week);
   const standings = db.prepare(`SELECT u.id AS user_id, u.display_name, u.role,
-      COALESCE(SUM(p.points), 0) + COALESCE(m.manual_points, 0) AS points,
+      COALESCE(SUM(p.points), 0) + COALESCE(m.manual_points, 0) + COALESCE(l.lawsuit_points, 0) AS points,
       COALESCE(SUM(CASE WHEN p.report_type = 'call' THEN 1 ELSE 0 END), 0) AS calls,
-      COALESCE(SUM(CASE WHEN p.report_type = 'bail' THEN 1 ELSE 0 END), 0) AS bails
+      COALESCE(SUM(CASE WHEN p.report_type = 'bail' THEN 1 ELSE 0 END), 0) AS bails,
+      COALESCE(l.lawsuits, 0) AS lawsuits
     FROM users u
     LEFT JOIN giveaway_point_entries p
       ON p.user_id = u.id AND p.campaign_epoch = ? AND p.week_start = ?
@@ -1894,12 +1906,19 @@ function getGiveawayLeaderboard(db) {
       SELECT user_id, SUM(points) AS manual_points FROM giveaway_manual_point_entries
       WHERE campaign_epoch = ? AND week_start = ? GROUP BY user_id
     ) m ON m.user_id = u.id
+    LEFT JOIN (
+      SELECT user_id, SUM(points) AS lawsuit_points, COUNT(*) AS lawsuits
+      FROM giveaway_lawsuit_point_entries
+      WHERE campaign_epoch = ? AND week_start = ? GROUP BY user_id
+    ) l ON l.user_id = u.id
     WHERE u.status = 'active' AND u.role != ?
     GROUP BY u.id
     HAVING COALESCE(SUM(p.points), 0) > 0
       OR COALESCE(m.manual_points, 0) > 0
+      OR COALESCE(l.lawsuit_points, 0) > 0
     ORDER BY points DESC, calls DESC, bails DESC, u.display_name COLLATE NOCASE`)
-    .all(state.campaign_epoch, week.start, state.campaign_epoch, week.start, citizenRole)
+    .all(state.campaign_epoch, week.start, state.campaign_epoch, week.start,
+      state.campaign_epoch, week.start, citizenRole)
     .map((row, index) => ({
       rank: index + 1,
       userId: Number(row.user_id),
@@ -1907,7 +1926,8 @@ function getGiveawayLeaderboard(db) {
       role: row.role,
       points: Number(row.points),
       calls: Number(row.calls),
-      bails: Number(row.bails)
+      bails: Number(row.bails),
+      lawsuits: Number(row.lawsuits)
     }));
   return {
     enabled: Boolean(Number(state.enabled)),
@@ -1990,12 +2010,25 @@ export async function runDiscordPortalCommand({
     if (target.status !== "active" || target.role === citizenRole) {
       throw new Error(`Сотрудник #${targetId} не является активным сотрудником Коллегии.`);
     }
-    db.prepare(`UPDATE users SET manual_lawsuits = manual_lawsuits + 1 WHERE id = ?`).run(targetId);
-    const total = db.prepare(`SELECT COALESCE(manual_lawsuits, 0) AS manual,
-      (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
-       WHERE l.user_id = users.id AND d.forum_status = 'approved') AS approved
-      FROM users WHERE id = ?`).get(targetId);
-    return `Сотруднику ${target.display_name} (#${targetId}) добавлен 1 иск. Всего в счётчике: ${Number(total.manual) + Number(total.approved)}.`;
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const state = db.prepare("SELECT campaign_epoch FROM giveaway_state WHERE id = 1").get();
+      const week = getGiveawayWeekWindow();
+      db.prepare(`UPDATE users SET manual_lawsuits = manual_lawsuits + 1 WHERE id = ?`).run(targetId);
+      db.prepare(`INSERT INTO giveaway_lawsuit_point_entries
+        (user_id, points, campaign_epoch, week_start, awarded_by_discord_id)
+        VALUES (?, 5, ?, ?, ?)`)
+        .run(targetId, state.campaign_epoch, week.start, requesterId);
+      const total = db.prepare(`SELECT COALESCE(manual_lawsuits, 0) AS manual,
+        (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
+         WHERE l.user_id = users.id AND d.forum_status = 'approved') AS approved
+        FROM users WHERE id = ?`).get(targetId);
+      db.exec("COMMIT");
+      return `Сотруднику ${target.display_name} (#${targetId}) добавлен 1 иск и +5 баллов в премию. Всего исков: ${Number(total.manual) + Number(total.approved)}.`;
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   if (commandName === "warn") {

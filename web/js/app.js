@@ -3581,9 +3581,13 @@ async function loadGiveaway() {
         <span>${Number(member.bails)} залог.</span>
         <small>по 2 балла</small>
       </span>
+      <span class="giveaway-ranking-metric">
+        <span>${Number(member.lawsuits)} иск.</span>
+        <small>по 5 баллов</small>
+      </span>
       <strong class="giveaway-ranking-score">${Number(member.points)} б.</strong>
     </article>`
-  ).join("") : emptyState("На этой неделе пока нет подтверждённых отчётов.");
+  ).join("") : emptyState("На этой неделе пока нет одобренных отчётов и засчитанных исков.");
 }
 
 async function updateMemberRole(button) {

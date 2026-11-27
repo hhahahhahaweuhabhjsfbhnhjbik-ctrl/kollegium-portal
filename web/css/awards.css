@@ -163,7 +163,7 @@
 .giveaway-summary-card strong { color: var(--text-primary); font-size: 20px; font-variant-numeric: tabular-nums; }
 .giveaway-summary-card small { color: var(--text-muted); font-size: 10px; }
 
-.giveaway-rules { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 16px; border: 1px solid var(--border-subtle); border-radius: 14px; background: rgba(17, 24, 39, .62); }
+.giveaway-rules { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; padding: 16px; border: 1px solid var(--border-subtle); border-radius: 14px; background: rgba(17, 24, 39, .62); }
 .giveaway-rules h3 { grid-column: 1 / -1; margin-bottom: 2px; font-size: 13px; }
 .giveaway-rules > div { display: flex; align-items: center; gap: 11px; min-width: 0; padding: 11px; border: 1px solid rgba(148, 163, 184, .1); border-radius: 11px; background: rgba(9, 13, 23, .5); }
 .giveaway-rule-icon { display: grid; width: 35px; height: 35px; flex: 0 0 35px; place-items: center; border: 1px solid rgba(244, 183, 64, .25); border-radius: 11px; color: #ffd575; background: rgba(244, 183, 64, .1); font-size: 12px; font-weight: 900; }
@@ -176,7 +176,7 @@
 .giveaway-leaderboard-heading h3 { margin: 8px 0 3px; font-size: 18px; }
 .giveaway-leaderboard-heading p { font-size: 11px; }
 .giveaway-ranking { display: grid; gap: 8px; }
-.giveaway-ranking-row { display: grid; grid-template-columns: 38px minmax(140px, 1fr) repeat(2, minmax(85px, .42fr)) minmax(82px, .38fr); align-items: center; gap: 12px; padding: 11px 14px; border: 1px solid var(--border-subtle); border-radius: 12px; background: linear-gradient(100deg, rgba(24, 34, 55, .72), rgba(13, 19, 32, .82)); }
+.giveaway-ranking-row { display: grid; grid-template-columns: 38px minmax(140px, 1fr) repeat(3, minmax(85px, .42fr)) minmax(82px, .38fr); align-items: center; gap: 12px; padding: 11px 14px; border: 1px solid var(--border-subtle); border-radius: 12px; background: linear-gradient(100deg, rgba(24, 34, 55, .72), rgba(13, 19, 32, .82)); }
 .giveaway-ranking-row.is-leader { border-color: rgba(244, 183, 64, .38); background: linear-gradient(100deg, rgba(75, 58, 25, .38), rgba(13, 19, 32, .9)); box-shadow: inset 3px 0 #f4b740; }
 .giveaway-rank { display: grid; width: 30px; height: 30px; place-items: center; border: 1px solid var(--border-subtle); border-radius: 9px; color: #aab6c8; background: rgba(148, 163, 184, .07); font-size: 11px; font-weight: 850; }
 .is-leader .giveaway-rank { border-color: rgba(244, 183, 64, .4); color: #ffd575; background: rgba(244, 183, 64, .13); }
@@ -199,7 +199,6 @@
   .giveaway-rules { grid-template-columns: 1fr; }
   .giveaway-ranking-row { grid-template-columns: 32px minmax(0, 1fr) auto; gap: 9px; }
   .giveaway-ranking-metric { grid-column: 2; }
-  .giveaway-ranking-metric:nth-of-type(4) { grid-column: 2; }
-  .giveaway-ranking-score { grid-column: 3; grid-row: 1 / span 3; }
+  .giveaway-ranking-score { grid-column: 3; grid-row: 1 / span 4; }
   .giveaway-leaderboard-heading { align-items: flex-start; }
 }
