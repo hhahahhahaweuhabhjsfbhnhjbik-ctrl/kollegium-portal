@@ -93,6 +93,54 @@ test("lawsuit AI redirects legal questions instead of returning consultations", 
   }
 });
 
+test("legal AI reasons across related laws and receives the new penitentiary law", async () => {
+  const geminiRequests = [];
+  const server = createPortalServer({
+    dbPath: ":memory:",
+    cookieSecure: false,
+    geminiApiKey: "test-gemini-key",
+    geminiFetch: async (_url, request) => {
+      geminiRequests.push(JSON.parse(request.body));
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: "Ответ с оговоркой о применимых нормах." }] } }]
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+  });
+  const db = server.portalDb;
+  const password = "LegalReasoningTest!23";
+  const salt = randomBytes(16);
+  const hash = scryptSync(password, salt, 64, {
+    N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024
+  });
+  db.prepare("INSERT INTO users (username,password_hash,display_name,role,status) VALUES (?,?,?,?,?)")
+    .run("legal-reasoning-ai", `scrypt$${salt.toString("base64")}$${hash.toString("base64")}`, "Проверка ИИ", "Адвокат", "active");
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const client = await createClient(`http://127.0.0.1:${server.address().port}`);
+
+  try {
+    assert.equal((await client("/api/auth/login", "POST", {
+      username: "legal-reasoning-ai", password
+    })).status, 200);
+    const response = await client("/api/ai-assistant", "POST", {
+      question: "Можно ли считать передачу заключённого завершённой, если сотрудник только привёз его в ФТ?",
+      mode: "laws"
+    });
+    assert.equal(response.status, 200);
+    const instruction = geminiRequests[0].systemInstruction.parts[0].text;
+    const context = geminiRequests[0].contents[0].parts[0].text;
+    assert.match(instruction, /Сопоставляй нормы разных актов/);
+    assert.match(instruction, /катана/);
+    assert.match(instruction, /передача уполномоченному сотруднику/);
+    assert.match(context, /ПОЛНЫЙ ТЕКСТ: Закон о пенитенциарных учреждениях/);
+    assert.match(context, /7\.12 После ознакомления/);
+    assert.doesNotMatch(context, /divider\.png|\u200B/);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+    db.close();
+  }
+});
+
 test("frontend assets use a short cache while the portal page stays fresh", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "portal-frontend-cache-"));
   let portal;
@@ -2753,6 +2801,13 @@ test("all law tests are available to staff and supplied law text omits copied im
     }
     const lawList = await lawyer("/api/laws");
     assert.ok(Object.keys(lawList.data.laws).length >= 10);
+    const penitentiaryLawName = "Закон о пенитенциарных учреждениях (Редакция от 06.10.2026).txt";
+    assert.equal(lawList.data.laws[penitentiaryLawName]?.available, true);
+    const penitentiaryLaw = await lawyer(`/api/laws/${encodeURIComponent(penitentiaryLawName)}`);
+    assert.equal(penitentiaryLaw.status, 200);
+    assert.match(penitentiaryLaw.data.text, /Закон о Пенитенциарных учреждениях/);
+    assert.match(penitentiaryLaw.data.text, /7\.12 После ознакомления/);
+    assert.doesNotMatch(penitentiaryLaw.data.text, /divider\.png|\u200B/);
     const charter = await lawyer("/api/laws/charter");
     assert.equal(charter.status, 200);
     assert.doesNotMatch(charter.data.text, /^#{1,6}\s|\*\*/m);
