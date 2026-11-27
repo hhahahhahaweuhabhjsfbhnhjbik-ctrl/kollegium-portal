@@ -2884,18 +2884,26 @@ export function createPortalServer(options = {}) {
     });
     return result.warning || "";
   };
-  const announceCareerPromotion = (displayName, fromRole, toRole) => {
+  const announceCareerPromotion = (userId, displayName, fromRole, toRole) => {
     if (!((fromRole === "Стажер КА" && toRole === "Юрист") ||
           (fromRole === "Юрист" && toRole === "Адвокат"))) return Promise.resolve("");
     const displayedFromRole = fromRole === "Стажер КА" ? "Стажёр КА" : fromRole;
     const achievement = fromRole === "Стажер КА"
       ? "успешно прошёл стажировку"
       : "успешно прошёл необходимые этапы";
-    return deliverWebhook(webhooks.logs, "📋 Кадровые изменения",
+    const discordId = db.prepare("SELECT discord_id FROM users WHERE id = ?").get(userId)?.discord_id || "";
+    const linkedDiscordId = /^\d{15,22}$/.test(discordId) ? discordId : "";
+    const announcementWebhook = webhooks.careerInterviews || webhooks.careerInterviewReady ||
+      webhooks.attorneyInterview;
+    return deliverWebhook(announcementWebhook, "📋 Кадровые изменения",
       `Сотрудник **${escapeDiscordMarkdown(displayName)}** ${achievement} и повышается в должности!\n` +
       `Повышение: ${displayedFromRole} ➔ ${toRole}\n` +
       "Статус: Одобрено ✅\n" +
-      "Поздравляем с новой должностью и желаем успехов в работе!");
+      "Поздравляем с новой должностью и желаем успехов в работе!",
+      [], null, linkedDiscordId ? {
+        content: `<@${linkedDiscordId}>`,
+        mentionUsers: [linkedDiscordId]
+      } : {});
   };
   const discordFetch = options.discordFetch || options.fetchImpl || globalThis.fetch;
   const discord = {
@@ -6139,7 +6147,7 @@ ${examples}
               } : {})
             });
           const promotionAnnouncementWarning = promotionApproved
-            ? await announceCareerPromotion(candidate.display_name, "Юрист", "Адвокат")
+            ? await announceCareerPromotion(item.user_id, candidate.display_name, "Юрист", "Адвокат")
             : "";
           const webhookWarning = [interviewWebhookWarning, promotionAnnouncementWarning].filter(Boolean).join(" ");
           db.prepare(`INSERT INTO application_history (application_id, actor_id, event_type, details)
@@ -6392,7 +6400,7 @@ ${examples}
             if (employmentEvent) {
               const candidate = db.prepare("SELECT display_name FROM users WHERE id = ?").get(item.user_id);
               promotionAnnouncementWarning = await announceCareerPromotion(
-                candidate.display_name, employmentEvent.from_role, employmentEvent.to_role
+                item.user_id, candidate.display_name, employmentEvent.from_role, employmentEvent.to_role
               );
             }
           }

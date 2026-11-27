@@ -1112,20 +1112,16 @@ test("staff accounts require website approval, server-approved exams, attestatio
 
 test("lawyers need situations, joint calls and interview readiness instead of promotion exams", async () => {
   const careerWebhookPayloads = [];
-  const employmentWebhookPayloads = [];
-  const employmentWebhookUrl = "https://discord.com/api/webhooks/123456789012345678/employment-token";
+  const careerWebhookUrl = "https://discord.com/api/webhooks/123456789012345678/test-token";
   const server = createPortalServer({
     dbPath: ":memory:",
     cookieSecure: false,
-    webhookCareerInterviewReady: "https://discord.com/api/webhooks/123456789012345678/test-token",
-    webhookLogs: employmentWebhookUrl,
-    webhookFetch: async (url, options) => {
+    webhookCareerInterviewReady: careerWebhookUrl,
+    webhookFetch: async (_url, options) => {
       const body = options.body;
-      const payload = body instanceof FormData
+      careerWebhookPayloads.push(body instanceof FormData
         ? JSON.parse(body.get("payload_json"))
-        : JSON.parse(body);
-      if (String(url) === employmentWebhookUrl) employmentWebhookPayloads.push(payload);
-      else careerWebhookPayloads.push(payload);
+        : JSON.parse(body));
       return new Response(null, { status: 204 });
     }
   });
@@ -1141,6 +1137,8 @@ test("lawyers need situations, joint calls and interview readiness instead of pr
     .run("career-trainee", passwordHash, "Стажёр", "Стажер КА", "active").lastInsertRowid);
   const lawyerUserId = Number(db.prepare("INSERT INTO users (username,password_hash,display_name,role,status) VALUES (?,?,?,?,?)")
     .run("career-lawyer", passwordHash, "Юрист", "Юрист", "active").lastInsertRowid);
+  const linkedDiscordId = "12345678901234567";
+  db.prepare("UPDATE users SET discord_id = ? WHERE id = ?").run(linkedDiscordId, lawyerUserId);
   const seniorUserId = Number(db.prepare("INSERT INTO users (username,password_hash,display_name,role,status) VALUES (?,?,?,?,?)")
     .run("career-senior", passwordHash, "Старший", "Ст.Адвокат", "active").lastInsertRowid);
   db.prepare("INSERT INTO users (username,password_hash,display_name,role,status) VALUES (?,?,?,?,?)")
@@ -1192,11 +1190,13 @@ test("lawyers need situations, joint calls and interview readiness instead of pr
     });
     assert.equal(traineePromotionReview.status, 200, JSON.stringify(traineePromotionReview.data));
     assert.equal((await trainee("/api/auth/me")).data.user.role, "Юрист");
-    const traineePromotion = employmentWebhookPayloads.find((payload) =>
+    const traineePromotion = careerWebhookPayloads.find((payload) =>
       payload.embeds?.some((embed) => embed.title.includes("Кадровые изменения")));
-    assert.ok(traineePromotion, JSON.stringify(employmentWebhookPayloads));
+    assert.ok(traineePromotion, JSON.stringify(careerWebhookPayloads));
     assert.match(traineePromotion.embeds[0].description, /Стажёр КА ➔ Юрист/);
     assert.match(traineePromotion.embeds[0].description, /Статус: Одобрено/);
+    assert.equal(traineePromotion.content, undefined);
+    assert.deepEqual(traineePromotion.allowed_mentions, { parse: [] });
 
     assert.equal((await head("/api/promotion-requirements", "PATCH", {
       lawyerCallsRequired: 2
@@ -1226,9 +1226,10 @@ test("lawyers need situations, joint calls and interview readiness instead of pr
     assert.equal((await lawyer("/api/career-path")).data.interviewPromptDismissed, true);
     const interviewReady = await lawyer("/api/career-path/interview-ready", "POST", {});
     assert.equal(interviewReady.status, 200);
-    assert.equal(careerWebhookPayloads.length, 1);
-    assert.equal(careerWebhookPayloads[0].embeds[0].title, "Новая заявка на обзвон");
-    assert.equal(careerWebhookPayloads[0].components[0].components[0].url,
+    const lawyerInterviewRequest = careerWebhookPayloads.find((payload) =>
+      payload.embeds?.some((embed) => embed.title === "Новая заявка на обзвон"));
+    assert.ok(lawyerInterviewRequest);
+    assert.equal(lawyerInterviewRequest.components[0].components[0].url,
       "https://discord.com/channels/1554369418186858586/1556226686201106432");
     const lawyerApplicationId = interviewReady.data.applicationId;
     assert.ok((await lawyer("/api/auth/me")).data.interviewLock);
@@ -1250,14 +1251,25 @@ test("lawyers need situations, joint calls and interview readiness instead of pr
       status: "approved",
       criteria: { practiceVerified: true, interviewPassed: true }
     })).status, 409);
-    assert.equal(careerWebhookPayloads.length, 3);
-    assert.equal(careerWebhookPayloads[1].content.includes("Заместитель"), true);
-    assert.deepEqual(careerWebhookPayloads[1].allowed_mentions.parse, []);
+    const interviewDecisions = careerWebhookPayloads.filter((payload) =>
+      payload.embeds?.some((embed) => embed.title === "Решение по обзвону"));
+    assert.equal(interviewDecisions.length, 2);
+    const acceptedInterview = interviewDecisions.find((payload) => payload.content.includes("Заместитель"));
+    assert.ok(acceptedInterview);
+    assert.deepEqual(acceptedInterview.allowed_mentions.parse, []);
     assert.equal((await lawyer("/api/auth/me")).data.user.role, "Адвокат");
-    const lawyerPromotion = employmentWebhookPayloads.filter((payload) =>
+    const promotionAnnouncements = careerWebhookPayloads.filter((payload) =>
       payload.embeds?.some((embed) => embed.title.includes("Кадровые изменения")))[1];
+    assert.equal(careerWebhookPayloads.filter((payload) =>
+      payload.embeds?.some((embed) => embed.title.includes("Кадровые изменения"))).length, 2);
+    const lawyerPromotion = promotionAnnouncements;
     assert.ok(lawyerPromotion);
     assert.match(lawyerPromotion.embeds[0].description, /Юрист ➔ Адвокат/);
+    assert.equal(lawyerPromotion.content, `<@${linkedDiscordId}>`);
+    assert.deepEqual(lawyerPromotion.allowed_mentions, {
+      parse: [],
+      users: [linkedDiscordId]
+    });
   } finally {
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
