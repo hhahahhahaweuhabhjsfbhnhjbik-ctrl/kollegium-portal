@@ -3647,6 +3647,7 @@ test("cadre deletion supports citizens and staff while bulk cleanup preserves th
     ]) {
       assert.equal((await client("/api/auth/login", "POST", { username, password })).status, 200);
     }
+    assert.equal((await gka("/api/members")).data.members[0].id, 43);
     assert.equal((await deputy("/api/members/purge-all", "POST", {
       reason: "Обновление состава", confirmation: "УДАЛИТЬ ВСЕ"
     })).status, 403);

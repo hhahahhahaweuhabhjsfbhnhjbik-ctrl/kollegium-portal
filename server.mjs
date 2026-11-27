@@ -6956,7 +6956,7 @@ ${examples}
             FROM users u
             WHERE u.role != 'Гражданин' AND u.status = 'active'
             ORDER BY CASE u.role
-              WHEN 'ГКА' THEN 1 WHEN 'ЗГКА' THEN 2 WHEN 'Ст.Адвокат' THEN 3
+              WHEN 'Губернатор' THEN 0 WHEN 'ГКА' THEN 1 WHEN 'ЗГКА' THEN 2 WHEN 'Ст.Адвокат' THEN 3
               WHEN 'Адвокат' THEN 4 WHEN 'Юрист' THEN 5 ELSE 6 END, u.display_name`).all();
           return sendJson(res, 200, {
             colleagues: colleagues.map((item) => ({
@@ -6979,7 +6979,7 @@ ${examples}
               WHERE l.user_id = users.id AND d.forum_status = 'approved') AS lawsuit_count
             FROM users
             ORDER BY CASE role
-              WHEN 'ГКА' THEN 1 WHEN 'ЗГКА' THEN 2 WHEN 'Ст.Адвокат' THEN 3
+              WHEN 'Губернатор' THEN 0 WHEN 'ГКА' THEN 1 WHEN 'ЗГКА' THEN 2 WHEN 'Ст.Адвокат' THEN 3
               WHEN 'Адвокат' THEN 4 WHEN 'Юрист' THEN 5 WHEN 'Стажер КА' THEN 6 ELSE 7 END,
               CASE status WHEN 'active' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END,
               display_name COLLATE NOCASE`).all();
