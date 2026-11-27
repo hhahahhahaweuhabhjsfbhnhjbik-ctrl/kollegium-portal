@@ -1242,15 +1242,18 @@ function buildWeeklyActivitySummary(db, periodStart, periodEnd) {
   };
 }
 
+function escapeDiscordMarkdown(value) {
+  return String(value ?? "").replace(/[\\*_`~|]/g, "\\$&");
+}
+
 function formatWeeklyActivitySummary(summary) {
-  const escapeMarkdown = (value) => String(value || "").replace(/[\\*_`~|]/g, "\\$&");
   const header = [
     `Период: ${summary.periodStart.slice(0, 10)} — ${summary.periodEnd.slice(0, 10)}`,
     `Всего: вызовов — ${summary.totals.calls}, исков — ${summary.totals.lawsuits}, залогов — ${summary.totals.bails}`,
     ""
   ].join("\n");
   const staffLines = summary.rows.map((row) =>
-    `**${escapeMarkdown(row.displayName)} · ${escapeMarkdown(row.role)}**\nВызовы: ${row.calls} · Иски: ${row.lawsuits} · Залоги: ${row.bails}`
+    `**${escapeDiscordMarkdown(row.displayName)} · ${escapeDiscordMarkdown(row.role)}**\nВызовы: ${row.calls} · Иски: ${row.lawsuits} · Залоги: ${row.bails}`
   );
   if (!staffLines.length) staffLines.push("Сотрудников в отчёте нет.");
 
@@ -2880,6 +2883,19 @@ export function createPortalServer(options = {}) {
       title, description, fields, file, ...payloadOptions
     });
     return result.warning || "";
+  };
+  const announceCareerPromotion = (displayName, fromRole, toRole) => {
+    if (!((fromRole === "Стажер КА" && toRole === "Юрист") ||
+          (fromRole === "Юрист" && toRole === "Адвокат"))) return Promise.resolve("");
+    const displayedFromRole = fromRole === "Стажер КА" ? "Стажёр КА" : fromRole;
+    const achievement = fromRole === "Стажер КА"
+      ? "успешно прошёл стажировку"
+      : "успешно прошёл необходимые этапы";
+    return deliverWebhook(webhooks.logs, "📋 Кадровые изменения",
+      `Сотрудник **${escapeDiscordMarkdown(displayName)}** ${achievement} и повышается в должности!\n` +
+      `Повышение: ${displayedFromRole} ➔ ${toRole}\n` +
+      "Статус: Одобрено ✅\n" +
+      "Поздравляем с новой должностью и желаем успехов в работе!");
   };
   const discordFetch = options.discordFetch || options.fetchImpl || globalThis.fetch;
   const discord = {
@@ -6095,7 +6111,7 @@ ${examples}
           };
           const webhookUrl = webhooks.careerInterviews || webhooks.careerInterviewReady ||
             webhooks.attorneyInterview;
-          const webhookWarning = await deliverWebhook(webhookUrl, "Решение по обзвону",
+          const interviewWebhookWarning = await deliverWebhook(webhookUrl, "Решение по обзвону",
             `${user.display_name} отметил: ${candidate.display_name} ${decisionLabels[decision]}.`,
             [
               { name: "Участник", value: candidate.display_name, inline: true },
@@ -6122,6 +6138,10 @@ ${examples}
                 }]
               } : {})
             });
+          const promotionAnnouncementWarning = promotionApproved
+            ? await announceCareerPromotion(candidate.display_name, "Юрист", "Адвокат")
+            : "";
+          const webhookWarning = [interviewWebhookWarning, promotionAnnouncementWarning].filter(Boolean).join(" ");
           db.prepare(`INSERT INTO application_history (application_id, actor_id, event_type, details)
             VALUES (?, ?, 'interview_decision', ?)`)
             .run(item.id, user.id, `${decisionLabels[decision]}. Проверяющий: ${user.display_name}.`);
@@ -6365,6 +6385,17 @@ ${examples}
             discordWarning = result.syncError;
             nicknameWarning = result.nicknameWarning;
           }
+          let promotionAnnouncementWarning = "";
+          if (body.status === "approved" && roleChanged) {
+            const employmentEvent = db.prepare(`SELECT from_role, to_role FROM member_employment_history
+              WHERE user_id = ? AND actor_id = ? ORDER BY id DESC LIMIT 1`).get(item.user_id, user.id);
+            if (employmentEvent) {
+              const candidate = db.prepare("SELECT display_name FROM users WHERE id = ?").get(item.user_id);
+              promotionAnnouncementWarning = await announceCareerPromotion(
+                candidate.display_name, employmentEvent.from_role, employmentEvent.to_role
+              );
+            }
+          }
           const logWarning = await deliverWebhook(webhooks.logs, "Решение по заявке", `${user.display_name} ${body.status === "approved" ? "одобрил" : "отклонил"} заявку #${item.id} (${item.type}).`);
           await notifyPortalUser({
             userId: item.user_id,
@@ -6373,7 +6404,9 @@ ${examples}
             body: resultText || `По заявке #${item.id} принято решение: ${body.status === "approved" ? "одобрено" : "отклонено"}.`,
             href: item.type === "exam" ? "/page/exams" : "/page/appeals"
           });
-          return sendJson(res, 200, { ok: true, discordWarning, nicknameWarning, logWarning });
+          return sendJson(res, 200, {
+            ok: true, discordWarning, nicknameWarning, logWarning, promotionAnnouncementWarning
+          });
         }
 
         if (pathname === "/api/exams/history" && req.method === "GET") {

@@ -1112,15 +1112,20 @@ test("staff accounts require website approval, server-approved exams, attestatio
 
 test("lawyers need situations, joint calls and interview readiness instead of promotion exams", async () => {
   const careerWebhookPayloads = [];
+  const employmentWebhookPayloads = [];
+  const employmentWebhookUrl = "https://discord.com/api/webhooks/123456789012345678/employment-token";
   const server = createPortalServer({
     dbPath: ":memory:",
     cookieSecure: false,
     webhookCareerInterviewReady: "https://discord.com/api/webhooks/123456789012345678/test-token",
-    webhookFetch: async (_url, options) => {
+    webhookLogs: employmentWebhookUrl,
+    webhookFetch: async (url, options) => {
       const body = options.body;
-      careerWebhookPayloads.push(body instanceof FormData
+      const payload = body instanceof FormData
         ? JSON.parse(body.get("payload_json"))
-        : JSON.parse(body));
+        : JSON.parse(body);
+      if (String(url) === employmentWebhookUrl) employmentWebhookPayloads.push(payload);
+      else careerWebhookPayloads.push(payload);
       return new Response(null, { status: 204 });
     }
   });
@@ -1182,10 +1187,16 @@ test("lawyers need situations, joint calls and interview readiness instead of pr
     const traineeApplication = (await senior("/api/applications")).data.applications
       .find((item) => Number(item.id) === Number(traineeApplicationId));
     assert.equal(traineeApplication.promotion_practice.length, 0);
-    assert.equal((await senior(`/api/applications/${traineeApplicationId}/review`, "PATCH", {
+    const traineePromotionReview = await senior(`/api/applications/${traineeApplicationId}/review`, "PATCH", {
       status: "approved", criteria: { headApproved: true }
-    })).status, 200);
+    });
+    assert.equal(traineePromotionReview.status, 200, JSON.stringify(traineePromotionReview.data));
     assert.equal((await trainee("/api/auth/me")).data.user.role, "Юрист");
+    const traineePromotion = employmentWebhookPayloads.find((payload) =>
+      payload.embeds?.some((embed) => embed.title.includes("Кадровые изменения")));
+    assert.ok(traineePromotion, JSON.stringify(employmentWebhookPayloads));
+    assert.match(traineePromotion.embeds[0].description, /Стажёр КА ➔ Юрист/);
+    assert.match(traineePromotion.embeds[0].description, /Статус: Одобрено/);
 
     assert.equal((await head("/api/promotion-requirements", "PATCH", {
       lawyerCallsRequired: 2
@@ -1243,6 +1254,10 @@ test("lawyers need situations, joint calls and interview readiness instead of pr
     assert.equal(careerWebhookPayloads[1].content.includes("Заместитель"), true);
     assert.deepEqual(careerWebhookPayloads[1].allowed_mentions.parse, []);
     assert.equal((await lawyer("/api/auth/me")).data.user.role, "Адвокат");
+    const lawyerPromotion = employmentWebhookPayloads.filter((payload) =>
+      payload.embeds?.some((embed) => embed.title.includes("Кадровые изменения")))[1];
+    assert.ok(lawyerPromotion);
+    assert.match(lawyerPromotion.embeds[0].description, /Юрист ➔ Адвокат/);
   } finally {
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));

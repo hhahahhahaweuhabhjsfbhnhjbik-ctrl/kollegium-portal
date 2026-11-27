@@ -874,7 +874,8 @@ check(!document.querySelector("#activity-report-reference") &&
   document.querySelector("#activity-report-form")?.textContent.includes("Нумерация будет назначена автоматически") &&
   !document.querySelector("#activity-report-photo-field")?.classList.contains("hidden") &&
   document.querySelector("#activity-report-details-field")?.classList.contains("hidden") &&
-  document.querySelector("#activity-report-photo")?.required,
+  !document.querySelector("#activity-report-photo")?.required &&
+  document.querySelector("#activity-report-form")?.checkValidity(),
 "Номер отчёта должен назначаться автоматически, а для залога нужны скриншот и необязательное описание.");
 document.querySelector("#activity-report-date").value = "2026-01-16";
 document.querySelector("#activity-report-details").value = "Залог принят и зарегистрирован.";

@@ -2584,11 +2584,15 @@ async function reviewCareerPromotion(button) {
     : status === "approved" && application.stage_role === "Стажер КА"
       ? Number(application.career_flow) === 1 ? { headApproved: true } : { lectureVerified: true }
       : {};
-  await api(`/api/applications/${encodeURIComponent(button.dataset.id)}/review`, {
+  const result = await api(`/api/applications/${encodeURIComponent(button.dataset.id)}/review`, {
     method: "PATCH",
     body: { status, note, criteria }
   });
-  notify(status === "approved" ? "Повышение одобрено." : "Заявка отклонена.");
+  const warnings = [result.logWarning, result.promotionAnnouncementWarning].filter(Boolean);
+  notify([
+    status === "approved" ? "Повышение одобрено." : "Заявка отклонена.",
+    ...warnings.map((warning) => `Предупреждение Discord: ${warning}`)
+  ].join(" "));
   await loadAppeals();
 }
 
@@ -3836,7 +3840,7 @@ function updateActivityReportFields() {
   const isCallReport = $("#activity-report-type").value === "call";
   $("#activity-report-details-field").classList.toggle("hidden", !isCallReport);
   $("#activity-report-details").required = isCallReport;
-  $("#activity-report-photo").required = true;
+  $("#activity-report-photo").required = false;
   $("#activity-report-upload-hint").classList.remove("hidden");
   $("#activity-report-lawyer-trip-field").classList.toggle("hidden", !isCallReport);
   const lawyerTripClaimed = isCallReport && $("#activity-report-lawyer-trip").checked;
