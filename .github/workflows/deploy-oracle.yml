@@ -5,6 +5,15 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      manual_lawsuit_user_id:
+        description: "Employee number for a manual lawsuit adjustment"
+        required: false
+        default: ""
+      manual_lawsuit_count:
+        description: "Number of manual lawsuits to add"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -22,6 +31,8 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           DISCORD_WEBHOOK_CAREER_INTERVIEWS: ${{ secrets.DISCORD_WEBHOOK_CAREER_INTERVIEWS }}
           DISCORD_WEBHOOK_WARNINGS: ${{ secrets.DISCORD_WEBHOOK_WARNINGS }}
+          MANUAL_LAWSUIT_USER_ID: ${{ inputs.manual_lawsuit_user_id }}
+          MANUAL_LAWSUIT_COUNT: ${{ inputs.manual_lawsuit_count }}
         run: |
           set -eu
           test -n "$ORACLE_HOST"
@@ -69,3 +80,16 @@ jobs:
              git fetch origin main
              git reset --hard origin/main
              sudo docker compose -f deploy/oracle/compose.yaml up -d --build --force-recreate'
+
+          if [ -n "$MANUAL_LAWSUIT_USER_ID" ] || [ -n "$MANUAL_LAWSUIT_COUNT" ]; then
+            test -n "$MANUAL_LAWSUIT_USER_ID"
+            test -n "$MANUAL_LAWSUIT_COUNT"
+            case "$MANUAL_LAWSUIT_USER_ID" in (*[!0-9]*|'') echo "Invalid employee number" >&2; exit 1;; esac
+            case "$MANUAL_LAWSUIT_COUNT" in (*[!0-9]*|'') echo "Invalid lawsuit count" >&2; exit 1;; esac
+
+            ssh -i "$HOME/.ssh/id_ed25519" \
+              -o BatchMode=yes \
+              "$ORACLE_USER@$ORACLE_HOST" \
+              "set -eu
+               cd /opt/kollegium-portal
+               sudo docker compose -f deploy/oracle/compose.yaml exec -T portal node -e 'const { DatabaseSync } = require(\"node:sqlite\"); const db = new DatabaseSync(\"/var/data/portal.sqlite\"); db.exec(\"PRAGMA journal_mode=WAL\"); const columns = db.prepare(\"PRAGMA table_info(users)\").all().map((row) => row.name); if (!columns.includes(\"manual_lawsuits\")) db.prepare(\"ALTER TABLE users ADD COLUMN manual_lawsuits INTEGER NOT NULL DEFAULT 0\").run(); const userId = $MANUAL_LAWSUIT_USER_ID; const count = $MANUAL_LAWSUIT_COUNT; const target = db.prepare(\"SELECT id, display_name, role, status, COALESCE(manual_lawsuits,0) AS manual_lawsuits FROM users WHERE id = ?\").get(userId); if (!target) throw new Error(\"Employee #\" + userId + \" not found\"); if (target.status !== \"active\" || target.role === \"Гражданин\") throw new Error(\"Employee #\" + userId + \" is not active\"); db.exec(\"BEGIN IMMEDIATE\"); try { db.prepare(\"UPDATE users SET manual_lawsuits = manual_lawsuits + ? WHERE id = ?\").run(count, userId); db.exec(\"COMMIT\"); } catch (error) { db.exec(\"ROLLBACK\"); throw error; } const result = db.prepare(\"SELECT id, display_name, role, status, COALESCE(manual_lawsuits,0) AS manual_lawsuits FROM users WHERE id = ?\").get(userId); console.log(JSON.stringify({ success: true, added: count, target: result })); db.close();'"
