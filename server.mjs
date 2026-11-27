@@ -5912,7 +5912,8 @@ ${examples}
           if (decision === "accepted" && priorDecision) {
             throw new HttpError(409, "Заявка на обзвон уже принята или рассмотрена.");
           }
-          if (decision !== "accepted" && priorDecision !== "accepted") {
+          if (decision !== "accepted" && priorDecision !== "accepted" &&
+              !(decision === "passed" && priorDecision === "passed")) {
             throw new HttpError(409, "Сначала примите участника на обзвон.");
           }
           promotionData.interviewDecision = decision;
@@ -5925,6 +5926,8 @@ ${examples}
             promotionData.interviewResultByName = user.display_name;
             promotionData.interviewResultAt = new Date().toISOString();
           }
+          let promotionApproved = false;
+          let roleSyncWarning = "";
           if (decision === "failed") {
             delete promotionData.practiceSubmittedAt;
             delete promotionData.interviewReadyAt;
@@ -5933,6 +5936,37 @@ ${examples}
             db.prepare(`UPDATE career_path_progress SET interview_ready_at = NULL,
               interview_prompt_dismissed_at = NULL WHERE user_id = ? AND stage_role = 'Юрист'`)
               .run(item.user_id);
+          } else if (decision === "passed") {
+            const readiness = getCareerPromotionReadiness(db, item);
+            const member = db.prepare("SELECT role FROM users WHERE id = ?").get(item.user_id);
+            if (!readiness.ready || member?.role !== "Юрист" ||
+                item.requested_role !== nextRank["Юрист"]) {
+              throw new HttpError(409, readiness.reason || "Заявка больше не соответствует текущей ступени участника.");
+            }
+            const target = nextRank["Юрист"];
+            const resultText = `Обзвон пройден. Повышение одобрено, роль изменена на ${target}; сотрудник добавлен в указ.`;
+            db.exec("BEGIN IMMEDIATE");
+            try {
+              db.prepare("UPDATE users SET role = ? WHERE id = ?").run(target, item.user_id);
+              recordEmploymentEvent(db, {
+                userId: item.user_id, actorId: user.id, fromRole: member.role, toRole: target,
+                fromStatus: "active", toStatus: "active", details: "Повышение после практик и обзвона."
+              });
+              db.prepare(`UPDATE applications SET status = 'approved', reviewed_by = ?,
+                reviewed_at = CURRENT_TIMESTAMP, review_data_json = ?, result = ?,
+                promotion_data_json = ? WHERE id = ?`)
+                .run(user.id, JSON.stringify({ stage: "Юрист", interviewPassed: true }),
+                  resultText, JSON.stringify(promotionData), item.id);
+              db.prepare(`INSERT INTO application_history (application_id, actor_id, event_type, details)
+                VALUES (?, ?, 'approved', ?)`).run(item.id, user.id, resultText);
+              db.exec("COMMIT");
+            } catch (error) {
+              db.exec("ROLLBACK");
+              throw error;
+            }
+            promotionApproved = true;
+            const syncResult = await syncDiscordMember(item.user_id);
+            roleSyncWarning = syncResult.syncError || syncResult.nicknameWarning || "";
           } else {
             db.prepare("UPDATE applications SET promotion_data_json = ? WHERE id = ?")
               .run(JSON.stringify(promotionData), item.id);
@@ -5982,10 +6016,13 @@ ${examples}
             userId: item.user_id,
             type: "career_interview_decision",
             title: decision === "accepted" ? "Вас приняли на обзвон" : "Результат обзвона",
-            body: `${decisionLabels[decision]}. Проверяющий: ${user.display_name}.`,
+            body: `${decisionLabels[decision]}.${promotionApproved ? " Повышение одобрено, вы добавлены в указ." : ""} Проверяющий: ${user.display_name}.`,
             href: "/page/career"
           });
-          return sendJson(res, 200, { ok: true, decision, reviewer: user.display_name, webhookWarning });
+          return sendJson(res, 200, {
+            ok: true, decision, reviewer: user.display_name, webhookWarning,
+            promotionApproved, roleSyncWarning
+          });
         }
 
         const applicationReview = pathname.match(/^\/api\/applications\/(\d+)\/review$/);

@@ -1056,14 +1056,15 @@ test("lawyers need situations, joint calls and interview readiness instead of pr
       decision: "accepted"
     })).status, 200);
     assert.ok((await lawyer("/api/auth/me")).data.interviewLock);
-    assert.equal((await deputy(`/api/applications/${lawyerApplicationId}/interview-decision`, "PATCH", {
+    const interviewPassed = await deputy(`/api/applications/${lawyerApplicationId}/interview-decision`, "PATCH", {
       decision: "passed"
-    })).status, 200);
+    });
+    assert.equal(interviewPassed.status, 200, JSON.stringify(interviewPassed.data));
     assert.equal((await lawyer("/api/auth/me")).data.interviewLock, null);
     assert.equal((await deputy(`/api/applications/${lawyerApplicationId}/review`, "PATCH", {
       status: "approved",
       criteria: { practiceVerified: true, interviewPassed: true }
-    })).status, 200);
+    })).status, 409);
     assert.equal(careerWebhookPayloads.length, 3);
     assert.equal(careerWebhookPayloads[1].content.includes("Заместитель"), true);
     assert.deepEqual(careerWebhookPayloads[1].allowed_mentions.parse, []);
@@ -1249,7 +1250,7 @@ test("career AI practice gates lawyer reports and unlocks them only after manage
       status: "approved",
       criteria: { practiceVerified: true, interviewPassed: true }
     });
-    assert.equal(review.status, 200);
+    assert.equal(review.status, 409);
     assert.equal((await lawyer("/api/auth/me")).data.user.role, "Адвокат");
     assert.equal((await lawyer("/api/activity-reports")).status, 200);
     assert.equal((await lawyer("/api/activity-reports", "POST", {
@@ -1421,20 +1422,18 @@ test("AK UK PK seals create staged promotion requests and reset after decisions"
     const queuedDecreeCandidate = (await head("/api/promotion-decree")).data.candidates
       .find((item) => item.applicationId === lawyerRequest.id);
     assert.ok(queuedDecreeCandidate);
-    assert.equal(queuedDecreeCandidate.approvedForDecree, false);
-    const prematureDecree = await head("/api/promotion-decree/preview", "POST", {
-      applicationIds: [lawyerRequest.id]
+    assert.equal(queuedDecreeCandidate.approvedForDecree, true);
+    assert.equal(db.prepare("SELECT status FROM applications WHERE id = ?").get(lawyerRequest.id).status, "approved");
+    assert.equal((await candidate("/api/auth/me")).data.user.role, "Адвокат");
+    const decreePreview = await head("/api/promotion-decree/preview", "POST", {
+      applicationIds: [lawyerRequest.id],
+      passports: { [lawyerRequest.id]: "1111111" }
     });
-    assert.equal(prematureDecree.status, 409);
-    assert.match(prematureDecree.data.error, /ещё не одобрено/);
-    assert.equal((await head(`/api/applications/${lawyerRequest.id}/review`, "PATCH", {
-      status: "approved", criteria: { practiceVerified: true, interviewPassed: true }
-    })).status, 200);
+    assert.equal(decreePreview.status, 200);
     const approvedDecreeCandidate = (await head("/api/promotion-decree")).data.candidates
       .find((item) => item.applicationId === lawyerRequest.id);
     assert.ok(approvedDecreeCandidate);
     assert.equal(approvedDecreeCandidate.approvedForDecree, true);
-    assert.equal((await candidate("/api/auth/me")).data.user.role, "Адвокат");
     assert.deepEqual((await candidate("/api/exams/law-progress")).data.passedSubjects, []);
   } finally {
     server.closeAllConnections();

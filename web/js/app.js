@@ -1651,8 +1651,7 @@ function renderAppeals(applications) {
         actions = `<button class="btn btn-gold" type="button" data-action="review-career-interview" data-id="${Number(item.id)}" data-decision="passed">Прошёл обзвон</button>
           <button class="btn" type="button" data-action="review-career-interview" data-id="${Number(item.id)}" data-decision="failed">Не прошёл</button>`;
       } else if (item.interview_status === "ready" && interviewDecision === "passed") {
-        actions = `<button class="btn btn-gold" type="button" data-action="review-career-promotion" data-id="${Number(item.id)}" data-status="approved">Повысить</button>
-          <button class="btn" type="button" data-action="review-career-promotion" data-id="${Number(item.id)}" data-status="rejected">Отклонить заявку</button>`;
+        actions = `<button class="btn btn-gold" type="button" data-action="review-career-interview" data-id="${Number(item.id)}" data-decision="passed" data-already-passed="true">Добавить в указ</button>`;
       }
     } else if (canReview) {
       actions = `<button class="btn btn-gold" type="button" data-action="review-career-promotion" data-id="${Number(item.id)}" data-status="approved">Принять</button>
@@ -2492,7 +2491,9 @@ async function reviewCareerInterview(button) {
   const decision = button.dataset.decision;
   const messages = {
     accepted: "Принять заявку и начать обзвон?",
-    passed: "Подтвердить, что участник прошёл обзвон?",
+    passed: button.dataset.alreadyPassed === "true"
+      ? "Завершить повышение по уже пройденному обзвону и добавить сотрудника в черновик указа?"
+      : "Подтвердить прохождение обзвона? Повышение будет одобрено автоматически, а сотрудник появится в черновике указа.",
     failed: "Отметить, что участник не прошёл обзвон?"
   };
   if (!messages[decision]) throw new Error("Неизвестное решение по обзвону.");
@@ -2502,9 +2503,11 @@ async function reviewCareerInterview(button) {
     body: { decision }
   });
   const label = decision === "accepted" ? "Участник принят на обзвон."
-    : decision === "passed" ? "Обзвон отмечен как пройденный."
+    : decision === "passed" ? "Обзвон пройден: повышение одобрено, сотрудник добавлен в указ."
       : "Обзвон отмечен как непройденный.";
-  notify(result.webhookWarning ? `${label} Webhook: ${result.webhookWarning}` : label);
+  const warnings = [result.webhookWarning && `Webhook: ${result.webhookWarning}`,
+    result.roleSyncWarning && `Синхронизация Discord: ${result.roleSyncWarning}`].filter(Boolean);
+  notify(warnings.length ? `${label} ${warnings.join(" ")}` : label);
   await loadAppeals();
 }
 
