@@ -3765,13 +3765,21 @@ export function createPortalServer(options = {}) {
           if (!geminiKey) throw new HttpError(503, "ИИ-сервис не настроен. Добавьте ключ сервера.");
           const body = await readJson(req);
           const question = String(body.question || "").trim();
-          const requestedMode = ["laws", "lawsuit", "answer"].includes(body.mode) ? body.mode : "answer";
-          const mode = requestedMode === "lawsuit" && isLikelyLegalQuestion(question) ? "laws" : requestedMode;
+          const mode = ["laws", "lawsuit", "answer"].includes(body.mode) ? body.mode : "answer";
           if (question.length < 3) throw new HttpError(400, "Опишите ситуацию подробнее.");
           if (question.length > 8000) throw new HttpError(400, "Запрос слишком длинный. Укажите не более 8000 символов.");
           if (!isAssistantRequestAllowed(question)) throw new HttpError(400, "Опишите ситуацию подробнее.");
           const aiCooldownSeconds = consumeAiCooldown(session.user_id);
           if (aiCooldownSeconds) throw new HttpError(429, `Повторный запрос доступен через ${aiCooldownSeconds} с.`);
+          if (mode === "lawsuit" && isLikelyLegalQuestion(question)) {
+            applyAiCooldown(session.user_id);
+            return sendJson(res, 200, {
+              answer: lawsuitAssistantRedirect,
+              mode,
+              document: null,
+              cooldownSeconds: 60
+            });
+          }
           const lawFiles = [];
           const lawDir = path.join(root, "data", "laws");
           const files = await readdir(lawDir, { withFileTypes: true });

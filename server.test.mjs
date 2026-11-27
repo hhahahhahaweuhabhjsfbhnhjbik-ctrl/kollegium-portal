@@ -38,6 +38,7 @@ test("AI assistant detects paraphrased refusals for legal retry", () => {
 test("AI assistant separates legal questions from lawsuit documents", () => {
   assert.equal(isLikelyLegalQuestion("Можно ли задерживать гражданина на закрытой территории?"), true);
   assert.equal(isLikelyLegalQuestion("Меня задержали сотрудником LSSD с жетоном 773"), true);
+  assert.equal(isLikelyLegalQuestion("меня кафнули за 12.8 а у меня нелегала не было чтобы разбирать гостинка сотрудника LSSD с жетоном 773"), true);
   assert.equal(isLikelyLegalQuestion("Я хочу подать иск против муниципального департамента за незаконное задержание"), false);
 });
 
@@ -102,8 +103,7 @@ test("lawsuit AI redirects legal questions instead of returning consultations", 
     assert.equal(response.data.document, null);
     assert.match(response.data.answer, /только для подготовки исковых документов/);
     assert.match(response.data.answer, /разделе «Законодательство»/);
-    assert.equal(geminiRequests.length, 1);
-    assert.match(geminiRequests[0].systemInstruction.parts[0].text, /Не отвечай на юридические вопросы/);
+    assert.equal(geminiRequests.length, 0);
   } finally {
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
