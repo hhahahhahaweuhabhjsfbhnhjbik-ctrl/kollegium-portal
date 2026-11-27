@@ -348,13 +348,25 @@ test("Discord warn command accepts only a positive safe personnel audit number",
   assert.equal(parseWarnCommand("!warn #12 extra"), null);
 });
 
-test("reprimand webhook pings linked users and code-blocks unlinked names", async () => {
+test("reprimand webhook pings linked users and never sends Governor DM attachments", async () => {
   const warningUrl = "https://discord.com/api/webhooks/523456789012345678/warning-test-token";
   const webhookCalls = [];
+  const discordRequests = [];
   const server = createPortalServer({
     dbPath: ":memory:",
     cookieSecure: false,
     webhookWarnings: warningUrl,
+    discordBotToken: "test-discord-bot",
+    discordFetch: async (url, options) => {
+      discordRequests.push({ url: String(url), options });
+      if (String(url).endsWith("/users/@me/channels")) {
+        const recipientId = JSON.parse(options.body).recipient_id;
+        return new Response(JSON.stringify({
+          id: recipientId === "33456789012345678" ? "43456789012345678" : "23456789012345678"
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ id: "message-id" }), { status: 200 });
+    },
     webhookFetch: async (url, options) => {
       webhookCalls.push({ url: String(url), options });
       return new Response(null, { status: 204 });
@@ -377,6 +389,10 @@ test("reprimand webhook pings linked users and code-blocks unlinked names", asyn
     (username,password_hash,display_name,role,status)
     VALUES (?,?,?,'Адвокат','active')`)
     .run("unlinked-target", passwordHash, "Unlinked Target").lastInsertRowid);
+  db.prepare(`INSERT INTO users
+    (id,username,password_hash,display_name,role,status,discord_id)
+    VALUES (43,'governor-target',?,'Haru Ness','Губернатор','active','33456789012345678')`)
+    .run(passwordHash);
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const client = await createClient(`http://127.0.0.1:${server.address().port}`);
 
@@ -391,13 +407,17 @@ test("reprimand webhook pings linked users and code-blocks unlinked names", asyn
     };
     for (const [userId, reason] of [
       [linkedId, "Основание выговора привязанному сотруднику"],
-      [unlinkedId, "Основание выговора сотруднику без Discord"]
+      [unlinkedId, "Основание выговора сотруднику без Discord"],
+      [43, "Основание выговора губернатору"]
     ]) {
       const response = await client("/api/reprimands", "POST", { userId, reason, photo });
       assert.equal(response.status, 201);
       assert.equal(response.data.webhookWarning, "");
+      if (userId === 43) {
+        assert.match(response.data.dmWarning, /без файла/);
+      }
     }
-    assert.equal(webhookCalls.length, 2);
+    assert.equal(webhookCalls.length, 3);
     const payloads = webhookCalls.map(({ url, options }) => {
       assert.equal(url, warningUrl);
       return JSON.parse(options.body.get("payload_json"));
@@ -411,6 +431,13 @@ test("reprimand webhook pings linked users and code-blocks unlinked names", asyn
     assert.deepEqual(payloads[1].allowed_mentions, { parse: [] });
     assert.ok(payloads.every((payload) =>
       payload.embeds[0].fields.some((field) => field.name === "📌 Основание" && field.value.startsWith("Основание выговора"))));
+    const governorDm = discordRequests.find((request) =>
+      request.url.endsWith("/channels/43456789012345678/messages"));
+    assert.ok(governorDm);
+    assert.equal(typeof governorDm.options.body, "string");
+    const governorPayload = JSON.parse(governorDm.options.body);
+    assert.equal(governorPayload.embeds[0].image, undefined);
+    assert.match(governorPayload.embeds[0].fields.find((field) => field.name === "📷 Фото").value, /не отправляется/);
   } finally {
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
@@ -3418,7 +3445,7 @@ test("Discord preference persists, audit test notifications are owner-only, and 
   }
 });
 
-test("startup migrates report types and makes legacy AI cases private", async () => {
+test("startup migrates report types, governor role, and legacy AI case privacy", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "portal-report-migration-"));
   const dbPath = path.join(directory, "portal.sqlite");
   const initial = createPortalServer({ dbPath, cookieSecure: false });
@@ -3426,6 +3453,9 @@ test("startup migrates report types and makes legacy AI cases private", async ()
   const userId = Number(initialDb.prepare(`INSERT INTO users
     (username,password_hash,display_name,role,status)
     VALUES ('migration-lawyer','test-hash','Тестовый адвокат','Адвокат','active')`).run().lastInsertRowid);
+  initialDb.prepare(`INSERT INTO users
+    (id,username,password_hash,display_name,role,status)
+    VALUES (43,'migration-governor','test-hash','Haru Ness','Адвокат','active')`).run();
   const legacyCaseIds = ["pending", "public"].map((status) => Number(initialDb.prepare(`INSERT INTO rp_custom_cases
     (user_id,title,source_details,difficulty,officer_kindness,depth,scenario_json,status)
     VALUES (?,?,?,?,?,?,?,?)`).run(
@@ -3479,10 +3509,80 @@ test("startup migrates report types and makes legacy AI cases private", async ()
     assert.deepEqual(Buffer.from(attachment.content), Buffer.from("preserved-image"));
     assert.deepEqual(migrated.portalDb.prepare(`SELECT status FROM rp_custom_cases
       WHERE id IN (?, ?) ORDER BY id`).all(...legacyCaseIds).map((row) => row.status), ["private", "private"]);
+    assert.equal(migrated.portalDb.prepare("SELECT role FROM users WHERE id = 43").get().role, "Губернатор");
     assert.deepEqual(migrated.portalDb.prepare("PRAGMA foreign_key_check").all(), []);
   } finally {
     migrated.portalDb.close();
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("bulk report approval sends Discord webhooks sequentially in report order", async () => {
+  const callsWebhook = "https://discord.com/api/webhooks/123456789012345678/bulk-calls-token";
+  const bailsWebhook = "https://discord.com/api/webhooks/123456789012345678/bulk-bails-token";
+  const webhookRequests = [];
+  let activeRequests = 0;
+  let maxConcurrentRequests = 0;
+  const server = createPortalServer({
+    dbPath: ":memory:",
+    cookieSecure: false,
+    webhookCalls: callsWebhook,
+    webhookBails: bailsWebhook,
+    webhookFetch: async (url, options) => {
+      activeRequests += 1;
+      maxConcurrentRequests = Math.max(maxConcurrentRequests, activeRequests);
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        webhookRequests.push({
+          url: String(url),
+          payload: JSON.parse(options.body.get("payload_json"))
+        });
+        return new Response(null, { status: 204 });
+      } finally {
+        activeRequests -= 1;
+      }
+    }
+  });
+  const db = server.portalDb;
+  const password = "BulkReportApprovalTest!23";
+  const salt = randomBytes(16);
+  const hash = scryptSync(password, salt, 64, {
+    N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024
+  });
+  const passwordHash = `scrypt$${salt.toString("base64")}$${hash.toString("base64")}`;
+  const managerId = Number(db.prepare(`INSERT INTO users
+    (username,password_hash,display_name,role,status)
+    VALUES ('bulk-manager',?,'Глава','ГКА','active')`).run(passwordHash).lastInsertRowid);
+  const reporterId = Number(db.prepare(`INSERT INTO users
+    (username,password_hash,display_name,role,status)
+    VALUES ('bulk-reporter',?,'Автор','Адвокат','active')`).run(passwordHash).lastInsertRowid);
+  const reportReferences = ["CALL-BULK-1", "BAIL-BULK-2"];
+  for (const [index, reference] of reportReferences.entries()) {
+    db.prepare(`INSERT INTO activity_reports
+      (user_id,report_type,occurred_at,reference,details)
+      VALUES (?,?, '2026-10-25', ?, 'Проверка очередности')`)
+      .run(reporterId, index === 0 ? "call" : "bail", reference);
+  }
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const manager = await createClient(`http://127.0.0.1:${server.address().port}`);
+
+  try {
+    assert.ok(managerId > 0);
+    assert.equal((await manager("/api/auth/login", "POST", {
+      username: "bulk-manager", password
+    })).status, 200);
+    const response = await manager("/api/activity-reports/approve-all", "POST", {});
+    assert.equal(response.status, 200);
+    assert.equal(response.data.approvedCount, reportReferences.length);
+    assert.deepEqual(webhookRequests.map((request) =>
+      request.payload.embeds[0].fields.find((field) => field.name === "Номер отчёта").value),
+    reportReferences);
+    assert.deepEqual(webhookRequests.map((request) => request.url), [callsWebhook, bailsWebhook]);
+    assert.equal(maxConcurrentRequests, 1);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+    db.close();
   }
 });
 
@@ -3519,6 +3619,8 @@ test("cadre deletion supports citizens and staff while bulk cleanup preserves th
   addUser("removal-deputy", "Заместитель", "ЗГКА");
   const lawyerId = addUser("removal-lawyer", "Адвокат", "Адвокат", "345678901234567890");
   const citizenId = addUser("removal-citizen", "Гражданин", "Гражданин");
+  db.prepare(`INSERT INTO users (id,username,password_hash,display_name,role,status)
+    VALUES (43,'removal-governor',?,'Haru Ness','Губернатор','active')`).run(passwordHash);
   const reportId = Number(db.prepare(`INSERT INTO activity_reports
     (user_id,report_type,occurred_at,reference,details) VALUES (?,'call','2026-10-10','CALL-REMOVE','Отчёт под удаление')`)
     .run(lawyerId).lastInsertRowid);
@@ -3551,6 +3653,14 @@ test("cadre deletion supports citizens and staff while bulk cleanup preserves th
     assert.equal((await gka(`/api/members/${gkaId}/dismiss`, "POST", {
       reason: "Не удалять текущий аккаунт"
     })).status, 409);
+    assert.equal((await gka(`/api/members/43/dismiss`, "POST", {
+      reason: "Проверка защиты губернатора"
+    })).status, 403);
+    assert.equal((await gka(`/api/members/${citizenId}`, "PATCH", {
+      role: "Губернатор"
+    })).status, 400);
+    assert.equal((await gka("/api/members/43", "PATCH", { role: "Адвокат" })).status, 200);
+    assert.equal((await gka("/api/members/43", "PATCH", { role: "Губернатор" })).status, 200);
     const dismissed = await gka(`/api/members/${lawyerId}/dismiss`, "POST", {
       reason: "Прекращение полномочий по решению руководства"
     });
@@ -3578,10 +3688,21 @@ test("cadre deletion supports citizens and staff while bulk cleanup preserves th
     });
     assert.equal(purged.status, 200);
     assert.equal(purged.data.deletedCount, 1);
-    assert.equal(db.prepare("SELECT id FROM users").get().id, gkaId);
-    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM users").get().count, 1);
+    assert.deepEqual(db.prepare("SELECT id FROM users ORDER BY id").all().map((row) => row.id), [gkaId, 43]);
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM users").get().count, 2);
     assert.equal(purged.data.warnings.length, 1);
     assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
+
+    const siteAdminId = addUser("site-admin", "Администратор сайта", "ЗГКА");
+    db.prepare("UPDATE users SET full_gka_access = 1 WHERE id = ?").run(siteAdminId);
+    const siteAdmin = await createClient(baseUrl);
+    assert.equal((await siteAdmin("/api/auth/login", "POST", {
+      username: "site-admin", password
+    })).status, 200);
+    assert.equal((await siteAdmin("/api/members/43/dismiss", "POST", {
+      reason: "Удаление губернатора администратором сайта"
+    })).status, 200);
+    assert.equal(db.prepare("SELECT 1 FROM users WHERE id = 43").get(), undefined);
   } finally {
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));

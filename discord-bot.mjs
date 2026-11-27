@@ -18,7 +18,8 @@ import {
 const inviteButtonId = "portal:request-staff-invite";
 const helpButtonId = "portal:request-attorney-help";
 const helpModalId = "portal:citizen-help-modal";
-const managedRoleNames = ["Гражданин", "Стажер КА", "Юрист", "Адвокат", "Ст.Адвокат", "ЗГКА", "ГКА"];
+const governorRoleName = "Губернатор";
+const managedRoleNames = ["Гражданин", "Стажер КА", "Юрист", "Адвокат", "Ст.Адвокат", "ЗГКА", "ГКА", governorRoleName];
 const staffRoleNames = managedRoleNames.filter((name) => name !== "Гражданин");
 const channels = {
   invite: "🎫-вступление-в-коллегию",
@@ -76,9 +77,16 @@ async function ensureRoles(guild, member, roleIds, onRoleResolved) {
     if (!role) {
       role = await guild.roles.create({
         name,
-        permissions: [],
+        permissions: name === governorRoleName ? [PermissionFlagsBits.Administrator] : [],
         reason: "Автоматическая настройка портала Коллегии адвокатов"
       });
+    } else if (name === governorRoleName && role.name !== governorRoleName) {
+      throw new Error("DISCORD_ROLE_GOVERNOR указывает не на роль «Губернатор».");
+    } else if (name === governorRoleName && !role.permissions.has(PermissionFlagsBits.Administrator)) {
+      role = await role.setPermissions(
+        [PermissionFlagsBits.Administrator],
+        "Полный доступ губернатора по настройкам портала"
+      );
     }
     roleIds[name] = role.id;
     await onRoleResolved?.(name, role.id);

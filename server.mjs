@@ -15,9 +15,11 @@ import { rpInterviewExtraCases } from "./web/js/data/rp-interviews-extra.js";
 
 const scrypt = promisify(scryptCallback);
 const root = path.dirname(fileURLToPath(import.meta.url));
-const roles = ["Стажер КА", "Юрист", "Адвокат", "Ст.Адвокат", "ЗГКА", "ГКА"];
+const roles = ["Стажер КА", "Юрист", "Адвокат", "Ст.Адвокат", "ЗГКА", "ГКА", "Губернатор"];
 const citizenRole = "Гражданин";
 const managementRoles = ["ГКА", "ЗГКА"];
+const governorUserId = 43;
+const governorRole = "Губернатор";
 const careerLawExamRoles = ["Стажер КА"];
 const careerLawExamSubjects = ["ak", "uk", "pk"];
 const careerLawyerJointCallsRequired = 2;
@@ -277,6 +279,10 @@ const cleanUser = (user) => ({
 function hasGkaAccess(user) {
   return user.role === "ГКА" ||
     (user.role === "ЗГКА" && Number(user.full_gka_access) === 1);
+}
+
+function hasFullGkaAccess(user) {
+  return Number(user.full_gka_access) === 1;
 }
 
 function quoteSqlIdentifier(value) {
@@ -1046,6 +1052,13 @@ function createDatabase(dbPath) {
   db.prepare(`UPDATE users SET role = 'ЗГКА', full_gka_access = 1
     WHERE username = ? AND (role != 'ЗГКА' OR full_gka_access != 1)`).run("yyte");
   db.prepare("UPDATE users SET display_name = 'Yuti Prince' WHERE username = 'yyte'");
+  const governorMigration = db.prepare("SELECT value FROM portal_settings WHERE key = ?")
+    .get("governor-role-migration-v1");
+  if (!governorMigration && db.prepare("SELECT 1 FROM users WHERE id = ?").get(governorUserId)) {
+    db.prepare("UPDATE users SET role = ? WHERE id = ?").run(governorRole, governorUserId);
+    db.prepare("INSERT INTO portal_settings (key, value) VALUES (?, ?)")
+      .run("governor-role-migration-v1", "done");
+  }
 
   const applicationColumns = db.prepare("PRAGMA table_info(applications)").all();
   for (const [column, definition] of [
@@ -2798,6 +2811,7 @@ export function createPortalServer(options = {}) {
     "Ст.Адвокат": process.env.DISCORD_ROLE_SENIOR_ATTORNEY || "",
     "ЗГКА": process.env.DISCORD_ROLE_DEPUTY_HEAD || "",
     "ГКА": process.env.DISCORD_ROLE_HEAD || "",
+    [governorRole]: process.env.DISCORD_ROLE_GOVERNOR || "",
     [citizenRole]: process.env.DISCORD_ROLE_CITIZEN || ""
   };
   const cookieSecure = options.cookieSecure ?? (process.env.COOKIE_SECURE === "true" || process.env.NODE_ENV === "production");
@@ -3173,6 +3187,7 @@ export function createPortalServer(options = {}) {
   }
 
   async function notifyReprimandByDm(target, id, reason, photo, fields) {
+    const suppressAttachment = Number(target.id) === governorUserId;
     const preference = db.prepare("SELECT discord_dm_enabled FROM notification_preferences WHERE user_id = ?")
       .get(target.id);
     if (preference?.discord_dm_enabled === 0) return "Личные уведомления Discord выключены в профиле.";
@@ -3195,27 +3210,39 @@ export function createPortalServer(options = {}) {
           footer: { text: "Mirror GTA 5 RP · Коллегия адвокатов" },
           fields: fields.slice(0, 25).map((field) => ({
             name: String(field.name).slice(0, 256),
-            value: String(field.value || "—").slice(0, 1024),
+            value: String(suppressAttachment && field.name === "📷 Фото"
+              ? "Сохранено в кадровом аудите; файл в ЛС не отправляется."
+              : field.value || "—").slice(0, 1024),
             inline: Boolean(field.inline)
           })),
-          image: { url: `attachment://${photo.name}` }
+          ...(suppressAttachment ? {} : { image: { url: `attachment://${photo.name}` } })
         }],
         allowed_mentions: { parse: [] }
       };
-      const form = new FormData();
-      form.set("payload_json", JSON.stringify(payload));
-      form.set("files[0]", new Blob([photo.content], { type: photo.contentType }), photo.name);
-      const response = await discordFetch(`https://discord.com/api/v10/channels/${channel.id}/messages`, {
+      const request = {
         method: "POST",
         headers: { authorization: `Bot ${discord.botToken}` },
-        body: form,
         signal: AbortSignal.timeout(8000)
+      };
+      if (suppressAttachment) {
+        request.headers["content-type"] = "application/json";
+        request.body = JSON.stringify(payload);
+      } else {
+        const form = new FormData();
+        form.set("payload_json", JSON.stringify(payload));
+        form.set("files[0]", new Blob([photo.content], { type: photo.contentType }), photo.name);
+        request.body = form;
+      }
+      const response = await discordFetch(`https://discord.com/api/v10/channels/${channel.id}/messages`, {
+        ...request
       });
       if (!response.ok) {
         const error = await response.json().catch(() => ({}));
         throw new Error(error.message || `Discord API ответил HTTP ${response.status}.`);
       }
-      return "";
+      return suppressAttachment
+        ? "Личное уведомление отправлено без файла; доказательство сохранено в кадровом аудите."
+        : "";
     } catch (error) {
       console.error("Discord reprimand DM failed:", error.message);
       return `Выговор сохранён, но личное сообщение Discord не отправлено: ${error.message}`;
@@ -6991,6 +7018,9 @@ ${examples}
           }
           const body = requireObject(await readJson(req));
           const memberId = Number(memberDismissRoute[1]);
+          if (memberId === governorUserId && !hasFullGkaAccess(user)) {
+            throw new HttpError(403, "Уволить губернатора может только администратор сайта.");
+          }
           const reason = String(body.reason || "").trim();
           if (reason.length < 4 || reason.length > 1000) {
             throw new HttpError(400, "Причина удаления должна содержать от 4 до 1000 символов.");
@@ -7036,13 +7066,18 @@ ${examples}
           if (body.confirmation !== "УДАЛИТЬ ВСЕ") {
             throw new HttpError(400, "Для подтверждения введите «УДАЛИТЬ ВСЕ».");
           }
-          const members = db.prepare("SELECT * FROM users WHERE id != ? ORDER BY id").all(user.id);
+          const canDismissGovernor = hasFullGkaAccess(user);
+          const members = db.prepare(`SELECT * FROM users
+            WHERE id != ? AND (? = 1 OR id != ?) ORDER BY id`)
+            .all(user.id, canDismissGovernor ? 1 : 0, governorUserId);
           if (!members.length) return sendJson(res, 200, { deletedCount: 0, warnings: [] });
 
           db.exec("BEGIN IMMEDIATE");
           try {
             for (const member of members) permanentlyDeleteUser(member.id);
-            const remaining = db.prepare("SELECT COUNT(*) AS count FROM users WHERE id != ?").get(user.id).count;
+            const remaining = db.prepare(`SELECT COUNT(*) AS count FROM users
+              WHERE id != ? AND (? = 1 OR id != ?)`)
+              .get(user.id, canDismissGovernor ? 1 : 0, governorUserId).count;
             if (Number(remaining) !== 0) throw new Error("Не удалось удалить все выбранные аккаунты.");
             db.exec("COMMIT");
           } catch (error) {
@@ -7079,6 +7114,9 @@ ${examples}
             throw new HttpError(403, "Изменять должность или статус ГКА может только ГКА с полным доступом.");
           }
           if (body.role !== undefined && !roles.includes(body.role)) throw new HttpError(400, "Неизвестная роль.");
+          if (body.role === governorRole && memberId !== governorUserId) {
+            throw new HttpError(400, "Роль «Губернатор» может быть назначена только аккаунту #43.");
+          }
           if (body.status !== undefined && !["pending", "active", "suspended"].includes(body.status)) {
             throw new HttpError(400, "Неизвестный статус аккаунта.");
           }
@@ -8231,6 +8269,7 @@ ${examples}
   server.googleSheetsConfigured = googleSheetsConfigured;
   server.syncMonthlyReport = syncMonthlyReport;
   server.sendDueCalendarReminders = sendDueCalendarReminders;
+  server.syncDiscordMember = syncDiscordMember;
   server.portalDb = db;
   server.webhookDispatcher = webhookDispatcher;
   return server;
@@ -8263,6 +8302,7 @@ function assertCsrf(req, session) {
 async function sendDiscordDirectMessage(discordUserId, account, avatarUrl, customTitle = "", customDescription = "", options = {}) {
   const token = options.token ?? process.env.DISCORD_BOT_TOKEN ?? "";
   const fetchImpl = options.fetchImpl || globalThis.fetch;
+  const suppressAttachment = Number(account?.id) === governorUserId && Boolean(options.file);
   if (!/^[\w.-]+$/.test(token)) return "Discord-бот не настроен на сервере.";
   if (!/^\d{15,22}$/.test(discordUserId || "")) return "У аккаунта не привязан Discord.";
   try {
@@ -8301,7 +8341,7 @@ async function sendDiscordDirectMessage(discordUserId, account, avatarUrl, custo
       headers: { authorization: `Bot ${token}` },
       signal: AbortSignal.timeout(8000)
     };
-    if (options.file) {
+    if (options.file && !suppressAttachment) {
       const form = new FormData();
       form.set("payload_json", JSON.stringify(payload));
       form.set("files[0]", new Blob([options.file.content], {
@@ -8317,7 +8357,9 @@ async function sendDiscordDirectMessage(discordUserId, account, avatarUrl, custo
       messageRequest
     );
     if (!messageResponse.ok) return `Discord отказал в отправке ЛС (HTTP ${messageResponse.status}).`;
-    return "";
+    return suppressAttachment
+      ? "Личное сообщение отправлено без файла: вложения для губернатора отключены."
+      : "";
   } catch (error) {
     console.error("Discord direct notification could not be delivered:", error.message);
     return `Не удалось отправить ЛС в Discord: ${error.message}`;
@@ -8656,7 +8698,8 @@ export async function startPortal(options = {}) {
     "Адвокат": process.env.DISCORD_ROLE_ATTORNEY || "",
     "Ст.Адвокат": process.env.DISCORD_ROLE_SENIOR_ATTORNEY || "",
     "ЗГКА": process.env.DISCORD_ROLE_DEPUTY_HEAD || "",
-    "ГКА": process.env.DISCORD_ROLE_HEAD || ""
+    "ГКА": process.env.DISCORD_ROLE_HEAD || "",
+    [governorRole]: process.env.DISCORD_ROLE_GOVERNOR || ""
   };
   const webhooks = {
     applications: process.env.DISCORD_WEBHOOK_APPLICATIONS || "",
@@ -8715,10 +8758,18 @@ export async function startPortal(options = {}) {
     guildId: process.env.DISCORD_GUILD_ID || "",
     healthUrl: options.publicUrl || process.env.DISCORD_HEALTH_URL || "",
     roleIds,
-    onRoleResolved: (name, id) => {
+    onRoleResolved: async (name, id) => {
       roleIds[name] = id;
       db.prepare("INSERT INTO portal_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
         .run(`discord_role:${name}`, id);
+      if (name === governorRole) {
+        const governor = db.prepare("SELECT discord_id FROM users WHERE id = ? AND role = ? AND status = 'active'")
+          .get(governorUserId, governorRole);
+        if (governor?.discord_id) {
+          const result = await server.syncDiscordMember(governorUserId);
+          if (result.syncError) console.error("Governor Discord role synchronization failed:", result.syncError);
+        }
+      }
     },
     onPresence: (discordId, status) => {
       discordPresenceMap.set(String(discordId), status);

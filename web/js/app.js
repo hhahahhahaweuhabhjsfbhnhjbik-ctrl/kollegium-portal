@@ -421,6 +421,7 @@ function displayRole(user) {
   const names = {
     "ГКА": "Глава Коллегии (ГКА)",
     "ЗГКА": "Зам. Главы Коллегии (ЗГКА)",
+    "Губернатор": "Губернатор",
     "Ст.Адвокат": "Старший адвокат",
     "Адвокат": "Адвокат",
     "Юрист": "Юрист",
@@ -3479,6 +3480,9 @@ function renderAuditMembers() {
   $("#auditTableBody").innerHTML = members.length ? members.map((member) => {
     const canManageAccount = managerRoles.includes(currentUser.role) &&
       (member.role !== "ГКА" || currentUser.role === "ГКА" || currentUser.hasFullGkaAccess);
+    const memberRoles = Number(member.id) === 43
+      ? roles
+      : roles.filter((role) => role !== "Губернатор");
     return `<tr>
       <td>${escapeHtml(member.display_name)}<br><span class="text-muted">#${Number(member.id)}</span></td>
       <td>${escapeHtml(displayRole(member))}<br>${statusBadge(member.status)}</td>
@@ -3488,11 +3492,13 @@ function renderAuditMembers() {
       <td>${canManageAccount && Number(member.id) !== Number(currentUser.id) ? `<div class="member-controls">
         ${member.role !== "Гражданин" ? `
           <select class="input" data-member-role="${Number(member.id)}" data-original-role="${escapeHtml(member.role)}" aria-label="Должность: ${escapeHtml(member.display_name)}">
-            ${roles.map((role) => `<option value="${escapeHtml(role)}"${role === member.role ? " selected" : ""}>${escapeHtml(role)}</option>`).join("")}
+            ${memberRoles.map((role) => `<option value="${escapeHtml(role)}"${role === member.role ? " selected" : ""}>${escapeHtml(role)}</option>`).join("")}
           </select>
           <button class="btn" type="button" data-action="update-member-role" data-id="${Number(member.id)}" disabled>Сохранить</button>
           <button class="btn" type="button" data-action="update-member-status" data-id="${Number(member.id)}" data-status="${member.status === "active" ? "suspended" : "active"}">${member.status === "pending" ? "Одобрить" : member.status === "suspended" ? "Восстановить" : "Приостановить"}</button>` : ""}
-        <button class="btn" type="button" data-action="dismiss-member" data-id="${Number(member.id)}">${member.role === "Гражданин" ? "Удалить гражданина" : "Уволить и удалить"}</button>
+        ${Number(member.id) !== 43 || currentUser.hasFullGkaAccess
+          ? `<button class="btn" type="button" data-action="dismiss-member" data-id="${Number(member.id)}">${member.role === "Гражданин" ? "Удалить гражданина" : "Уволить и удалить"}</button>`
+          : ""}
       </div>` : "—"}</td>
     </tr>`;
   }).join("") : `<tr><td colspan="6">${emptyState(search ? "Совпадений не найдено." : "Состав коллегии пуст.")}</td></tr>`;
@@ -3692,11 +3698,12 @@ async function loadActivityReports() {
   updateActivityReportLawyerOptions(data.availableLawyers || []);
   $("#activity-reports-title").textContent = data.canReview ? "Отчёты на одобрение" : "Мои отчёты";
   const pendingCount = reports.filter((report) => report.status === "pending").length;
-  const approveAll = data.canReview && pendingCount
+  const approveAll = data.canReview
     ? `<div class="activity-report-actions">
-        <button class="btn btn-gold" type="button" data-action="approve-all-activity-reports">
-          Одобрить все отчёты (${pendingCount})
+        <button class="btn btn-gold" type="button" data-action="approve-all-activity-reports"${pendingCount ? "" : " disabled"}>
+          Принять всё (${pendingCount})
         </button>
+        <span class="text-muted">После проверки всех ожидающих отчётов уведомления уйдут в Discord по очереди.</span>
       </div>`
     : "";
   $("#activity-report-list").innerHTML = `${approveAll}${reports.length ? reports.map((report) => `
@@ -3881,17 +3888,20 @@ async function submitActivityReport(event) {
 
 async function approveAllActivityReports(button) {
   const count = Number((button.textContent.match(/\d+/) || [0])[0]);
-  if (!window.confirm(`Одобрить все ожидающие отчёты (${count})?`)) return;
-  button.disabled = true;
+  if (!window.confirm(`После проверки принять все ожидающие отчёты (${count})?`)) return;
+  const controls = [...$("#activity-report-list").querySelectorAll("button")];
+  controls.forEach((control) => { control.disabled = true; });
   try {
     const result = await api("/api/activity-reports/approve-all", { method: "POST", body: {} });
     const warnings = result.warnings || [];
     notify(warnings.length
       ? `Одобрено отчётов: ${Number(result.approvedCount)}. Предупреждения: ${warnings.join(" ")}`
       : `Одобрено отчётов: ${Number(result.approvedCount)}. Индивидуальные уведомления отправлены.`);
-    await loadReports();
+    await loadActivityReports();
   } finally {
-    if (button.isConnected) button.disabled = false;
+    controls.forEach((control) => {
+      if (control.isConnected) control.disabled = false;
+    });
   }
 }
 
