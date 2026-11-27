@@ -14,6 +14,10 @@ on:
         description: "Number of manual lawsuits to add"
         required: false
         default: ""
+      manual_lawsuit_mode:
+        description: "add or set the exact manual lawsuit count"
+        required: false
+        default: "add"
 
 permissions:
   contents: read
@@ -33,6 +37,7 @@ jobs:
           DISCORD_WEBHOOK_WARNINGS: ${{ secrets.DISCORD_WEBHOOK_WARNINGS }}
           MANUAL_LAWSUIT_USER_ID: ${{ inputs.manual_lawsuit_user_id }}
           MANUAL_LAWSUIT_COUNT: ${{ inputs.manual_lawsuit_count }}
+          MANUAL_LAWSUIT_MODE: ${{ inputs.manual_lawsuit_mode }}
         run: |
           set -eu
           test -n "$ORACLE_HOST"
@@ -86,11 +91,12 @@ jobs:
             test -n "$MANUAL_LAWSUIT_COUNT"
             case "$MANUAL_LAWSUIT_USER_ID" in (*[!0-9]*|'') echo "Invalid employee number" >&2; exit 1;; esac
             case "$MANUAL_LAWSUIT_COUNT" in (*[!0-9]*|'') echo "Invalid lawsuit count" >&2; exit 1;; esac
+            case "$MANUAL_LAWSUIT_MODE" in (add|set) ;; (*) echo "Invalid lawsuit mode" >&2; exit 1;; esac
 
             ssh -i "$HOME/.ssh/id_ed25519" \
               -o BatchMode=yes \
               "$ORACLE_USER@$ORACLE_HOST" \
               "set -eu
                cd /opt/kollegium-portal
-               sudo docker compose -f deploy/oracle/compose.yaml exec -T portal node -e 'const { DatabaseSync } = require(\"node:sqlite\"); const db = new DatabaseSync(\"/var/data/portal.sqlite\"); db.exec(\"PRAGMA journal_mode=WAL\"); const columns = db.prepare(\"PRAGMA table_info(users)\").all().map((row) => row.name); if (!columns.includes(\"manual_lawsuits\")) db.prepare(\"ALTER TABLE users ADD COLUMN manual_lawsuits INTEGER NOT NULL DEFAULT 0\").run(); const userId = $MANUAL_LAWSUIT_USER_ID; const count = $MANUAL_LAWSUIT_COUNT; const target = db.prepare(\"SELECT id, display_name, role, status, COALESCE(manual_lawsuits,0) AS manual_lawsuits FROM users WHERE id = ?\").get(userId); if (!target) throw new Error(\"Employee #\" + userId + \" not found\"); if (target.status !== \"active\" || target.role === \"Гражданин\") throw new Error(\"Employee #\" + userId + \" is not active\"); db.exec(\"BEGIN IMMEDIATE\"); try { db.prepare(\"UPDATE users SET manual_lawsuits = manual_lawsuits + ? WHERE id = ?\").run(count, userId); db.exec(\"COMMIT\"); } catch (error) { db.exec(\"ROLLBACK\"); throw error; } const result = db.prepare(\"SELECT id, display_name, role, status, COALESCE(manual_lawsuits,0) AS manual_lawsuits FROM users WHERE id = ?\").get(userId); console.log(JSON.stringify({ success: true, added: count, target: result })); db.close();'"
+               sudo docker compose -f deploy/oracle/compose.yaml exec -T portal node -e 'const { DatabaseSync } = require(\"node:sqlite\"); const db = new DatabaseSync(\"/var/data/portal.sqlite\"); db.exec(\"PRAGMA journal_mode=WAL\"); const columns = db.prepare(\"PRAGMA table_info(users)\").all().map((row) => row.name); if (!columns.includes(\"manual_lawsuits\")) db.prepare(\"ALTER TABLE users ADD COLUMN manual_lawsuits INTEGER NOT NULL DEFAULT 0\").run(); const userId = $MANUAL_LAWSUIT_USER_ID; const count = $MANUAL_LAWSUIT_COUNT; const mode = \"$MANUAL_LAWSUIT_MODE\"; const target = db.prepare(\"SELECT id, display_name, role, status, COALESCE(manual_lawsuits,0) AS manual_lawsuits FROM users WHERE id = ?\").get(userId); if (!target) throw new Error(\"Employee #\" + userId + \" not found\"); if (target.status !== \"active\" || target.role === \"Гражданин\") throw new Error(\"Employee #\" + userId + \" is not active\"); db.exec(\"BEGIN IMMEDIATE\"); try { if (mode === \"set\") db.prepare(\"UPDATE users SET manual_lawsuits = ? WHERE id = ?\").run(count, userId); else db.prepare(\"UPDATE users SET manual_lawsuits = manual_lawsuits + ? WHERE id = ?\").run(count, userId); db.exec(\"COMMIT\"); } catch (error) { db.exec(\"ROLLBACK\"); throw error; } const result = db.prepare(\"SELECT id, display_name, role, status, COALESCE(manual_lawsuits,0) AS manual_lawsuits FROM users WHERE id = ?\").get(userId); console.log(JSON.stringify({ success: true, mode: mode, target: result })); db.close();'"
           fi
