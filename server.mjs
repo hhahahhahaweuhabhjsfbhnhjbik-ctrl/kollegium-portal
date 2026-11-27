@@ -1723,7 +1723,7 @@ function buildAttorneyRanking(db, period) {
   const attorneys = db.prepare(`SELECT u.id, u.display_name, u.role, u.discord_username, u.discord_avatar_url,
       (SELECT COUNT(*) FROM documents d WHERE d.user_id = u.id AND d.forum_status = 'approved'
         AND (? IS NULL OR julianday(d.forum_reviewed_at) >= julianday(?))) AS document_count,
-      (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
+      COALESCE(u.manual_lawsuits, 0) + (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
         WHERE l.user_id = u.id AND d.forum_status = 'approved'
           AND (? IS NULL OR julianday(l.created_at) >= julianday(?))) AS lawsuit_count,
       COALESCE(u.manual_lawsuits, 0) + (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id

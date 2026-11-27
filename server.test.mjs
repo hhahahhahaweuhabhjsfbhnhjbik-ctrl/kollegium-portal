@@ -775,7 +775,7 @@ test("Discord portal commands require a linked active account and matching serve
     });
     const weeklyRanking = await client("/api/attorneys?period=week");
     const rankedAttorney = weeklyRanking.data.attorneys.find((item) => item.id === attorneyId);
-    assert.equal(rankedAttorney.lawsuit_count, 0);
+    assert.equal(rankedAttorney.lawsuit_count, 1);
     assert.equal(rankedAttorney.lawsuit_count_total, 4);
     const publicProfile = await client(`/api/profiles/${attorneyId}`);
     assert.equal(publicProfile.data.profile.lawsuit_count, 4);
