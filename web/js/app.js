@@ -1810,15 +1810,17 @@ function renderPromotionDecreeCandidates(data) {
   $("#promotion-decree-candidates").innerHTML = candidates.length
     ? candidates.map((entry) => `<article class="promotion-decree-candidate">
         <label class="promotion-decree-candidate-select">
-          <input type="checkbox" data-decree-entry value="${Number(entry.applicationId)}" checked>
-          <span><strong>${escapeHtml(entry.characterName)}</strong><small>Заявка #${Number(entry.applicationId)} · ${escapeHtml(entry.fromRole)} → ${escapeHtml(entry.toRole)}</small></span>
+          <input type="checkbox" data-decree-entry value="${Number(entry.applicationId)}"
+            ${entry.approvedForDecree ? "checked" : "disabled"}>
+          <span><strong>${escapeHtml(entry.characterName)}</strong><small>Заявка #${Number(entry.applicationId)} · ${escapeHtml(entry.fromRole)} → ${escapeHtml(entry.toRole)}${entry.approvedForDecree ? "" : " · Ожидает одобрения повышения"}</small></span>
         </label>
         <label class="promotion-decree-passport">Номер паспорта
           <input class="input" type="text" maxlength="40" data-decree-passport="${Number(entry.applicationId)}"
-            value="${escapeHtml(entry.passportId)}" placeholder="Укажите номер паспорта">
+            value="${escapeHtml(entry.passportId)}" placeholder="Укажите номер паспорта"
+            ${entry.approvedForDecree ? "" : "disabled"}>
         </label>
       </article>`).join("")
-    : emptyState("Новых одобренных повышений для указа пока нет.");
+    : emptyState("Новых повышений или прошедших обзвон заявок для указа пока нет.");
   $("#promotion-decree-manual-user").innerHTML = members.length
     ? `<option value="">Выберите сотрудника</option>${members.map((member) =>
       `<option value="${Number(member.userId)}">${escapeHtml(member.displayName)} · ${escapeHtml(member.role)}</option>`
@@ -1840,8 +1842,10 @@ function renderPromotionDecreeCandidates(data) {
     : `<p class="text-muted">Отправленных указов пока нет.</p>`;
   $("#promotion-decree-preview").value = "";
   $("#send-promotion-decree").disabled = true;
+  const approvedCount = candidates.filter((entry) => entry.approvedForDecree).length;
+  const waitingCount = candidates.length - approvedCount;
   $("#promotion-decree-status").textContent = candidates.length
-    ? `Доступно одобренных повышений: ${candidates.length}. Можно также добавить сотрудника вручную.`
+    ? `Доступно одобренных повышений: ${approvedCount}${waitingCount ? ` · прошли обзвон и ждут одобрения: ${waitingCount}` : ""}. Можно также добавить сотрудника вручную.`
     : "Одобренных повышений нет — при необходимости добавьте сотрудников вручную.";
 }
 

@@ -1418,9 +1418,22 @@ test("AK UK PK seals create staged promotion requests and reset after decisions"
     assert.equal((await deputy(`/api/applications/${lawyerRequest.id}/interview-decision`, "PATCH", {
       decision: "passed"
     })).status, 200);
+    const queuedDecreeCandidate = (await head("/api/promotion-decree")).data.candidates
+      .find((item) => item.applicationId === lawyerRequest.id);
+    assert.ok(queuedDecreeCandidate);
+    assert.equal(queuedDecreeCandidate.approvedForDecree, false);
+    const prematureDecree = await head("/api/promotion-decree/preview", "POST", {
+      applicationIds: [lawyerRequest.id]
+    });
+    assert.equal(prematureDecree.status, 409);
+    assert.match(prematureDecree.data.error, /ещё не одобрено/);
     assert.equal((await head(`/api/applications/${lawyerRequest.id}/review`, "PATCH", {
       status: "approved", criteria: { practiceVerified: true, interviewPassed: true }
     })).status, 200);
+    const approvedDecreeCandidate = (await head("/api/promotion-decree")).data.candidates
+      .find((item) => item.applicationId === lawyerRequest.id);
+    assert.ok(approvedDecreeCandidate);
+    assert.equal(approvedDecreeCandidate.approvedForDecree, true);
     assert.equal((await candidate("/api/auth/me")).data.user.role, "Адвокат");
     assert.deepEqual((await candidate("/api/exams/law-progress")).data.passedSubjects, []);
   } finally {

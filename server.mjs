@@ -2985,8 +2985,10 @@ export function createPortalServer(options = {}) {
     const state = db.prepare("SELECT first_application_id, next_number FROM promotion_decree_state WHERE id = 1").get();
     const rows = db.prepare(`SELECT a.*, u.display_name
       FROM applications a JOIN users u ON u.id = a.user_id
-      WHERE a.id > ? AND a.status = 'approved'
-        AND a.type IN ('exam','promotion')
+      WHERE a.id > ? AND (
+        a.status = 'approved' OR
+        (a.status = 'pending' AND a.type = 'exam' AND a.stage_role = 'Юрист')
+      )
         AND NOT EXISTS (
           SELECT 1 FROM promotion_decree_items i WHERE i.application_id = a.id
         )
@@ -3000,8 +3002,11 @@ export function createPortalServer(options = {}) {
     }
     const candidates = [];
     for (const item of rows) {
+      const promotionData = parseStoredJson(item.promotion_data_json, "отчёт о повышении");
       let fromRole = "";
-      if (isCareerPracticeApplication(item) && careerPracticeSubmitted(item)) {
+      if (isLawyerCareerPromotion(item, promotionData) && promotionData.interviewDecision === "passed") {
+        fromRole = item.stage_role;
+      } else if (isCareerPracticeApplication(item) && careerPracticeSubmitted(item)) {
         fromRole = item.stage_role;
       } else if (item.type === "promotion" && ["Ст.Адвокат", "ЗГКА"].includes(item.requested_role)) {
         fromRole = item.requested_role === "ЗГКА" ? "Ст.Адвокат" : "Адвокат";
@@ -3019,6 +3024,7 @@ export function createPortalServer(options = {}) {
         passportId: String(admission?.passport_id || item.passport_id || "").trim(),
         fromRole,
         toRole: item.requested_role || nextRank[item.stage_role],
+        approvedForDecree: item.status === "approved",
         reviewedAt: item.reviewed_at || ""
       });
     }
@@ -3067,6 +3073,9 @@ export function createPortalServer(options = {}) {
     const selected = ids.map((id) => {
       const entry = available.get(id);
       if (!entry) throw new HttpError(409, `Повышение по заявке #${id} уже недоступно для указа.`);
+      if (!entry.approvedForDecree) {
+        throw new HttpError(409, `Повышение по заявке #${id} ещё не одобрено.`);
+      }
       const passportId = Object.hasOwn(rawPassports, String(id))
         ? String(rawPassports[String(id)] || "").trim()
         : entry.passportId;
