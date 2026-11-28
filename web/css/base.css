@@ -731,6 +731,13 @@ html, body {
 .laws-item { padding: 14px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-body); }
 .laws-item h3 { margin-bottom: 6px; font-size: 14px; }
 .laws-item p, .document-content { color: var(--text-secondary); white-space: pre-wrap; overflow-wrap: anywhere; }
+.law-change-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.law-change-card { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 14px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-body); }
+.law-change-card h3, .law-change-card p { margin: 0; }
+.law-change-card h3 { font-size: 14px; }
+.law-change-card p { flex: 1; color: var(--text-secondary); font-size: 12px; line-height: 1.55; }
+.law-change-card a { color: var(--accent-gold); font-size: 12px; font-weight: 700; }
+.law-change-card a:hover { color: var(--text-primary); }
 .report-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
 .report-summary > div { padding: 12px; border-radius: var(--radius-sm); background: var(--bg-body); }
 

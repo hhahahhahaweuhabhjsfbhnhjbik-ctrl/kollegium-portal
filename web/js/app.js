@@ -2086,10 +2086,12 @@ function switchLawsTab(tab) {
   const showZones = tab === "zones";
   const showFees = tab === "fees";
   const showComplaints = tab === "complaints";
-  $("#lawsTextTab").classList.toggle("hidden", showZones || showFees || showComplaints);
+  const showChanges = tab === "changes";
+  $("#lawsTextTab").classList.toggle("hidden", showZones || showFees || showComplaints || showChanges);
   $("#lawsZonesTab").classList.toggle("hidden", !showZones);
   $("#lawsFeesTab").classList.toggle("hidden", !showFees);
   $("#lawsComplaintsTab").classList.toggle("hidden", !showComplaints);
+  $("#lawsChangesTab").classList.toggle("hidden", !showChanges);
   $$("[data-laws-tab]").forEach((button) => {
     const active = button.dataset.lawsTab === tab;
     button.classList.toggle("btn-gold", active);
