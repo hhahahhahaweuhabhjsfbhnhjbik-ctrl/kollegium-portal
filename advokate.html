@@ -117,7 +117,7 @@
       <div class="auth-brand"><img src="/assets/site-icon.png" alt="" aria-hidden="true"></div>
       <h1>Портал коллегии адвокатов</h1>
       <p class="auth-copy">Войдите в аккаунт или создайте его, чтобы продолжить.</p>
-      <div class="auth-tabs" role="tablist">
+      <div class="auth-tabs" id="auth-tabs" role="tablist">
         <button class="btn btn-gold" id="show-login" type="button" data-auth-mode="login">Войти</button>
         <button class="btn" id="show-register" type="button" data-auth-mode="register">Регистрация</button>
       </div>
@@ -126,6 +126,26 @@
         <label>Пароль<input class="input" id="login-password" type="password" required autocomplete="current-password"></label>
         <button class="btn btn-gold" type="submit">Войти в портал</button>
       </form>
+      <button class="auth-recovery-link" id="forgot-password-open" type="button">Забыли логин или пароль?</button>
+      <section id="recovery-panel" class="auth-form hidden" aria-labelledby="recovery-title">
+        <h2 id="recovery-title">Восстановление доступа</h2>
+        <p class="auth-copy">Укажите игровое имя и номер аккаунта. Руководство проверит запрос и сообщит логин и одноразовый код.</p>
+        <form id="recovery-request-form" class="auth-form">
+          <label>Имя в игре<input class="input" id="recovery-display-name" required minlength="2" maxlength="80" autocomplete="name"></label>
+          <label>Номер аккаунта<input class="input" id="recovery-account-id" type="number" required min="1" step="1" inputmode="numeric"></label>
+          <button class="btn" type="submit">Отправить запрос руководству</button>
+        </form>
+        <p id="recovery-request-status" class="auth-recovery-status" role="status" aria-live="polite"></p>
+        <hr>
+        <h3>Уже получили логин и код?</h3>
+        <form id="password-reset-form" class="auth-form">
+          <label>Логин<input class="input" id="reset-username" required autocomplete="username" minlength="3" maxlength="32"></label>
+          <label>Одноразовый код<input class="input" id="reset-code" required autocomplete="one-time-code" maxlength="100"></label>
+          <label>Новый пароль<input class="input" id="reset-password" type="password" required autocomplete="new-password" minlength="12" maxlength="128"></label>
+          <button class="btn btn-gold" type="submit">Сохранить новый пароль</button>
+        </form>
+        <button class="auth-recovery-link" id="back-to-login" type="button">Назад ко входу</button>
+      </section>
       <form id="register-form" class="auth-form hidden">
         <label>Тип аккаунта<select class="input" id="registration-kind"><option value="citizen">Гражданин</option><option value="staff">Сотрудник — доступ после одобрения</option></select></label>
         <label>Логин<input class="input" id="register-username" required autocomplete="username" minlength="3" maxlength="32" pattern="[a-zA-Z0-9._-]+"></label>

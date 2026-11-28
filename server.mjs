@@ -1721,6 +1721,9 @@ function buildAttorneyRanking(db, period) {
     : null;
   const weights = getRatingWeights(db);
   const attorneys = db.prepare(`SELECT u.id, u.display_name, u.role, u.discord_username, u.discord_avatar_url,
+      (SELECT COALESCE(SUM(gmp.points), 0) FROM giveaway_manual_point_entries gmp
+        WHERE gmp.user_id = u.id
+          AND (? IS NULL OR julianday(gmp.created_at) >= julianday(?))) AS manual_giveaway_points,
       (SELECT COUNT(*) FROM documents d WHERE d.user_id = u.id AND d.forum_status = 'approved'
         AND (? IS NULL OR julianday(d.forum_reviewed_at) >= julianday(?))) AS document_count,
       COALESCE(u.manual_lawsuits, 0) + (SELECT COUNT(*) FROM lawsuits l JOIN documents d ON d.id = l.document_id
@@ -1749,7 +1752,7 @@ function buildAttorneyRanking(db, period) {
     FROM users u LEFT JOIN lawyer_reviews r ON r.lawyer_id = u.id
       AND (? IS NULL OR julianday(r.created_at) >= julianday(?))
     WHERE u.status = 'active' AND u.role IN ('Адвокат', 'Ст.Адвокат')
-    GROUP BY u.id`).all(...Array(16).fill(periodStart))
+    GROUP BY u.id`).all(...Array(18).fill(periodStart))
     .map((attorney) => {
       const metrics = {
         documentsApproved: Number(attorney.document_count),
@@ -1760,9 +1763,11 @@ function buildAttorneyRanking(db, period) {
       };
       const score = Object.entries(weights).reduce((total, [key, weight]) => total + metrics[key] * weight, 0) +
         Number(attorney.call_count) * giveawayPointsPerReport.call +
-        Number(attorney.bail_count) * giveawayPointsPerReport.bail;
+        Number(attorney.bail_count) * giveawayPointsPerReport.bail +
+        Number(attorney.manual_giveaway_points);
       return {
         ...attorney, ...metrics, score,
+        manual_giveaway_points: Number(attorney.manual_giveaway_points),
         cases_handled: Number(attorney.cases_handled),
         document_count: Number(attorney.document_count),
         lawsuit_count: Number(attorney.lawsuit_count),
@@ -3740,6 +3745,40 @@ export function createPortalServer(options = {}) {
             });
           }
           return sendJson(res, 201, { user: cleanUser(publicUser(db, Number(result.lastInsertRowid))), csrfToken: session.csrf });
+        }
+
+        if (pathname === "/api/auth/recovery-request" && req.method === "POST") {
+          assertRateLimit(`recovery-request:${clientAddress(req)}`, 4, 60 * 60 * 1000,
+            "Слишком много запросов на восстановление доступа.");
+          const body = await readJson(req);
+          const displayName = String(body.displayName || "").trim();
+          const accountId = Number(body.accountId);
+          if (displayName.length < 2 || displayName.length > 80 ||
+              !Number.isSafeInteger(accountId) || accountId < 1) {
+            throw new HttpError(400, "Укажите игровое имя и корректный номер аккаунта.");
+          }
+          const administrators = db.prepare(`SELECT id FROM users
+            WHERE status = 'active' AND (role = 'ГКА' OR (role = 'ЗГКА' AND full_gka_access = 1))`)
+            .all();
+          if (!administrators.length) {
+            throw new HttpError(503, "Не удалось передать запрос руководству. Попробуйте позже.");
+          }
+          const target = db.prepare(`SELECT id, username, display_name FROM users
+            WHERE id = ? AND display_name = ? COLLATE NOCASE`).get(accountId, displayName);
+          if (target) {
+            const noticeBody = `${target.display_name} (#${target.id}) запросил восстановление аккаунта. Логин: ${target.username}. Проверьте личность перед выдачей одноразового кода.`;
+            for (const administrator of administrators) {
+              await notifyPortalUser({
+                userId: Number(administrator.id),
+                type: "password_recovery_request",
+                title: "Запрос на восстановление доступа",
+                body: noticeBody,
+                href: "/page/audit",
+                sendDiscord: false
+              });
+            }
+          }
+          return sendJson(res, 200, { ok: true });
         }
 
         if (pathname === "/api/auth/reset-password" && req.method === "POST") {

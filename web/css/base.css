@@ -195,6 +195,27 @@ html, body {
 .auth-tabs, .form-actions { display: flex; gap: 10px; }
 .auth-tabs > button { flex: 1; }
 .auth-form { display: flex; flex-direction: column; gap: 12px; }
+.auth-recovery-link {
+  align-self: center;
+  padding: 4px;
+  border: 0;
+  color: var(--text-secondary);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.auth-recovery-link:hover { color: var(--accent-gold); text-decoration: underline; }
+.auth-recovery-status { min-height: 20px; color: var(--text-secondary); }
+.auth-form h2 { font-size: 18px; }
+.auth-form h3 { font-size: 14px; }
+.recovery-code {
+  overflow-wrap: anywhere;
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-body);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
 .auth-form label, .lawsuit-form label {
   display: flex;
   flex-direction: column;

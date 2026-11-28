@@ -590,9 +590,22 @@ function authMode(mode) {
   const register = mode === "register";
   $("#login-form").classList.toggle("hidden", register);
   $("#register-form").classList.toggle("hidden", !register);
+  $("#recovery-panel").classList.add("hidden");
+  $("#auth-tabs").classList.remove("hidden");
+  $("#forgot-password-open").classList.toggle("hidden", register);
   $("#show-login").classList.toggle("btn-gold", !register);
   $("#show-register").classList.toggle("btn-gold", register);
   $("#auth-error").textContent = "";
+}
+
+function showPasswordRecovery() {
+  $("#login-form").classList.add("hidden");
+  $("#register-form").classList.add("hidden");
+  $("#recovery-panel").classList.remove("hidden");
+  $("#auth-tabs").classList.add("hidden");
+  $("#forgot-password-open").classList.add("hidden");
+  $("#auth-error").textContent = "";
+  $("#recovery-request-status").textContent = "";
 }
 
 function statusBadge(status) {
@@ -3537,11 +3550,13 @@ function renderAuditMembers() {
   $("#auditTableBody").innerHTML = members.length ? members.map((member) => {
     const canManageAccount = managerRoles.includes(currentUser.role) &&
       (member.role !== "ГКА" || currentUser.role === "ГКА" || currentUser.hasFullGkaAccess);
+    const canIssueRecovery = (currentUser.role === "ГКА" || currentUser.hasFullGkaAccess) &&
+      Number(member.id) !== Number(currentUser.id);
     const memberRoles = Number(member.id) === 43
       ? roles
       : roles.filter((role) => role !== "Губернатор");
     return `<tr>
-      <td>${escapeHtml(member.display_name)}<br><span class="text-muted">#${Number(member.id)}</span></td>
+      <td>${escapeHtml(member.display_name)}<br><span class="text-muted">#${Number(member.id)} · логин: ${escapeHtml(member.username)}</span></td>
       <td>${escapeHtml(displayRole(member))}<br>${statusBadge(member.status)}</td>
       <td>${auditReprimandCounts.get(Number(member.id)) || 0}</td>
       <td>${Number(member.document_count || 0)}</td>
@@ -3555,6 +3570,9 @@ function renderAuditMembers() {
           <button class="btn" type="button" data-action="update-member-status" data-id="${Number(member.id)}" data-status="${member.status === "active" ? "suspended" : "active"}">${member.status === "pending" ? "Одобрить" : member.status === "suspended" ? "Восстановить" : "Приостановить"}</button>` : ""}
         ${Number(member.id) !== 43 || currentUser.hasFullGkaAccess
           ? `<button class="btn" type="button" data-action="dismiss-member" data-id="${Number(member.id)}">${member.role === "Гражданин" ? "Удалить гражданина" : "Уволить и удалить"}</button>`
+          : ""}
+        ${canIssueRecovery
+          ? `<button class="btn" type="button" data-action="reset-member-password" data-id="${Number(member.id)}">Выдать код восстановления</button>`
           : ""}
       </div>` : "—"}</td>
     </tr>`;
@@ -3604,6 +3622,23 @@ async function updateMemberRole(button) {
   const warnings = [result.discordWarning, result.nicknameWarning, result.logWarning].filter(Boolean);
   notify(warnings.length ? `Должность сохранена. ${warnings.join(" ")}` : "Должность сотрудника сохранена.");
   await loadAudit();
+}
+
+async function resetMemberPassword(button) {
+  const memberId = Number(button.dataset.id);
+  const member = auditMembers.find((item) => Number(item.id) === memberId);
+  if (!member) throw new Error("Сотрудник не найден в кадровом списке. Обновите страницу.");
+  if (!window.confirm(`Вы проверили личность ${member.display_name}? Создать одноразовый код восстановления?`)) return;
+  const result = await api(`/api/members/${encodeURIComponent(memberId)}/reset-password`, {
+    method: "POST",
+    body: {}
+  });
+  openModal("Данные для восстановления доступа", `
+    <p>Передайте эти данные сотруднику по доверенному каналу:</p>
+    <p><strong>Логин:</strong> ${escapeHtml(member.username)}</p>
+    <p><strong>Одноразовый код:</strong></p>
+    <p class="recovery-code">${escapeHtml(result.code)}</p>
+    <p class="text-muted">Код действует 30 минут и используется один раз. После ввода сотрудник задаст новый пароль.</p>`);
 }
 
 async function updateMemberStatus(button) {
@@ -4154,6 +4189,7 @@ async function handleAction(button) {
   else if (action === "refresh-giveaway") await loadGiveaway();
   else if (action === "update-member-role") await updateMemberRole(button);
   else if (action === "update-member-status") await updateMemberStatus(button);
+  else if (action === "reset-member-password") await resetMemberPassword(button);
   else if (action === "dismiss-member") await dismissMember(button);
   else if (action === "purge-all-members") await purgeAllMembers();
   else if (action === "view-document") await viewDocument(button.dataset.id);
@@ -4257,6 +4293,45 @@ async function handleRegistration(event) {
   }
 }
 
+async function submitRecoveryRequest(event) {
+  event.preventDefault();
+  const status = $("#recovery-request-status");
+  status.textContent = "";
+  try {
+    await api("/api/auth/recovery-request", {
+      method: "POST",
+      body: {
+        displayName: $("#recovery-display-name").value.trim(),
+        accountId: Number($("#recovery-account-id").value)
+      }
+    });
+    status.textContent = "Если данные подходят, запрос передан руководству. После проверки вам сообщат логин и одноразовый код.";
+  } catch (error) {
+    status.textContent = error.message;
+  }
+}
+
+async function submitPasswordReset(event) {
+  event.preventDefault();
+  try {
+    const username = $("#reset-username").value.trim();
+    await api("/api/auth/reset-password", {
+      method: "POST",
+      body: {
+        username,
+        code: $("#reset-code").value.trim(),
+        password: $("#reset-password").value
+      }
+    });
+    $("#password-reset-form").reset();
+    $("#login-username").value = username;
+    authMode("login");
+    notify("Пароль изменён. Войдите с новым паролем.");
+  } catch (error) {
+    $("#recovery-request-status").textContent = error.message;
+  }
+}
+
 document.addEventListener("click", (event) => {
   handleClick(event).catch((error) => notify(error.message));
 });
@@ -4314,6 +4389,14 @@ $("#login-form").addEventListener("submit", (event) => {
 $("#register-form").addEventListener("submit", (event) => {
   handleRegistration(event).catch((error) => notify(error.message));
 });
+$("#recovery-request-form").addEventListener("submit", (event) => {
+  submitRecoveryRequest(event).catch((error) => notify(error.message));
+});
+$("#password-reset-form").addEventListener("submit", (event) => {
+  submitPasswordReset(event).catch((error) => notify(error.message));
+});
+$("#forgot-password-open").addEventListener("click", showPasswordRecovery);
+$("#back-to-login").addEventListener("click", () => authMode("login"));
 $("#quiz-form").addEventListener("submit", (event) => {
   submitQuiz(event).catch((error) => notify(error.message));
 });

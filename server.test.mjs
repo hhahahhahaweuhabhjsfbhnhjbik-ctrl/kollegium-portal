@@ -2029,6 +2029,7 @@ test("one-time password recovery and court case lifecycle", async () => {
   const admin = await createClient(baseUrl);
   const member = await createClient(baseUrl);
   const citizen = await createClient(baseUrl);
+  const recovery = await createClient(baseUrl);
 
   try {
     assert.equal((await admin("/api/auth/login", "POST", {
@@ -2040,11 +2041,29 @@ test("one-time password recovery and court case lifecycle", async () => {
     assert.equal((await member("/api/auth/login", "POST", {
       username: "member", password: "InitialPassword!23"
     })).status, 200);
+    const recoveryRequest = await recovery("/api/auth/recovery-request", "POST", {
+      displayName: "Участник",
+      accountId: memberId
+    });
+    assert.equal(recoveryRequest.status, 200);
+    assert.equal(recoveryRequest.data.ok, true);
+    assert.equal("username" in recoveryRequest.data, false);
+    const adminNotifications = await admin("/api/notifications");
+    const recoveryNotification = adminNotifications.data.notifications
+      .find((item) => item.notification_type === "password_recovery_request");
+    assert.ok(recoveryNotification);
+    assert.match(recoveryNotification.body, new RegExp(`#${memberId}`));
+    assert.match(recoveryNotification.body, /Логин: member/);
+    assert.equal((await recovery("/api/auth/recovery-request", "POST", {
+      displayName: "Другой человек",
+      accountId: memberId
+    })).data.ok, true);
+    assert.equal((await admin("/api/notifications")).data.notifications
+      .filter((item) => item.notification_type === "password_recovery_request").length, 1);
     const reset = await admin(`/api/members/${memberId}/reset-password`, "POST", {});
     assert.equal(reset.status, 201);
     assert.ok(reset.data.code);
 
-    const recovery = await createClient(baseUrl);
     assert.equal((await recovery("/api/auth/reset-password", "POST", {
       username: "member", code: reset.data.code, password: "UpdatedPassword!23"
     })).status, 200);
@@ -3417,6 +3436,9 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
     assert.equal(pausedStandings.data.enabled, false);
     assert.equal(pausedStandings.data.totalPoints, 6);
     assert.equal(pausedStandings.data.standings[0].bails, 1);
+    const rankingBeforeManualPoints = await lawyer("/api/attorneys?period=week");
+    const attorneyBeforeManualPoints = rankingBeforeManualPoints.data.attorneys
+      .find((item) => item.id === lawyerId);
     assert.match(awardGiveawayPoints(db, lawyerId, 3, "12345678901234567"), /#\d+\)\.$/);
     const manualStandings = await lawyer("/api/giveaway");
     assert.equal(manualStandings.data.enabled, false);
@@ -3424,6 +3446,14 @@ test("monthly reports are role-protected and sync only portal aggregates to Goog
     assert.equal(manualStandings.data.standings[0].points, 9);
     assert.equal(manualStandings.data.standings[0].calls, 3);
     assert.equal(manualStandings.data.standings[0].bails, 1);
+    const rankingAfterManualPoints = await lawyer("/api/attorneys?period=week");
+    const attorneyAfterManualPoints = rankingAfterManualPoints.data.attorneys
+      .find((item) => item.id === lawyerId);
+    assert.equal(attorneyAfterManualPoints.manual_giveaway_points, 3);
+    assert.equal(attorneyAfterManualPoints.score, attorneyBeforeManualPoints.score + 3);
+    const allTimeRankingAfterManualPoints = await lawyer("/api/attorneys?period=all");
+    assert.equal(allTimeRankingAfterManualPoints.data.attorneys
+      .find((item) => item.id === lawyerId).manual_giveaway_points, 3);
     assert.deepEqual({ ...db.prepare(`SELECT user_id, points, awarded_by_discord_id
       FROM giveaway_manual_point_entries`).get() }, {
       user_id: lawyerId,
